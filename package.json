@@ -1,0 +1,17 @@
+{
+  "name": "nxcoder",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "dependencies": {
+    "@google/genai": "^0.2.0",
+    "express": "^4.19.2",
+    "markdown-it": "^14.2.0",
+    "mime": "^4.0.3",
+    "multer": "^1.4.5-lts.1",
+    "sqlite3": "^5.1.7",
+    "ws": "^8.17.1",
+    "sharp": "^0.33.4",
+    "playwright": "^1.44.0"
+  }
+}
