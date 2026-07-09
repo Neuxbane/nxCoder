@@ -608,16 +608,7 @@ async function initDatabase() {
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   )`);
 
-  // Create persistent task schema linked to active session tracks
-  await dbRun(`CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    session_id TEXT,
-    name TEXT,
-    details TEXT,
-    status TEXT,
-    created_at TEXT,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-  )`);
+
   
   console.log("💾 SQLite database schemas initialized successfully.");
 }
@@ -950,6 +941,9 @@ async function executeCommandTool(workspaceId, sessionId, command, targetPath, n
     const logFileRelPath = `terminals/${terminalId}.log`;
 
     const logStream = fsSync.createWriteStream(logFilePath, { flags: 'a' });
+    logStream.on('error', (err) => {
+      console.error(`logStream error for terminal ${terminalId}:`, err);
+    });
     
     // Auto-override GIT_DIR and GIT_WORK_TREE if executing inside the sandboxed mirror
     const repos = await getGitReposForWorkspace(workspaceId);
@@ -965,13 +959,14 @@ async function executeCommandTool(workspaceId, sessionId, command, targetPath, n
       shell: true,
       cwd: resolvedPath,
       detached: true,
+      stdio: 'pipe',
       env: childEnv
     });
 
     childProc.unref();
 
-    childProc.stdout.pipe(logStream);
-    childProc.stderr.pipe(logStream);
+    childProc.stdout.pipe(logStream, { end: false });
+    childProc.stderr.pipe(logStream, { end: false });
 
     const terminalDescriptor = {
       id: terminalId,
@@ -992,21 +987,31 @@ async function executeCommandTool(workspaceId, sessionId, command, targetPath, n
       terminalDescriptor.status = code === 0 ? 'completed' : (signal ? 'killed' : 'failed');
       terminalDescriptor.exitCode = code;
       terminalDescriptor.signal = signal;
-      logStream.end();
+    });
+
+    childProc.on('close', (code, signal) => {
+      if (!logStream.writableEnded) {
+        logStream.end();
+      }
     });
 
     childProc.on('error', (err) => {
       terminalDescriptor.status = 'error';
       terminalDescriptor.error = err.message;
-      logStream.write(`\nProcess Runtime Error: ${err.message}\n`);
-      logStream.end();
+      if (!logStream.writableEnded) {
+        logStream.write(`\nProcess Runtime Error: ${err.message}\n`, () => {
+          if (!logStream.writableEnded) {
+            logStream.end();
+          }
+        });
+      }
     });
 
     // Wait up to 5 seconds for the process to complete.
     // If it finishes quickly, we return the output directly.
     // If it takes longer, we return the terminal_id and log_file for background tracking.
     const finishPromise = new Promise((resolve) => {
-      childProc.once('exit', (code, signal) => resolve({ type: 'exit', code, signal }));
+      childProc.once('close', (code, signal) => resolve({ type: 'exit', code, signal }));
       childProc.once('error', (err) => resolve({ type: 'error', err }));
     });
 
@@ -1047,55 +1052,43 @@ async function executeCommandTool(workspaceId, sessionId, command, targetPath, n
   }
 }
 
-async function addTaskTool(sessionId, name, details) {
-  try {
-    const id = 'task_' + crypto.randomUUID().substring(0, 8);
-    await dbRun(
-      "INSERT INTO tasks (id, session_id, name, details, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, sessionId, name, details, 'pending', new Date().toISOString()]
-    );
-    return { success: true, id, message: `Task "${name}" successfully registered.` };
-  } catch (e) {
-    return { error: `Failed to add task: ${e.message}` };
-  }
+function parseInputString(str) {
+  return str
+    .replace(/\\x([0-9a-fA-F]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\b/g, '\b')
+    .replace(/\\f/g, '\f')
+    .replace(/\\v/g, '\v')
+    .replace(/\\e/g, '\x1b');
 }
 
-async function deleteTaskTool(id) {
+async function sendTerminalInputTool(terminalId, input) {
   try {
-    const res = await dbRun("DELETE FROM tasks WHERE id = ?", [id]);
-    if (res.changes === 0) return { error: `Task "${id}" not found.` };
-    return { success: true, message: `Task "${id}" deleted.` };
-  } catch (e) {
-    return { error: `Failed to delete task: ${e.message}` };
-  }
-}
+    const term = activeTerminals.get(terminalId);
+    if (!term) {
+      return { error: `Terminal "${terminalId}" is not active or has been cleaned up.` };
+    }
+    if (term.status !== 'running') {
+      return { error: `Terminal "${terminalId}" is not running (status: ${term.status}).` };
+    }
 
-async function readTaskTool(id) {
-  try {
-    const task = await dbGet("SELECT * FROM tasks WHERE id = ?", [id]);
-    if (!task) return { error: `Task "${id}" not found.` };
-    return task;
-  } catch (e) {
-    return { error: `Failed to read task: ${e.message}` };
-  }
-}
+    const childProc = term.process;
+    if (!childProc || !childProc.stdin || !childProc.stdin.writable) {
+      return { error: `Terminal "${terminalId}" stdin is not writable.` };
+    }
 
-async function updateTaskTool(id, name, details, status) {
-  try {
-    const existing = await dbGet("SELECT * FROM tasks WHERE id = ?", [id]);
-    if (!existing) return { error: `Task "${id}" not found.` };
+    const decoded = parseInputString(input);
+    childProc.stdin.write(decoded);
 
-    const finalName = name !== undefined ? name : existing.name;
-    const finalDetails = details !== undefined ? details : existing.details;
-    const finalStatus = status !== undefined ? status : existing.status;
-
-    await dbRun(
-      "UPDATE tasks SET name = ?, details = ?, status = ? WHERE id = ?",
-      [finalName, finalDetails, finalStatus, id]
-    );
-    return { success: true, message: `Task "${id}" updated successfully.` };
-  } catch (e) {
-    return { error: `Failed to update task: ${e.message}` };
+    return { 
+      success: true, 
+      message: `Successfully wrote inputs to terminal stdin.` 
+    };
+  } catch (err) {
+    return { error: `Failed to write inputs to terminal: ${err.message}` };
   }
 }
 
@@ -2437,14 +2430,7 @@ async function assembleContextualInstruction(workspaceId, sessionId, baseInstruc
     }
   }
 
-  // Fetch only task names and IDs from DB to save system token footprint
-  const tasksList = await dbQuery(
-    "SELECT id, name, status FROM tasks WHERE session_id = ? ORDER BY created_at ASC", 
-    [sessionId]
-  );
-  const taskOverview = tasksList.length > 0 
-    ? tasksList.map(t => `- [${t.status}] ${t.id}: ${t.name}`).join('\n')
-    : "No active tasks registered. Use add_task to track agent progress.";
+
 
   const generatedSystemContext = `
 =========================================
@@ -2551,11 +2537,6 @@ Group files by component. Use markdown links with relative paths and detail exac
 
 Active Running Background Terminals:
 ${JSON.stringify(trackingTerminals, null, 2)}
-
-Active Session Task Checklist (Current Turn):
-${taskOverview}
-
-*Note: For security and token optimization constraints, deep task details are hidden in this instruction list. Call read_task(id) to access full descriptions.*
 
 User Latest Context Request:
 "${latestUserPromptText || 'none'}"
@@ -2819,51 +2800,15 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
             }
           },
           {
-            name: 'add_task',
-            description: 'Adds a new tracked objective or task to the current session board.',
+            name: 'send_terminal_input',
+            description: 'Sends keyboard input or ASCII/escape sequences to a running terminal session\'s stdin. Useful for answering interactive prompts (e.g. y/n), sending Enter, Escape, Ctrl+C to interrupt, Ctrl+D to signal EOF, or any arbitrary text. Supports standard escape sequences: \\n (Enter/newline), \\r (carriage return), \\t (tab), \\e or \\x1b (Escape key), \\x03 (Ctrl+C / SIGINT), \\x04 (Ctrl+D / EOF), and arbitrary hex/unicode via \\xHH or \\uHHHH.',
             parameters: {
               type: Type.OBJECT,
               properties: {
-                name: { type: Type.STRING, description: 'Brief clear name summarizing the task objective.' },
-                details: { type: Type.STRING, description: 'Comprehensive specifications detailing exact work constraints.' }
+                terminal_id: { type: Type.STRING, description: 'The target terminal session ID returned from execute_command.' },
+                input: { type: Type.STRING, description: 'The input string to write to terminal stdin. Supports escape sequences: \\n (newline/Enter), \\r (carriage return), \\t (tab), \\e or \\x1b (Escape), \\x03 (Ctrl+C), \\x04 (Ctrl+D), \\xHH (arbitrary hex byte), \\uHHHH (unicode codepoint).' }
               },
-              required: ['name', 'details']
-            }
-          },
-          {
-            name: 'delete_task',
-            description: 'Permanently removes a task from the session tracking records.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING, description: 'The task unique ID.' }
-              },
-              required: ['id']
-            }
-          },
-          {
-            name: 'read_task',
-            description: 'Retrieves complete metadata, status, and descriptive details of a specific task.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING, description: 'The task unique ID.' }
-              },
-              required: ['id']
-            }
-          },
-          {
-            name: 'update_task',
-            description: 'Modifies properties of an existing task on the board (e.g. status, details, name).',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING, description: 'The task unique ID.' },
-                name: { type: Type.STRING, description: 'Updated short description text (optional).' },
-                details: { type: Type.STRING, description: 'Updated deep details text (optional).' },
-                status: { type: Type.STRING, description: 'Updated status indicator, e.g. "pending" or "completed" (optional).' }
-              },
-              required: ['id']
+              required: ['terminal_id', 'input']
             }
           },
           {
@@ -3285,14 +3230,8 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
                   toolResult = await executeCommandTool(workspaceId, sessionId, call.args?.command, call.args?.path, call.args?.name);
                 } else if (call.name === 'regex_search') {
                   toolResult = await regexSearchTool(workspaceId, sessionId, call.args?.regexStr, call.args?.paths, call.args?.options);
-                } else if (call.name === 'add_task') {
-                  toolResult = await addTaskTool(sessionId, call.args?.name, call.args?.details);
-                } else if (call.name === 'delete_task') {
-                  toolResult = await deleteTaskTool(call.args?.id);
-                } else if (call.name === 'read_task') {
-                  toolResult = await readTaskTool(call.args?.id);
-                } else if (call.name === 'update_task') {
-                  toolResult = await updateTaskTool(call.args?.id, call.args?.name, call.args?.details, call.args?.status);
+                } else if (call.name === 'send_terminal_input') {
+                  toolResult = await sendTerminalInputTool(call.args?.terminal_id, call.args?.input);
                 } else if (call.name === 'wait') {
                   toolResult = await waitTool(call.args?.seconds);
                 } else if (call.name === 'wait_terminal') {

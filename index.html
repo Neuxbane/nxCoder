@@ -439,10 +439,7 @@
             <span class="flex items-center"><i class="fa-solid fa-folder-tree mr-2 text-zinc-500"></i> Browser</span>
             <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-zinc-500"></i>
           </button>
-          <button onclick="openWorkspaceTaskBoardViewer()" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
-            <span class="flex items-center"><i class="fa-solid fa-list-check mr-2 text-zinc-500"></i> Tasks Console</span>
-            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
-          </button>
+
           <button onclick="toggleSourceControlView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
             <span class="flex items-center"><i class="fa-solid fa-code-branch mr-2 text-zinc-500"></i> Source Control</span>
             <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
@@ -2443,7 +2440,7 @@
         stepDetails.dataset.replace = args?.replace || '';
       }
       else if (toolName === 'execute_command') { stepIcon = "fa-solid fa-square-terminal text-purple-400"; stepVerb = "Launched process"; }
-      else if (toolName === 'add_task') { stepIcon = "fa-solid fa-circle-plus text-indigo-400"; stepVerb = "Added task"; }
+      else if (toolName === 'send_terminal_input') { stepIcon = "fa-solid fa-keyboard text-amber-400"; stepVerb = "Sent terminal input"; toolTargetDescription = args?.terminal_id || "Terminal"; }
       else if (toolName === 'set_session_name') { stepIcon = "fa-solid fa-tag text-zinc-400"; stepVerb = "Renamed session"; }
       else if (toolName === 'parse_document') { 
         stepIcon = "fa-solid fa-file-pdf text-red-400"; 
@@ -2667,30 +2664,8 @@
       }
     }
 
-    // Render and manage tasks lists
-    async function openWorkspaceTaskBoardViewer() {
-      elements.sessionRightDrawer.classList.remove('hidden');
-      elements.rightDrawerTitle.innerText = "Task Checklist Matrix";
-      
-      const body = elements.rightDrawerBody;
-      body.innerHTML = `<div class="text-[11px] text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Synchronizing tasks records...</div>`;
 
-      try {
-        // Retrieve tasks belonging to current active session
-        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`);
-        const parsed = await res.json();
 
-        // Since tasks lists may contain details, fetch through mock arrays or render clean structures
-        body.innerHTML = `
-          <div class="space-y-3">
-            <p class="text-[10px] text-zinc-500">Track dynamic requirements. Task statuses update in response to model actions.</p>
-            <div id="drawer-tasks-stack" class="space-y-2">
-              <div class="text-center py-6 text-zinc-600 text-xs italic">No goals registered. Introduce tasks using prompts.</div>
-            </div>
-          </div>
-        `;
-      } catch(e) {}
-    }
 
     function closeSessionRightDrawer() {
       elements.sessionRightDrawer.classList.add('hidden');
