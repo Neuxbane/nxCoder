@@ -237,6 +237,33 @@
     </div>
   </div>
 
+  <!-- Custom Undo/Rollback Confirmation Modal Overlay -->
+  <div id="undo-modal-backdrop" class="fixed inset-0 bg-brand-black/90 backdrop-blur-sm z-[100] hidden items-center justify-center p-4 animate-fadeIn">
+    <div class="bg-brand-dark border border-zinc-800 rounded-xl w-[440px] max-w-full p-6 space-y-4 shadow-2xl relative">
+      <button onclick="closeUndoModal()" class="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+      
+      <div>
+        <h4 class="text-sm font-semibold text-zinc-200">Confirm Undo</h4>
+        <p class="text-xs text-zinc-400 mt-3 leading-relaxed">Confirming this undo action will make the following changes:</p>
+      </div>
+      
+      <!-- Files list -->
+      <div id="undo-modal-files" class="space-y-2 py-1 max-h-40 overflow-y-auto">
+         <!-- Dynamically generated file additions/deletions -->
+      </div>
+      
+      <div class="flex items-center justify-end space-x-3 pt-2">
+        <button onclick="closeUndoModal()" class="px-4 py-2 bg-transparent text-zinc-400 hover:text-zinc-200 text-xs font-semibold transition-colors">Cancel</button>
+        <button id="undo-modal-confirm-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1">
+          <span>Confirm</span>
+          <span class="text-[10px] text-blue-200">↵</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main Application Header Bar -->
   <header class="h-12 bg-brand-black border-b border-brand-gray/30 px-6 flex items-center justify-between select-none shrink-0 z-40">
     <div class="flex items-center space-x-4">
@@ -920,7 +947,49 @@
       renderConstructWizardStep();
     }
 
-    function showWizardAddFolderInput() {
+    async function resolveAndAddFolder(folderName) {
+      try {
+        const res = await fetch(`/api/find-folder?name=${encodeURIComponent(folderName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const absolutePath = data.path;
+          
+          if (wizardState.selectedFolders.some(f => f.path === absolutePath)) {
+            showToast('Duplicate Path', 'This folder is already in the list.', 'info');
+            return;
+          }
+          
+          let branchName = 'main';
+          try {
+            const branchRes = await fetch(`/api/folder?path=${encodeURIComponent(absolutePath)}`);
+            if (branchRes.ok) {
+              const branchData = await branchRes.json();
+              if (branchData.gitBranch) {
+                branchName = branchData.gitBranch;
+              }
+            }
+          } catch (err) {}
+          
+          wizardState.selectedFolders.push({
+            path: absolutePath,
+            branch: branchName
+          });
+          
+          if (!wizardState.projectName) {
+            wizardState.projectName = folderName;
+          }
+          
+          renderConstructWizardStep();
+          showToast('Folder Added', `Successfully added ${folderName}`, 'success');
+        } else {
+          showToast('Not Found', `Could not find folder named "${folderName}" in search paths.`, 'error');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
+    function fallbackNativeDirectoryPicker() {
       let picker = document.getElementById('wizard-native-directory-picker');
       if (!picker) {
         picker = document.createElement('input');
@@ -946,50 +1015,36 @@
           }
           
           showToast('Resolving Folder', `Scanning path for ${folderName}...`, 'info');
-          
-          try {
-            const res = await fetch(`/api/find-folder?name=${encodeURIComponent(folderName)}`);
-            if (res.ok) {
-              const data = await res.json();
-              const absolutePath = data.path;
-              
-              if (wizardState.selectedFolders.some(f => f.path === absolutePath)) {
-                showToast('Duplicate Path', 'This folder is already in the list.', 'info');
-                return;
-              }
-              
-              let branchName = 'main';
-              try {
-                const branchRes = await fetch(`/api/folder?path=${encodeURIComponent(absolutePath)}`);
-                if (branchRes.ok) {
-                  const branchData = await branchRes.json();
-                  if (branchData.gitBranch) {
-                    branchName = branchData.gitBranch;
-                  }
-                }
-              } catch (err) {}
-              
-              wizardState.selectedFolders.push({
-                path: absolutePath,
-                branch: branchName
-              });
-              
-              if (!wizardState.projectName) {
-                wizardState.projectName = folderName;
-              }
-              
-              renderConstructWizardStep();
-              showToast('Folder Added', `Successfully added ${folderName}`, 'success');
-            } else {
-              showToast('Not Found', `Could not locate ${folderName} absolute path.`, 'error');
-            }
-          } catch (err) {
-            showToast('Search Error', 'Failed to resolve folder path.', 'error');
-          }
+          await resolveAndAddFolder(folderName);
         }
       };
       
       picker.click();
+    }
+
+    async function showWizardAddFolderInput() {
+      if (window.showDirectoryPicker) {
+        try {
+          const handle = await window.showDirectoryPicker({
+            mode: 'read'
+          });
+          const folderName = handle.name;
+          if (!folderName) {
+            showToast('Invalid Selection', 'Could not determine the folder name.', 'error');
+            return;
+          }
+          
+          showToast('Resolving Folder', `Scanning path for ${folderName}...`, 'info');
+          await resolveAndAddFolder(folderName);
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.error('Directory picker error:', err);
+            fallbackNativeDirectoryPicker();
+          }
+        }
+      } else {
+        fallbackNativeDirectoryPicker();
+      }
     }
 
     async function addWizardFolderFromInput() {
@@ -2484,11 +2539,11 @@
             for (let i = bubbles.length - 1; i >= 0; i--) {
               const b = bubbles[i];
               const authorSpan = b.querySelector('span');
-              if (authorSpan && authorSpan.textContent === 'AI Agent') {
+              if (authorSpan && authorSpan.textContent.trim() === 'AI Agent') {
                 const headerRight = b.querySelector('.flex.items-center.space-x-2');
                 if (headerRight && !headerRight.querySelector('button[onclick*="confirmRedoRollback"]')) {
                   const btn = document.createElement('button');
-                  btn.onclick = () => confirmRedoRollback(data.modelMessageId);
+                  btn.setAttribute('onclick', `confirmRedoRollback(${data.modelMessageId})`);
                   btn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all";
                   btn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Redo`;
                   headerRight.appendChild(btn);
@@ -3281,6 +3336,61 @@
       );
     }
 
+    function closeUndoModal() {
+      const backdrop = document.getElementById('undo-modal-backdrop');
+      if (backdrop) {
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+      }
+    }
+
+    function getFileTypeBadge(filename) {
+      const ext = filename.split('.').pop().toLowerCase();
+      if (ext === 'js' || ext === 'mjs') return `<span class="bg-amber-500/10 text-amber-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">JS</span>`;
+      if (ext === 'html') return `<span class="bg-orange-500/10 text-orange-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">HTML</span>`;
+      if (ext === 'css') return `<span class="bg-blue-500/10 text-blue-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">CSS</span>`;
+      if (ext === 'json') return `<span class="bg-emerald-500/10 text-emerald-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">JSON</span>`;
+      if (ext === 'py') return `<span class="bg-sky-500/10 text-sky-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">PY</span>`;
+      return `<span class="bg-zinc-800 text-zinc-400 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">${ext}</span>`;
+    }
+
+    function showUndoConfirmModal(affectedFiles, onConfirm) {
+      const backdrop = document.getElementById('undo-modal-backdrop');
+      const filesContainer = document.getElementById('undo-modal-files');
+      const confirmBtn = document.getElementById('undo-modal-confirm-btn');
+
+      filesContainer.innerHTML = '';
+      if (!affectedFiles || affectedFiles.length === 0) {
+        filesContainer.innerHTML = '<div class="text-xs text-zinc-500 italic">No files on the filesystem will be modified.</div>';
+      } else {
+        affectedFiles.forEach(f => {
+          const filename = f.file.split('/').pop();
+          const badge = getFileTypeBadge(filename);
+          const row = document.createElement('div');
+          row.className = "flex items-center justify-between text-xs font-mono py-1 border-b border-zinc-800/40 last:border-b-0";
+          row.innerHTML = `
+            <div class="flex items-center overflow-hidden">
+              ${badge}
+              <span class="text-zinc-300 truncate" title="${f.file}">${f.file}</span>
+            </div>
+            <div class="flex items-center space-x-2 text-[10px] shrink-0 ml-4">
+              <span class="text-emerald-500 font-semibold">+${f.added}</span>
+              <span class="text-rose-500 font-semibold">-${f.deleted}</span>
+            </div>
+          `;
+          filesContainer.appendChild(row);
+        });
+      }
+
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+
+      confirmBtn.onclick = () => {
+        closeUndoModal();
+        onConfirm();
+      };
+    }
+
     async function confirmRedoRollback(messageId) {
       try {
         const previewRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo-preview/${messageId}`);
@@ -3292,39 +3402,22 @@
         const previewData = await previewRes.json();
         const targetMessageID = previewData.targetMessageID || messageId;
         
-        let confirmMsg = "Are you sure you want to rollback/redo the session history to this message?\nThis will delete this message and all messages that follow it from the chat history.";
-        
-        if (targetMessageID !== messageId) {
-          confirmMsg = `To preserve tool call/response pairs and system rules, the rollback point has been adjusted.\n\n` + confirmMsg;
-        }
-
-        if (previewData.affectedFiles && previewData.affectedFiles.length > 0) {
-          const fileLines = previewData.affectedFiles.map(f => typeof f === 'string' ? `  - ${f}` : `  - [${f.status.toUpperCase()}] ${f.file}`).join('\n');
-          confirmMsg += `\n\nThis will also ROLLBACK/UNDO changes in the following files on the filesystem:\n${fileLines}`;
-        } else {
-          confirmMsg += "\n\nNo files on the filesystem will be modified.";
-        }
-        
-        confirmMsg += "\n\nThis action cannot be undone. Proceed?";
-        
-        if (!confirm(confirmMsg)) {
-          return;
-        }
-        
-        showToast('Rolling Back', 'Executing git history rewrite...', 'info');
-        
-        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo/${targetMessageID}`, {
-          method: 'POST'
+        showUndoConfirmModal(previewData.affectedFiles || [], async () => {
+          showToast('Rolling Back', 'Executing git history rewrite...', 'info');
+          
+          const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo/${targetMessageID}`, {
+            method: 'POST'
+          });
+          
+          const data = await res.json();
+          if (res.ok && data.success) {
+            showToast('Rollback Complete', 'History reverted successfully.', 'success');
+            state.shouldAutoRetryAfterRollback = true;
+            await initializeSession(state.activeSessionId);
+          } else {
+            showToast('Git Rollback Error', data.error || 'Failed to rewrite git history.', 'error');
+          }
         });
-        
-        const data = await res.json();
-        if (res.ok && data.success) {
-          showToast('Rollback Complete', 'History reverted successfully.', 'success');
-          state.shouldAutoRetryAfterRollback = true;
-          await initializeSession(state.activeSessionId);
-        } else {
-          showToast('Git Rollback Error', data.error || 'Failed to rewrite git history.', 'error');
-        }
       } catch (err) {
         showToast('Error', err.message, 'error');
       }

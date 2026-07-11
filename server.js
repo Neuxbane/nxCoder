@@ -189,65 +189,9 @@ async function createWorkspaceMirror(workspaceId, sessionId) {
   const mirrorBase = path.join(wsDir, 'sessions', sessionId, 'workspace_mirror');
   await fs.mkdir(mirrorBase, { recursive: true });
 
-  const activeBranch = await getSessionActiveBranch(wsDir, sessionId);
-
   for (const repo of repos) {
     const mirrorFolder = path.join(mirrorBase, repo.folderName);
     await fs.mkdir(mirrorFolder, { recursive: true });
-
-    // 1. Ensure mirror repo is set to the correct branch using mirrorFolder as work-tree
-    const sessBranch = `sess_${sessionId}_${activeBranch}`;
-    try {
-      const { stdout: exists } = await execGit(repo, `show-ref --verify refs/heads/${sessBranch}`).catch(() => ({ stdout: '' }));
-      if (exists.trim()) {
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${mirrorFolder}" checkout ${sessBranch}`);
-      } else {
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${mirrorFolder}" checkout -B ${sessBranch}`);
-      }
-    } catch (e) {
-      console.error(`Failed to checkout session branch ${sessBranch} in mirror ${mirrorFolder}:`, e.message);
-    }
-
-    // 2. Populate mirror with all tracked & untracked files from user realPath
-    let files = [];
-    try {
-      const { stdout: lsOut } = await execGit(repo, 'ls-files');
-      files.push(...lsOut.trim().split('\n').map(f => f.trim()).filter(Boolean));
-
-      const { stdout: statusOut } = await execGit(repo, 'status --porcelain');
-      const lines = statusOut.trim().split('\n').filter(Boolean);
-      for (const line of lines) {
-        if (line.startsWith('?? ')) {
-          files.push(line.substring(3).trim());
-        }
-      }
-    } catch (e) {
-      console.error(`Failed to list files for mirror copy in ${repo.folderName}:`, e.message);
-    }
-
-    const uniqueFiles = Array.from(new Set(files));
-    for (const file of uniqueFiles) {
-      const srcPath = path.join(repo.realPath, file);
-      const destPath = path.join(mirrorFolder, file);
-      try {
-        await fs.mkdir(path.dirname(destPath), { recursive: true });
-        await fs.copyFile(srcPath, destPath);
-      } catch (e) {}
-    }
-
-    // 3. Remove files in mirrorFolder that have been deleted in realPath
-    try {
-      const { stdout: lsMirror } = await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${mirrorFolder}" ls-files`);
-      const mirrorFiles = lsMirror.trim().split('\n').map(f => f.trim()).filter(Boolean);
-      for (const f of mirrorFiles) {
-        const realF = path.join(repo.realPath, f);
-        try {
-          await fs.access(realF);
-        } catch {
-          await fs.rm(path.join(mirrorFolder, f), { force: true });
-        }
-      }
-    } catch {}
   }
 }
 
@@ -258,106 +202,43 @@ async function mergeMirrorChangesBack(workspaceId, sessionId, modelMessageId) {
   const sessBranch = `sess_${sessionId}_${activeBranch}`;
   
   for (const repo of repos) {
-    const mirrorFolder = path.join(wsDir, 'sessions', sessionId, 'workspace_mirror', repo.folderName);
-    
     let realActiveBranch = 'master';
     try {
       const { stdout: curBranch } = await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" branch --show-current`);
       realActiveBranch = curBranch.trim() || 'master';
     } catch {}
 
-    let changesMap = new Map();
     try {
-      const { stdout } = await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${mirrorFolder}" status --porcelain -u`);
-      const lines = stdout.split('\n').filter(Boolean);
-      for (const line of lines) {
-        const status = line.substring(0, 2);
-        const filePath = line.substring(3).trim();
-        changesMap.set(filePath, status);
-      }
-    } catch (e) {
-      console.error(`Failed to get status in mirror repo ${repo.folderName}:`, e.message);
-    }
+      // 1. Checkout session branch (create if not exists)
+      await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout -B ${sessBranch}`);
+      
+      // 2. Stage all changes in real folder
+      await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" add -A`);
+      
+      // 3. Commit the changes
+      const commitMsg = `msg_${modelMessageId}`;
+      await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" commit -m "${commitMsg}" --no-gpg-sign --allow-empty`);
 
-    try {
-      const { stdout } = await execPromise(`git --git-dir="${repo.gitDir}" diff --name-status ${activeBranch}..${sessBranch}`);
-      const lines = stdout.split('\n').filter(Boolean);
-      for (const line of lines) {
-        const parts = line.split('\t');
-        if (parts.length === 3 && parts[0].trim().startsWith('R')) {
-          const oldPath = parts[1].trim();
-          const newPath = parts[2].trim();
-          changesMap.set(oldPath, 'D');
-          changesMap.set(newPath, 'A');
-        } else if (parts.length >= 2) {
-          const status = parts[0].trim();
-          const filePath = parts[1].trim();
-          if (!changesMap.has(filePath)) {
-            changesMap.set(filePath, status);
+      // 4. Switch real folder back to original active branch and merge session changes
+      await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout ${realActiveBranch}`);
+      await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" merge ${sessBranch} --no-gpg-sign`);
+
+      // Always keep master pointing to the latest committed state
+      if (realActiveBranch !== 'master') {
+        try {
+          const { stdout: masterExists } = await execPromise(`git --git-dir="${repo.gitDir}" branch --list master`).catch(() => ({ stdout: '' }));
+          if (!masterExists.trim()) {
+            await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout -B master`);
+            await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout ${realActiveBranch}`);
+          } else {
+            await execPromise(`git --git-dir="${repo.gitDir}" branch -f master ${realActiveBranch}`);
           }
+        } catch (e) {
+          console.warn(`Could not fast-forward master in ${repo.folderName}: ${e.message}`);
         }
       }
     } catch (e) {
-      console.error(`Failed to get diff in mirror repo ${repo.folderName}:`, e.message);
-    }
-
-    const changes = Array.from(changesMap.entries()).map(([filePath, status]) => ({ status, filePath }));
-
-    if (changes.length > 0) {
-      // 1. Copy the edits from mirrorFolder back to the real project folder
-      for (const change of changes) {
-        const srcPath = path.join(mirrorFolder, change.filePath);
-        const destPath = path.join(repo.realPath, change.filePath);
-
-        if (change.status.includes('D')) {
-          try {
-            await fs.rm(destPath, { recursive: true, force: true });
-          } catch {}
-        } else {
-          try {
-            const stat = await fs.stat(srcPath);
-            if (stat.isDirectory()) {
-              await fs.mkdir(destPath, { recursive: true });
-            } else {
-              await fs.mkdir(path.dirname(destPath), { recursive: true });
-              await fs.copyFile(srcPath, destPath);
-            }
-          } catch (e) {
-            console.error(`Failed to sync path ${change.filePath} back to real folder:`, e.message);
-          }
-        }
-      }
-
-      // 2. Stage, commit, and checkout branch on the real folder
-      try {
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout -B ${sessBranch}`);
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" add -A`);
-        const commitMsg = `msg_${modelMessageId}`;
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" commit -m "${commitMsg}" --no-gpg-sign --allow-empty`);
-
-        // Switch real folder back to original active branch and merge session changes
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout ${realActiveBranch}`);
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" merge ${sessBranch} --no-gpg-sign`);
-
-        // Always keep master pointing to the latest committed state
-        if (realActiveBranch !== 'master') {
-          try {
-            // Ensure master branch exists
-            const { stdout: masterExists } = await execPromise(`git --git-dir="${repo.gitDir}" branch --list master`).catch(() => ({ stdout: '' }));
-            if (!masterExists.trim()) {
-              await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout -B master`);
-              await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout ${realActiveBranch}`);
-            } else {
-              // Fast-forward master to the current tip of realActiveBranch
-              await execPromise(`git --git-dir="${repo.gitDir}" branch -f master ${realActiveBranch}`);
-            }
-          } catch (e) {
-            console.warn(`Could not fast-forward master in ${repo.folderName}: ${e.message}`);
-          }
-        }
-      } catch (e) {
-        throw new Error(`Merge conflict in repository ${repo.folderName}: ${e.message}. Please resolve in files.`);
-      }
+      console.error(`Failed to commit changes in ${repo.folderName}:`, e.message);
     }
   }
 }
@@ -679,6 +560,28 @@ async function getNextApiKey(requestedKeyId) {
 async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
   const { wsDir, sessionFolder, sessionMirrorRoot, sessionUploadsDir, sessionArtifactDir, sessionScratchpadDir } = getWorkspacePaths(workspaceId, sessionId);
 
+  // Normalize targetPath separators
+  const normPath = targetPath.replace(/\\/g, '/');
+
+  // If path starts with workspace_mirror, resolve to the physical path directly
+  if (normPath.startsWith('workspace_mirror/') || normPath === 'workspace_mirror') {
+    const repos = await getGitReposForWorkspace(workspaceId);
+    const parts = normPath.split('/');
+    const requestedFolder = parts[1];
+    
+    if (requestedFolder) {
+      const repo = repos.find(r => r.folderName === requestedFolder);
+      if (repo) {
+        const subPath = parts.slice(2).join('/');
+        const absoluteTarget = path.join(repo.realPath, subPath);
+        return {
+          resolvedPath: absoluteTarget,
+          sessionFolder
+        };
+      }
+    }
+  }
+
   // Create session storage directories automatically
   await fs.mkdir(sessionFolder, { recursive: true });
   await fs.mkdir(sessionMirrorRoot, { recursive: true });
@@ -700,8 +603,6 @@ async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
     throw new Error(`Access Denied: The path "${targetPath}" resolves outside of the session sandbox.`);
   }
 
-  // During generation, if path is within workspace_mirror, redirect to live mirror
-  // (mirror is already inside session folder, so resolvedTarget IS the mirror path)
   return {
     resolvedPath: resolvedTarget,
     sessionFolder
@@ -974,14 +875,13 @@ async function executeCommandTool(workspaceId, sessionId, command, targetPath, n
       console.error(`logStream error for terminal ${terminalId}:`, err);
     });
     
-    // Auto-override GIT_DIR and GIT_WORK_TREE if executing inside the sandboxed mirror
+    // Auto-override GIT_DIR and GIT_WORK_TREE if executing inside the real folder
     const repos = await getGitReposForWorkspace(workspaceId);
-    const repo = repos.find(r => resolvedPath.startsWith(path.join(wsDir, 'sessions', sessionId, 'workspace_mirror', r.folderName)));
+    const repo = repos.find(r => resolvedPath.startsWith(r.realPath));
     const childEnv = { ...process.env, FORCE_COLOR: '1', HOME: sessionFolder };
     if (repo) {
-      const mirrorFolder = path.join(wsDir, 'sessions', sessionId, 'workspace_mirror', repo.folderName);
       childEnv.GIT_DIR = repo.gitDir;
-      childEnv.GIT_WORK_TREE = mirrorFolder;
+      childEnv.GIT_WORK_TREE = repo.realPath;
     }
 
     const childProc = spawn(command, {
@@ -1442,18 +1342,23 @@ app.get('/api/find-folder', async (req, res) => {
       return res.json({ path: process.cwd() });
     }
 
-    const rootsToSearch = [
+    const localRoots = [
       process.cwd(),
       path.dirname(process.cwd()),
+      path.dirname(path.dirname(process.cwd()))
+    ];
+    
+    const fallbackRoots = [
       os.homedir(),
       path.join(os.homedir(), 'Projects'),
       path.join(os.homedir(), 'Desktop')
     ];
 
     const visited = new Set();
-    const queue = [];
 
-    for (const r of rootsToSearch) {
+    // Pass 1: Deep search in local/project directory tree
+    let queue = [];
+    for (const r of localRoots) {
       if (fsSync.existsSync(r)) {
         queue.push({ dir: r, depth: 0 });
       }
@@ -1466,7 +1371,38 @@ app.get('/api/find-folder', async (req, res) => {
       visited.add(resolvedDir);
 
       if (path.basename(resolvedDir).toLowerCase() === name.toLowerCase()) {
-        console.log(`[API] find-folder resolved successfully: ${resolvedDir}`);
+        console.log(`[API] find-folder resolved successfully in Pass 1: ${resolvedDir}`);
+        return res.json({ path: resolvedDir });
+      }
+
+      if (depth < 8) {
+        try {
+          const subdirs = await fs.readdir(resolvedDir, { withFileTypes: true });
+          for (const s of subdirs) {
+            if (s.isDirectory() && !s.name.startsWith('.') && s.name !== 'node_modules') {
+              queue.push({ dir: path.join(resolvedDir, s.name), depth: depth + 1 });
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Pass 2: Shallow search in home directory and fallbacks
+    queue = [];
+    for (const r of fallbackRoots) {
+      if (fsSync.existsSync(r)) {
+        queue.push({ dir: r, depth: 0 });
+      }
+    }
+
+    while (queue.length > 0) {
+      const { dir, depth } = queue.shift();
+      const resolvedDir = path.resolve(dir);
+      if (visited.has(resolvedDir)) continue;
+      visited.add(resolvedDir);
+
+      if (path.basename(resolvedDir).toLowerCase() === name.toLowerCase()) {
+        console.log(`[API] find-folder resolved successfully in Pass 2: ${resolvedDir}`);
         return res.json({ path: resolvedDir });
       }
 
@@ -1474,13 +1410,11 @@ app.get('/api/find-folder', async (req, res) => {
         try {
           const subdirs = await fs.readdir(resolvedDir, { withFileTypes: true });
           for (const s of subdirs) {
-            if (s.isDirectory() && !s.name.startsWith('.')) {
+            if (s.isDirectory() && !s.name.startsWith('.') && s.name !== 'node_modules') {
               queue.push({ dir: path.join(resolvedDir, s.name), depth: depth + 1 });
             }
           }
-        } catch (e) {
-          // ignore access errors
-        }
+        } catch (e) {}
       }
     }
 
@@ -1818,10 +1752,22 @@ app.get('/api/workspace/:id/session/:sessionID/redo-preview/:messageID', async (
         }
 
         if (priorHash) {
-          // Find all modified files between priorHash and current HEAD
-          const { stdout } = await execGit(repo, `diff --name-only ${priorHash} HEAD`);
-          const files = stdout.trim().split('\n').filter(Boolean);
-          affectedFiles.push(...files.map(f => repo.folderName + '/' + f));
+          // Find all modified files and their additions/deletions
+          const { stdout } = await execGit(repo, `diff --numstat ${priorHash} HEAD`);
+          const lines = stdout.trim().split('\n').filter(Boolean);
+          for (const line of lines) {
+            const parts = line.split('\t');
+            if (parts.length >= 3) {
+              const added = parts[0].trim();
+              const deleted = parts[1].trim();
+              const file = parts[2].trim();
+              affectedFiles.push({
+                file: repo.folderName + '/' + file,
+                added: added === '-' ? 0 : parseInt(added, 10),
+                deleted: deleted === '-' ? 0 : parseInt(deleted, 10)
+              });
+            }
+          }
         }
       } catch {}
     }
@@ -2192,13 +2138,30 @@ app.get('/api/workspace/:id/session/:sessionID/branches', async (req, res) => {
     const { wsDir } = getWorkspacePaths(workspaceId);
     const sessionDir = path.join(wsDir, 'sessions', sessionID);
 
+    // Initialize session git if it does not exist
+    await initSessionGit(wsDir, sessionID);
+
     // 1. Get all branches in the session repository
-    const { stdout: branchesOut } = await execPromise('git branch --format="%(refname:short)"', { cwd: sessionDir });
-    const branches = branchesOut.trim().split('\n').map(b => b.trim()).filter(Boolean);
+    let branches = [];
+    try {
+      const { stdout: branchesOut } = await execPromise('git branch --format="%(refname:short)"', { cwd: sessionDir });
+      branches = branchesOut.trim().split('\n').map(b => b.trim()).filter(Boolean);
+    } catch (e) {
+      // empty repository or git command error
+    }
     
     // 2. Get active branch
-    const { stdout: activeBranchOut } = await execPromise('git branch --show-current', { cwd: sessionDir });
-    const activeBranch = activeBranchOut.trim() || 'master';
+    let activeBranch = 'master';
+    try {
+      const { stdout: activeBranchOut } = await execPromise('git branch --show-current', { cwd: sessionDir });
+      activeBranch = activeBranchOut.trim() || 'master';
+    } catch (e) {
+      // empty repository or git command error
+    }
+
+    if (branches.length === 0) {
+      branches = [activeBranch];
+    }
 
     // 3. For each branch, get message history list (chronological, as msgId integers)
     const branchHistories = {};
