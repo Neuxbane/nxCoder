@@ -3232,7 +3232,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
               const stream = await ai.models.generateContentStream({
                 model,
                 config,
-                contents: [...contentStack, { role: 'user', parts: [{ text: "There was a glitch in the system. Continue your progress." }] }]
+                contents: [...contentStack, { role: 'user', parts: [{ text: "<systemNotification>There was a glitch in the system. Continue your progress.</systemNotification>" }] }]
               });
               const iterator = stream[Symbol.asyncIterator]();
               const { value, done } = await iterator.next();
