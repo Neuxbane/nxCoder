@@ -444,6 +444,11 @@
             <span class="flex items-center"><i class="fa-solid fa-code-branch mr-2 text-zinc-500"></i> Source Control</span>
             <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
           </button>
+
+          <button onclick="toggleArtifactsView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
+            <span class="flex items-center"><i class="fa-solid fa-cube mr-2 text-zinc-500"></i> Artifacts</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
+          </button>
         </div>
       </aside>
 
@@ -538,6 +543,51 @@
           <!-- Content Area -->
           <div id="source-control-content" class="flex-1 overflow-y-auto p-5 space-y-4">
             <!-- Dynamically rendered content goes here -->
+          </div>
+        </div>
+
+        <!-- Artifacts Interface Container -->
+        <div id="artifacts-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
+          <!-- Header -->
+          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-cube text-brand-accent"></i>
+              <span class="text-xs font-semibold text-zinc-200">Artifacts Explorer</span>
+            </div>
+            <!-- Close button to go back to chat -->
+            <button onclick="toggleArtifactsView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
+              <i class="fa-solid fa-xmark mr-1"></i> Close
+            </button>
+          </div>
+          
+          <!-- Split Layout for File List and File Preview -->
+          <div class="flex-1 flex overflow-hidden">
+            <!-- Left Side: Artifact File List -->
+            <div class="w-64 border-r border-brand-gray/30 overflow-y-auto p-4 space-y-2 bg-brand-dark/40 shrink-0">
+              <div id="artifacts-list" class="space-y-1">
+                <!-- Dynamically loaded artifact files -->
+              </div>
+            </div>
+            <!-- Right Side: Artifact File Preview -->
+            <div id="artifacts-preview-panel" class="flex-1 overflow-y-auto p-5 bg-brand-darker font-sans text-sm text-zinc-300">
+              <div id="artifacts-preview-placeholder" class="h-full flex flex-col items-center justify-center text-zinc-500 italic space-y-2">
+                <i class="fa-solid fa-file text-3xl text-zinc-600"></i>
+                <span>Select an artifact file to preview</span>
+              </div>
+              <div id="artifacts-preview-content" class="hidden h-full flex flex-col">
+                <!-- File header/metadata -->
+                <div class="pb-3 border-b border-brand-gray/30 mb-4 flex items-center justify-between shrink-0">
+                  <div>
+                    <h3 id="artifacts-preview-filename" class="text-sm font-bold text-zinc-100 font-mono"></h3>
+                    <span id="artifacts-preview-size" class="text-[10px] text-zinc-500 font-mono"></span>
+                  </div>
+                </div>
+                <!-- Preview area -->
+                <div id="artifacts-preview-body" class="flex-1 min-h-0 overflow-auto">
+                  <!-- Dynamically rendered file content preview -->
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1788,6 +1838,13 @@
         renderActiveChatSessionHistory(data.sessionHistory);
         connectSessionWebSocketGateway();
 
+        if (!document.getElementById('artifacts-container').classList.contains('hidden')) {
+          loadArtifactsList();
+        }
+        if (!document.getElementById('source-control-container').classList.contains('hidden')) {
+          loadScFiles(state.scCurrentPath);
+        }
+
       } catch (err) {
         showToast('Communication Error', 'Failed to handshake real-time server streams.', 'error');
         console.error(err);
@@ -2857,8 +2914,10 @@
     function toggleSourceControlView(show) {
       const chatWrapper = document.getElementById('chat-interface-wrapper');
       const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
       if (show) {
         chatWrapper.classList.add('hidden');
+        artContainer.classList.add('hidden');
         scContainer.classList.remove('hidden');
         setScTab('files');
       } else {
@@ -2867,6 +2926,157 @@
       }
     }
     window.toggleSourceControlView = toggleSourceControlView;
+
+    function toggleArtifactsView(show) {
+      const chatWrapper = document.getElementById('chat-interface-wrapper');
+      const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
+      if (show) {
+        chatWrapper.classList.add('hidden');
+        scContainer.classList.add('hidden');
+        artContainer.classList.remove('hidden');
+        loadArtifactsList();
+      } else {
+        artContainer.classList.add('hidden');
+        chatWrapper.classList.remove('hidden');
+      }
+    }
+    window.toggleArtifactsView = toggleArtifactsView;
+
+    async function loadArtifactsList() {
+      const listEl = document.getElementById('artifacts-list');
+      listEl.innerHTML = `<div class="text-[11px] text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading...</div>`;
+      
+      document.getElementById('artifacts-preview-content').classList.add('hidden');
+      document.getElementById('artifacts-preview-placeholder').classList.remove('hidden');
+      
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/artifacts`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          listEl.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error loading artifacts</div>`;
+          return;
+        }
+        
+        listEl.innerHTML = "";
+        
+        if (data.items.length === 0) {
+          listEl.innerHTML = `<div class="text-xs text-zinc-500 italic p-2">No artifacts in this session.</div>`;
+          return;
+        }
+        
+        data.items.sort((a, b) => a.name.localeCompare(b.name));
+        
+        data.items.forEach(item => {
+          const itemRow = document.createElement('div');
+          itemRow.className = "flex items-center space-x-2 p-2 rounded hover:bg-zinc-800 text-xs font-mono cursor-pointer transition-colors text-zinc-300 hover:text-zinc-100";
+          itemRow.onclick = () => previewArtifactFile(item.path, item.name, item.size);
+          
+          let icon = "fa-solid fa-file-code text-zinc-500";
+          const ext = item.name.split('.').pop().toLowerCase();
+          if (ext === 'md') icon = "fa-brands fa-markdown text-sky-400";
+          else if (ext === 'json') icon = "fa-solid fa-braces text-yellow-500";
+          else if (ext === 'pdf') icon = "fa-solid fa-file-pdf text-red-500";
+          else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'img'].includes(ext)) icon = "fa-solid fa-file-image text-emerald-500";
+          
+          itemRow.innerHTML = `
+            <i class="${icon} text-[13px] shrink-0"></i>
+            <span class="truncate" title="${item.name}">${item.name}</span>
+          `;
+          listEl.appendChild(itemRow);
+        });
+      } catch (err) {
+        listEl.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error loading artifacts</div>`;
+      }
+    }
+    window.loadArtifactsList = loadArtifactsList;
+
+    let monacoPreviewEditor = null;
+
+    async function previewArtifactFile(relPath, fileName, fileSize) {
+      const placeholder = document.getElementById('artifacts-preview-placeholder');
+      const contentPanel = document.getElementById('artifacts-preview-content');
+      const previewBody = document.getElementById('artifacts-preview-body');
+      const nameEl = document.getElementById('artifacts-preview-filename');
+      const sizeEl = document.getElementById('artifacts-preview-size');
+      
+      placeholder.classList.add('hidden');
+      contentPanel.classList.remove('hidden');
+      previewBody.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Fetching content...</div>`;
+      
+      nameEl.innerText = fileName;
+      sizeEl.innerText = formatBytes(fileSize);
+      
+      if (monacoPreviewEditor) {
+        monacoPreviewEditor.dispose();
+        monacoPreviewEditor = null;
+      }
+      
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/artifacts/read?path=${encodeURIComponent(relPath)}`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          previewBody.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error reading file: ${data.error}</div>`;
+          return;
+        }
+        
+        const ext = fileName.split('.').pop().toLowerCase();
+        
+        if (ext === 'md' || ext === 'typ') {
+          const html = state.markdownParser.render(data.content);
+          previewBody.innerHTML = `<div class="prose prose-invert max-w-none text-xs text-zinc-300">${html}</div>`;
+        } else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'pdf'].includes(ext)) {
+          previewBody.innerHTML = `
+            <div class="h-full flex flex-col items-center justify-center text-zinc-500 space-y-3">
+              <i class="fa-solid fa-file-zipper text-4xl text-zinc-600"></i>
+              <div class="text-center">
+                <p class="font-semibold text-zinc-400">Binary File Preview Unsupported</p>
+                <p class="text-[11px] text-zinc-500">File size: ${formatBytes(fileSize)}</p>
+              </div>
+            </div>
+          `;
+        } else {
+          previewBody.innerHTML = `<div id="monaco-preview-container" class="h-full w-full border border-zinc-800 rounded-lg" style="min-height: 400px;"></div>`;
+          
+          let language = 'plaintext';
+          if (ext === 'js' || ext === 'jsx') language = 'javascript';
+          else if (ext === 'ts' || ext === 'tsx') language = 'typescript';
+          else if (ext === 'json') language = 'json';
+          else if (ext === 'html') language = 'html';
+          else if (ext === 'css') language = 'css';
+          else if (ext === 'py') language = 'python';
+          else if (ext === 'sh' || ext === 'bash') language = 'shell';
+          else if (ext === 'sql') language = 'sql';
+          else if (ext === 'yml' || ext === 'yaml') language = 'yaml';
+          
+          if (typeof monaco !== 'undefined') {
+            monacoPreviewEditor = monaco.editor.create(document.getElementById('monaco-preview-container'), {
+              value: data.content,
+              language: language,
+              theme: 'vs-dark',
+              readOnly: true,
+              automaticLayout: true,
+              minimap: { enabled: false },
+              fontSize: 12
+            });
+          } else {
+            previewBody.innerHTML = `<pre class="bg-zinc-950 p-4 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-300 overflow-auto max-h-full whitespace-pre-wrap">${escapeHtml(data.content)}</pre>`;
+          }
+        }
+      } catch (err) {
+        previewBody.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error loading preview: ${err.message}</div>`;
+      }
+    }
+    window.previewArtifactFile = previewArtifactFile;
+
+    function escapeHtml(text) {
+      return (text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
 
     state.scActiveTab = 'files';
     state.scCurrentPath = '';
@@ -3131,6 +3341,7 @@
     async function jumpToChatMessage(messageId, sessionId) {
       try {
         toggleSourceControlView(false);
+        toggleArtifactsView(false);
         if (state.activeSessionId !== sessionId) {
           await initializeSession(sessionId);
         }

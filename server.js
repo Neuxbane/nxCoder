@@ -266,18 +266,42 @@ async function mergeMirrorChangesBack(workspaceId, sessionId, modelMessageId) {
       realActiveBranch = curBranch.trim() || 'master';
     } catch {}
 
-    let changes = [];
+    let changesMap = new Map();
     try {
-      const { stdout } = await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${mirrorFolder}" status --porcelain`);
+      const { stdout } = await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${mirrorFolder}" status --porcelain -u`);
       const lines = stdout.split('\n').filter(Boolean);
       for (const line of lines) {
         const status = line.substring(0, 2);
         const filePath = line.substring(3).trim();
-        changes.push({ status, filePath });
+        changesMap.set(filePath, status);
       }
     } catch (e) {
       console.error(`Failed to get status in mirror repo ${repo.folderName}:`, e.message);
     }
+
+    try {
+      const { stdout } = await execPromise(`git --git-dir="${repo.gitDir}" diff --name-status ${activeBranch}..${sessBranch}`);
+      const lines = stdout.split('\n').filter(Boolean);
+      for (const line of lines) {
+        const parts = line.split('\t');
+        if (parts.length === 3 && parts[0].trim().startsWith('R')) {
+          const oldPath = parts[1].trim();
+          const newPath = parts[2].trim();
+          changesMap.set(oldPath, 'D');
+          changesMap.set(newPath, 'A');
+        } else if (parts.length >= 2) {
+          const status = parts[0].trim();
+          const filePath = parts[1].trim();
+          if (!changesMap.has(filePath)) {
+            changesMap.set(filePath, status);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to get diff in mirror repo ${repo.folderName}:`, e.message);
+    }
+
+    const changes = Array.from(changesMap.entries()).map(([filePath, status]) => ({ status, filePath }));
 
     if (changes.length > 0) {
       // 1. Copy the edits from mirrorFolder back to the real project folder
@@ -287,14 +311,19 @@ async function mergeMirrorChangesBack(workspaceId, sessionId, modelMessageId) {
 
         if (change.status.includes('D')) {
           try {
-            await fs.rm(destPath, { force: true });
+            await fs.rm(destPath, { recursive: true, force: true });
           } catch {}
         } else {
           try {
-            await fs.mkdir(path.dirname(destPath), { recursive: true });
-            await fs.copyFile(srcPath, destPath);
+            const stat = await fs.stat(srcPath);
+            if (stat.isDirectory()) {
+              await fs.mkdir(destPath, { recursive: true });
+            } else {
+              await fs.mkdir(path.dirname(destPath), { recursive: true });
+              await fs.copyFile(srcPath, destPath);
+            }
           } catch (e) {
-            console.error(`Failed to copy file ${change.filePath} back to real folder:`, e.message);
+            console.error(`Failed to sync path ${change.filePath} back to real folder:`, e.message);
           }
         }
       }
@@ -304,7 +333,7 @@ async function mergeMirrorChangesBack(workspaceId, sessionId, modelMessageId) {
         await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout -B ${sessBranch}`);
         await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" add -A`);
         const commitMsg = `msg_${modelMessageId}`;
-        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" commit -m "${commitMsg}" --no-gpg-sign`);
+        await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" commit -m "${commitMsg}" --no-gpg-sign --allow-empty`);
 
         // Switch real folder back to original active branch and merge session changes
         await execPromise(`git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" checkout ${realActiveBranch}`);
@@ -2297,6 +2326,75 @@ app.get('/api/workspace/:id/session/:sessionID', async (req, res) => {
   }
 });
 
+app.get('/api/workspace/:id/session/:sessionID/artifacts', async (req, res) => {
+  try {
+    const workspaceId = req.params.id;
+    const sessionId = req.params.sessionID;
+    const { sessionFolder, sessionArtifactDir } = getWorkspacePaths(workspaceId, sessionId);
+    
+    if (!sessionFolder) {
+      return res.status(404).json({ error: 'Session folder not found' });
+    }
+    
+    await fs.mkdir(sessionArtifactDir, { recursive: true });
+    
+    const files = await getFilesRecursively(sessionArtifactDir);
+    
+    const formatted = [];
+    for (const filePath of files) {
+      const relPath = path.relative(sessionFolder, filePath).replace(/\\/g, '/');
+      const name = path.basename(filePath);
+      const stat = await fs.stat(filePath);
+      formatted.push({
+        name,
+        path: relPath,
+        size: stat.size,
+        updatedAt: stat.mtime.toISOString()
+      });
+    }
+    
+    res.json({
+      items: formatted
+    });
+  } catch (error) {
+    res.status(500).json({ error: `Could not load artifacts: ${error.message}` });
+  }
+});
+
+app.get('/api/workspace/:id/session/:sessionID/artifacts/read', async (req, res) => {
+  try {
+    const workspaceId = req.params.id;
+    const sessionId = req.params.sessionID;
+    const targetPath = req.query.path;
+    
+    if (!targetPath) {
+      return res.status(400).json({ error: 'Missing path parameter' });
+    }
+    
+    const { sessionFolder } = getWorkspacePaths(workspaceId, sessionId);
+    
+    const absolutePath = path.resolve(sessionFolder, targetPath);
+    if (!absolutePath.startsWith(sessionFolder)) {
+      return res.status(403).json({ error: 'Access Denied: Path is outside the session directory.' });
+    }
+    
+    const stat = await fs.stat(absolutePath);
+    if (stat.isDirectory()) {
+      return res.status(400).json({ error: 'Target path is a directory' });
+    }
+    
+    const content = await fs.readFile(absolutePath, 'utf8');
+    res.json({
+      path: targetPath,
+      name: path.basename(absolutePath),
+      size: stat.size,
+      content: content
+    });
+  } catch (error) {
+    res.status(500).json({ error: `Could not read artifact file: ${error.message}` });
+  }
+});
+
 app.post('/api/workspace/:id/session/:sessionID', upload.array('files'), async (req, res) => {
   try {
     const { id: workspaceId, sessionID } = req.params;
@@ -2394,10 +2492,41 @@ async function getLatestLogOutput(filePath, limit = 100) {
   }
 }
 
+function isTextFile(fileName) {
+  const binaryExtensions = new Set([
+    '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.psd',
+    '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar', '.xz',
+    '.mp3', '.mp4', '.avi', '.mkv', '.mov', '.flv', '.wav', '.ogg',
+    '.db', '.sqlite', '.sqlite3', '.bin', '.exe', '.dll', '.so', '.dylib', '.class', '.jar',
+    '.woff', '.woff2', '.ttf', '.eot', '.otf',
+    '.dmg', '.iso', '.img'
+  ]);
+  const ext = path.extname(fileName).toLowerCase();
+  return !binaryExtensions.has(ext);
+}
+
+async function getFilesRecursively(dir) {
+  let results = [];
+  try {
+    const list = await fs.readdir(dir, { withFileTypes: true });
+    for (const file of list) {
+      const res = path.resolve(dir, file.name);
+      if (file.isDirectory()) {
+        results = results.concat(await getFilesRecursively(res));
+      } else {
+        results.push(res);
+      }
+    }
+  } catch (err) {
+    // Ignore if directory doesn't exist
+  }
+  return results;
+}
+
 async function assembleContextualInstruction(workspaceId, sessionId, baseInstructionPrompt, latestUserPromptText) {
   const ws = await dbGet("SELECT folders_path FROM workspaces WHERE id = ?", [workspaceId]);
   const folders = ws ? JSON.parse(ws.folders_path) : [];
-  const { wsDir, sessionFolder, sessionMirrorRoot } = getWorkspacePaths(workspaceId, sessionId);
+  const { wsDir, sessionFolder, sessionMirrorRoot, sessionArtifactDir } = getWorkspacePaths(workspaceId, sessionId);
 
   const session = await dbGet("SELECT name FROM sessions WHERE id = ?", [sessionId]);
   const sessionName = session ? session.name : "Unknown Session";
@@ -2550,7 +2679,27 @@ Instructions for Terminal Execution:
 =========================================
 `;
 
-  return `${baseInstructionPrompt || "You are a professional systems integration developer and coding agent. Perform tasks step by step and keep responses technical."}\n\n${generatedSystemContext}`;
+  let finalInstruction = `${baseInstructionPrompt || "You are a professional systems integration developer and coding agent. Perform tasks step by step and keep responses technical."}\n\n${generatedSystemContext}`;
+
+  if (sessionArtifactDir) {
+    try {
+      const artifactFiles = await getFilesRecursively(sessionArtifactDir);
+      const textArtifactFiles = artifactFiles.filter(filePath => isTextFile(filePath));
+      if (textArtifactFiles.length > 0) {
+        let injectedArtifacts = "\n\n=== INJECTED ARTIFACTS ===";
+        for (const filePath of textArtifactFiles) {
+          const relPath = path.relative(sessionFolder, filePath).replace(/\\/g, '/');
+          const content = await fs.readFile(filePath, 'utf8');
+          injectedArtifacts += `\n<${relPath}>\n${content}\n</artifact>`;
+        }
+        finalInstruction += injectedArtifacts;
+      }
+    } catch (err) {
+      console.error("Error reading artifact files for system instruction:", err);
+    }
+  }
+
+  return finalInstruction;
 }
 
 function trimHistoryToLast100Turns(historyRows) {
