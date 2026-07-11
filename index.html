@@ -9,21 +9,16 @@
   <link rel="apple-touch-icon" href="/assets/streaming.png">
   
   <!-- Markdown-It for rich markdown support in chats/plans -->
-  <script src="/node_modules/markdown-it/dist/markdown-it.min.js"></script>
+  <script src="/cdn/markdown-it.min.js"></script>
   <script>
     if (typeof window.markdownit !== 'function') {
-      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.1/markdown-it.min.js"><\/script>');
-    }
-  </script>
-  <script>
-    if (typeof window.markdownit !== 'function') {
-      document.write('<script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"><\/script>');
+      document.write('<script src="/node_modules/markdown-it/dist/markdown-it.min.js"><\/script>');
     }
   </script>
 
   <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+  <script src="/cdn/tailwind.js"></script>
+  <script src="/cdn/monaco-loader.js"></script>
   <script>
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
     tailwind.config = {
@@ -53,7 +48,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/cdn/font-awesome-all.min.css">
 
 
 
@@ -223,6 +218,21 @@
       <div class="flex items-center justify-end space-x-2 pt-2">
         <button id="confirm-cancel-btn" class="px-3 py-1.5 bg-brand-gray hover:bg-zinc-700 text-zinc-300 rounded text-xs transition-colors">Cancel</button>
         <button id="confirm-accept-btn" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-semibold transition-colors">Delete Permanently</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Construct Workspace Wizard Modal Overlay -->
+  <div id="construct-wizard-backdrop" class="fixed inset-0 bg-brand-black/85 backdrop-blur-sm z-[90] hidden items-center justify-center p-4">
+    <div class="bg-brand-dark border border-zinc-800 rounded-xl w-[480px] max-w-full p-6 space-y-4 shadow-2xl relative">
+      <!-- Cross Close Button -->
+      <button id="construct-wizard-close" onclick="closeConstructWizard()" class="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+      
+      <!-- Dynamic Wizard Step Container -->
+      <div id="construct-wizard-content" class="space-y-4">
+        <!-- Content will be rendered dynamically by JS -->
       </div>
     </div>
   </div>
@@ -698,10 +708,11 @@
     // Wrap navigateToView to trigger Construct Workspace initialization
     const originalNavigateToView = navigateToView;
     navigateToView = function(targetView) {
-      originalNavigateToView(targetView);
       if (targetView === 'construct') {
-        initConstructWorkspace();
+        openConstructWizard();
+        return;
       }
+      originalNavigateToView(targetView);
     };
 
     // Wire global click events
@@ -866,6 +877,415 @@
       };
     }
 
+    // Construct Workspace Wizard State & Controls
+    let wizardState = {
+      step: 1,
+      selectedFolders: [],
+      securitySetting: 'default',
+      projectName: '',
+      showAddInput: false
+    };
+
+    function openConstructWizard() {
+      wizardState = {
+        step: 1,
+        selectedFolders: [],
+        securitySetting: 'default',
+        projectName: '',
+        showAddInput: false
+      };
+      
+      const backdrop = document.getElementById('construct-wizard-backdrop');
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+      
+      renderConstructWizardStep();
+    }
+
+    function closeConstructWizard() {
+      const backdrop = document.getElementById('construct-wizard-backdrop');
+      backdrop.classList.add('hidden');
+      backdrop.classList.remove('flex');
+    }
+
+    function removeWizardFolder(path) {
+      wizardState.selectedFolders = wizardState.selectedFolders.filter(f => f.path !== path);
+      if (wizardState.selectedFolders.length > 0) {
+        const firstFolder = wizardState.selectedFolders[0].path;
+        const parts = firstFolder.split('/').filter(Boolean);
+        wizardState.projectName = parts[parts.length - 1] || 'New Project';
+      } else {
+        wizardState.projectName = '';
+      }
+      renderConstructWizardStep();
+    }
+
+    function showWizardAddFolderInput() {
+      let picker = document.getElementById('wizard-native-directory-picker');
+      if (!picker) {
+        picker = document.createElement('input');
+        picker.type = 'file';
+        picker.id = 'wizard-native-directory-picker';
+        picker.webkitdirectory = true;
+        picker.directory = true;
+        picker.multiple = true;
+        picker.className = 'hidden';
+        document.body.appendChild(picker);
+      }
+      
+      picker.onchange = async (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+          const firstFile = files[0];
+          const relativePath = firstFile.webkitRelativePath || '';
+          const folderName = relativePath.split('/')[0] || firstFile.name;
+          
+          if (!folderName) {
+            showToast('Invalid Selection', 'Could not determine the folder name.', 'error');
+            return;
+          }
+          
+          showToast('Resolving Folder', `Scanning path for ${folderName}...`, 'info');
+          
+          try {
+            const res = await fetch(`/api/find-folder?name=${encodeURIComponent(folderName)}`);
+            if (res.ok) {
+              const data = await res.json();
+              const absolutePath = data.path;
+              
+              if (wizardState.selectedFolders.some(f => f.path === absolutePath)) {
+                showToast('Duplicate Path', 'This folder is already in the list.', 'info');
+                return;
+              }
+              
+              let branchName = 'main';
+              try {
+                const branchRes = await fetch(`/api/folder?path=${encodeURIComponent(absolutePath)}`);
+                if (branchRes.ok) {
+                  const branchData = await branchRes.json();
+                  if (branchData.gitBranch) {
+                    branchName = branchData.gitBranch;
+                  }
+                }
+              } catch (err) {}
+              
+              wizardState.selectedFolders.push({
+                path: absolutePath,
+                branch: branchName
+              });
+              
+              if (!wizardState.projectName) {
+                wizardState.projectName = folderName;
+              }
+              
+              renderConstructWizardStep();
+              showToast('Folder Added', `Successfully added ${folderName}`, 'success');
+            } else {
+              showToast('Not Found', `Could not locate ${folderName} absolute path.`, 'error');
+            }
+          } catch (err) {
+            showToast('Search Error', 'Failed to resolve folder path.', 'error');
+          }
+        }
+      };
+      
+      picker.click();
+    }
+
+    async function addWizardFolderFromInput() {
+      const input = document.getElementById('wizard-folder-autocomplete-input');
+      if (!input) return;
+      
+      let val = input.value.trim();
+      if (!val) {
+        showToast('Invalid Path', 'Please enter or select a folder path.', 'error');
+        return;
+      }
+      
+      let normalized = val.replace(/\\/g, '/').replace(/\/+/g, '/');
+      if (normalized.endsWith('/') && normalized.length > 1) {
+        normalized = normalized.slice(0, -1);
+      }
+      
+      if (wizardState.selectedFolders.some(f => f.path === normalized)) {
+        showToast('Duplicate Path', 'This path is already in the list.', 'info');
+        return;
+      }
+      
+      let branchName = 'main';
+      try {
+        const res = await fetch(`/api/folder?path=${encodeURIComponent(normalized)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.gitBranch) {
+            branchName = data.gitBranch;
+          }
+        }
+      } catch (e) {}
+
+      wizardState.selectedFolders.push({
+        path: normalized,
+        branch: branchName
+      });
+      
+      if (!wizardState.projectName) {
+        const parts = normalized.split('/').filter(Boolean);
+        wizardState.projectName = parts[parts.length - 1] || 'New Project';
+      }
+      
+      wizardState.showAddInput = false;
+      renderConstructWizardStep();
+      showToast('Path Added', `Added folder path: ${normalized}`, 'success');
+    }
+
+    function setupWizardAutocomplete() {
+      const autocompleteInput = document.getElementById('wizard-folder-autocomplete-input');
+      if (!autocompleteInput) return;
+      
+      let autocompleteTimeout = null;
+      autocompleteInput.addEventListener('input', async (e) => {
+        const val = e.target.value;
+        if (!val) {
+          const suggestionsEl = document.getElementById('wizard-folder-autocomplete-suggestions');
+          if (suggestionsEl) suggestionsEl.classList.add('hidden');
+          return;
+        }
+        
+        clearTimeout(autocompleteTimeout);
+        autocompleteTimeout = setTimeout(async () => {
+          const result = await resolveExistingPathAndFilter(val);
+          const suggestionsEl = document.getElementById('wizard-folder-autocomplete-suggestions');
+          if (!suggestionsEl) return;
+          
+          if (!result.exists) {
+            suggestionsEl.innerHTML = `<div class="p-2 text-[10px] text-zinc-500 italic select-none">Directory parent path not found.</div>`;
+            suggestionsEl.classList.remove('hidden');
+            return;
+          }
+          
+          const folders = result.items.filter(item => {
+            const isFolder = item.type === 'folder' || item.type === 'directory';
+            const matchesFilter = !result.filter || item.name.toLowerCase().includes(result.filter.toLowerCase());
+            return isFolder && matchesFilter;
+          });
+          
+          suggestionsEl.innerHTML = "";
+          
+          if (folders.length === 0) {
+            suggestionsEl.innerHTML = `<div class="p-2 text-[10px] text-zinc-500 italic select-none">No subfolders match "${result.filter}" in ${result.resolvedPath}</div>`;
+            suggestionsEl.classList.remove('hidden');
+            return;
+          }
+          
+          folders.forEach(folder => {
+            const row = document.createElement('div');
+            row.className = "flex items-center space-x-2 p-2 hover:bg-zinc-900 cursor-pointer text-[11px] font-mono text-zinc-300 transition-colors";
+            row.innerHTML = `<i class="fa-solid fa-folder text-amber-500 text-[10px]"></i><span class="truncate">${folder.name}</span>`;
+            
+            row.onclick = () => {
+              let nextPath = `${result.resolvedPath}/${folder.name}/`.replace(/\/\/+/g, '/');
+              autocompleteInput.value = nextPath;
+              autocompleteInput.focus();
+              
+              const event = new Event('input', { bubbles: true });
+              autocompleteInput.dispatchEvent(event);
+            };
+            suggestionsEl.appendChild(row);
+          });
+          
+          suggestionsEl.classList.remove('hidden');
+        }, 150);
+      });
+      
+      autocompleteInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addWizardFolderFromInput();
+        }
+      });
+    }
+
+    async function submitConstructWizard() {
+      const name = wizardState.projectName.trim();
+      if (!name) {
+        showToast('Missing Label', 'Please provide a label for your project.', 'error');
+        return;
+      }
+      
+      const folders_path = wizardState.selectedFolders.map(f => f.path);
+      
+      try {
+        const res = await fetch('/api/workspace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            name, 
+            folders_path,
+            instruction_id: null
+          })
+        });
+        if (res.ok) {
+          showToast('Workspace Activated', 'Indexes created successfully.', 'success');
+          closeConstructWizard();
+          refreshSystemDatabase();
+        } else {
+          const errData = await res.json();
+          showToast('Creation Failed', errData.error || 'Unknown server error', 'error');
+        }
+      } catch (e) {
+        showToast('System Error', 'Could not communicate with API.', 'error');
+      }
+    }
+
+    function renderConstructWizardStep() {
+      const content = document.getElementById('construct-wizard-content');
+      if (!content) return;
+      
+      content.innerHTML = '';
+      
+      if (wizardState.step === 1) {
+        const hasFolders = wizardState.selectedFolders.length > 0;
+        
+        let foldersListHtml = '';
+        if (hasFolders) {
+          foldersListHtml = `
+            <div class="space-y-2 mb-4">
+              ${wizardState.selectedFolders.map(folder => {
+                const parts = folder.path.split('/').filter(Boolean);
+                const folderName = parts[parts.length - 1] || folder.path;
+                return `
+                  <div class="flex items-center justify-between bg-zinc-900/60 p-3 rounded-lg border border-zinc-800/80">
+                    <div class="flex items-center space-x-2">
+                      <i class="fa-solid fa-folder text-amber-500 text-sm"></i>
+                      <span class="text-xs font-semibold text-zinc-300 font-sans">${folderName}/</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                      <span class="text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-700/60 px-1.5 py-0.5 rounded font-mono flex items-center space-x-1">
+                        <i class="fa-solid fa-code-branch text-[8px] text-zinc-500"></i>
+                        <span>${folder.branch}</span>
+                      </span>
+                      <button onclick="removeWizardFolder('${folder.path}')" class="text-zinc-500 hover:text-zinc-200 transition-colors">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }
+        
+        content.innerHTML = `
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-200">Create Project</h3>
+            <span class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider mt-3 mb-2">Select Folder(s)</span>
+            
+            ${foldersListHtml}
+            
+            <div onclick="showWizardAddFolderInput()" class="bg-zinc-800/40 hover:bg-zinc-800/80 border border-dashed border-zinc-800 hover:border-brand-accent/50 rounded-lg p-3.5 flex items-center justify-center text-center cursor-pointer transition-all group">
+              <span class="text-xs font-semibold text-zinc-400 group-hover:text-white transition-colors flex items-center space-x-1.5">
+                <i class="fa-solid fa-plus text-[10px]"></i>
+                <span>Add Folder</span>
+              </span>
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-end pt-3">
+            ${hasFolders ? `
+              <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
+            ` : `
+              <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Skip</button>
+            `}
+          </div>
+        `;
+        
+      } else if (wizardState.step === 2) {
+        content.innerHTML = `
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-200">Agent Security Settings</h3>
+            
+            <div class="space-y-2 mt-4">
+              <!-- Default -->
+              <div onclick="wizardState.securitySetting = 'default'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'default' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
+                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
+                  <i class="fa-solid fa-shield-halved text-xs"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-semibold text-zinc-200">Default</h4>
+                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Requires manual review for all terminal commands and file accesses outside of the working folders.</p>
+                </div>
+              </div>
+              
+              <!-- Full Machine -->
+              <div onclick="wizardState.securitySetting = 'full_machine'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'full_machine' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
+                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
+                  <i class="fa-solid fa-unlock-keyhole text-xs"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-semibold text-zinc-200">Full machine</h4>
+                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">All terminal commands require review. The agent can read or write to any file in the machine.</p>
+                </div>
+              </div>
+              
+              <!-- Turbo Mode -->
+              <div onclick="wizardState.securitySetting = 'turbo'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'turbo' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
+                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
+                  <i class="fa-solid fa-circle-exclamation text-xs"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-semibold text-zinc-200">Turbo mode</h4>
+                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Disables all safety barriers for maximal iteration velocity.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-between pt-3">
+            <button onclick="wizardState.step = 1; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
+            <button onclick="wizardState.step = 3; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
+          </div>
+        `;
+        
+      } else if (wizardState.step === 3) {
+        content.innerHTML = `
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-200">Set Project Name</h3>
+            
+            <div class="space-y-1.5 mt-4">
+              <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Project Name</label>
+              <input type="text" id="wizard-project-name-input" value="${wizardState.projectName}" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-brand-accent transition-all" placeholder="e.g., my-app">
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-between pt-3">
+            <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
+            <button id="btn-wizard-create" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Create</button>
+          </div>
+        `;
+        
+        const nameInput = document.getElementById('wizard-project-name-input');
+        if (nameInput) {
+          nameInput.focus();
+          nameInput.select();
+          
+          nameInput.addEventListener('input', (e) => {
+            wizardState.projectName = e.target.value;
+          });
+          nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submitConstructWizard();
+            }
+          });
+        }
+        
+        const createBtn = document.getElementById('btn-wizard-create');
+        if (createBtn) {
+          createBtn.onclick = submitConstructWizard;
+        }
+      }
+    }
+
     // Primary View Navigation Controller
     function navigateToView(targetView) {
       state.view = targetView;
@@ -951,7 +1371,7 @@
       // 1. Render Creation Action Card
       const addCard = document.createElement('div');
       addCard.className = "bg-brand-dark/40 backdrop-blur-[2px] hover:bg-brand-dark border-2 border-dashed border-zinc-800 hover:border-brand-accent/50 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer min-h-[190px] transition-all group";
-      addCard.onclick = () => navigateToView('construct');
+      addCard.onclick = () => openConstructWizard();
       addCard.innerHTML = `
         <div class="w-10 h-10 rounded-full bg-zinc-900 group-hover:bg-brand-accent/10 border border-zinc-800 group-hover:border-brand-accent/40 flex items-center justify-center mb-3 text-zinc-500 group-hover:text-brand-accent transition-all">
           <i class="fa-solid fa-circle-plus text-base"></i>

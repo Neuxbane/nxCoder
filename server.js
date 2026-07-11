@@ -1411,13 +1411,84 @@ app.get('/api/folder', async (req, res) => {
       full_path: path.join(targetPath, dirent.name)
     }));
 
+    let gitBranch = null;
+    try {
+      const { stdout } = await execPromise('git branch --show-current', { cwd: targetPath });
+      gitBranch = stdout.trim() || null;
+    } catch (e) {
+      // not a git repo or git not found
+    }
+
     res.json({
       currentPath: targetPath,
       parentPath: path.dirname(targetPath),
-      items: formatted
+      items: formatted,
+      gitBranch: gitBranch
     });
   } catch (error) {
     res.status(500).json({ error: `Could not browse directory path: ${error.message}` });
+  }
+});
+
+app.get('/api/find-folder', async (req, res) => {
+  try {
+    const { name } = req.query;
+    console.log(`[API] find-folder query received for name: "${name}"`);
+    if (!name) return res.status(400).json({ error: 'Missing name parameter' });
+
+    const cwdName = path.basename(process.cwd());
+    if (cwdName.toLowerCase() === name.toLowerCase()) {
+      console.log(`[API] find-folder resolved to CWD: ${process.cwd()}`);
+      return res.json({ path: process.cwd() });
+    }
+
+    const rootsToSearch = [
+      process.cwd(),
+      path.dirname(process.cwd()),
+      os.homedir(),
+      path.join(os.homedir(), 'Projects'),
+      path.join(os.homedir(), 'Desktop')
+    ];
+
+    const visited = new Set();
+    const queue = [];
+
+    for (const r of rootsToSearch) {
+      if (fsSync.existsSync(r)) {
+        queue.push({ dir: r, depth: 0 });
+      }
+    }
+
+    while (queue.length > 0) {
+      const { dir, depth } = queue.shift();
+      const resolvedDir = path.resolve(dir);
+      if (visited.has(resolvedDir)) continue;
+      visited.add(resolvedDir);
+
+      if (path.basename(resolvedDir).toLowerCase() === name.toLowerCase()) {
+        console.log(`[API] find-folder resolved successfully: ${resolvedDir}`);
+        return res.json({ path: resolvedDir });
+      }
+
+      if (depth < 3) {
+        try {
+          const subdirs = await fs.readdir(resolvedDir, { withFileTypes: true });
+          for (const s of subdirs) {
+            if (s.isDirectory() && !s.name.startsWith('.')) {
+              queue.push({ dir: path.join(resolvedDir, s.name), depth: depth + 1 });
+            }
+          }
+        } catch (e) {
+          // ignore access errors
+        }
+      }
+    }
+
+    console.log(`[API] find-folder could not find folder: "${name}"`);
+    res.status(404).json({ error: 'Folder not found on host machine' });
+  } catch (error) {
+    console.error(`[API] find-folder error:`, error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -3225,7 +3296,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
           if (isFirstTurn) {
             let timeoutId;
             const timeoutPromise = new Promise((_, reject) => {
-              timeoutId = setTimeout(() => reject(new Error('Gemini initial response timeout after 10s')), 10 * 1000);
+              timeoutId = setTimeout(() => reject(new Error('Gemini initial response timeout after 30s')), 30 * 1000);
             });
 
             const requestPromise = (async () => {
