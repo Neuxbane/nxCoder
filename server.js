@@ -754,10 +754,66 @@ async function regexSearchTool(workspaceId, sessionId, regexStr, paths, options 
           });
 
           let lineNumber = 0;
+          const globalRegex = new RegExp(regexStr, 'g');
           for await (const line of rl) {
             lineNumber++;
-            if (regex.test(line)) {
-              results.push({ path: path.relative(sessionFolder, filePath), line: lineNumber, matchType: 'content', text: line.trim() });
+            globalRegex.lastIndex = 0;
+            let matches = [];
+            let m;
+            while ((m = globalRegex.exec(line)) !== null) {
+              matches.push(m);
+              if (m.index === globalRegex.lastIndex) {
+                globalRegex.lastIndex++;
+              }
+            }
+
+            if (matches.length > 0) {
+              const padding = Math.max(4, Math.ceil(regexStr.length * 0.5));
+              let ranges = [];
+              for (const match of matches) {
+                ranges.push({
+                  start: Math.max(0, match.index - padding),
+                  end: Math.min(line.length, match.index + match[0].length + padding)
+                });
+              }
+
+              let merged = [];
+              for (const r of ranges) {
+                if (merged.length === 0) {
+                  merged.push(r);
+                } else {
+                  let last = merged[merged.length - 1];
+                  if (r.start <= last.end) {
+                    last.end = Math.max(last.end, r.end);
+                  } else {
+                    merged.push(r);
+                  }
+                }
+              }
+
+              let textParts = [];
+              let lastIndex = 0;
+              let isTruncated = false;
+              
+              for (const r of merged) {
+                if (r.start > lastIndex) {
+                  textParts.push(`...TRUNCATED(line:${lineNumber};col:${r.start})...`);
+                  isTruncated = true;
+                }
+                textParts.push(line.substring(r.start, r.end));
+                lastIndex = r.end;
+              }
+              if (lastIndex < line.length) {
+                textParts.push(`...TRUNCATED(line:${lineNumber + 1};col:0)`);
+                isTruncated = true;
+              }
+              
+              let text = textParts.join('');
+              if (!isTruncated) {
+                text = line.trim();
+              }
+              
+              results.push({ path: path.relative(sessionFolder, filePath), line: lineNumber, matchType: 'content', text });
             }
           }
         } catch (err) {
