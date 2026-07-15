@@ -3,7 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import sharp from 'sharp';
-import { chromium } from 'playwright';
+import puppeteer from 'puppeteer';
 
 const execPromise = promisify(exec);
 
@@ -218,21 +218,20 @@ export class AdbAdapter {
 }
 
 /**
- * Playwright Chromium Browser Adapter
+ * Puppeteer Chromium Browser Adapter
  */
 export class BrowserAdapter {
   constructor() {
     this.browser = null;
-    this.context = null;
     this.page = null;
   }
 
   async init() {
     if (!this.browser) {
       // Launch in headful mode to make the browser visible to the user
-      this.browser = await chromium.launch({ headless: false });
-      this.context = await this.browser.newContext({ viewport: { width: 1280, height: 720 } });
-      this.page = await this.context.newPage();
+      this.browser = await puppeteer.launch({ headless: false });
+      this.page = await this.browser.newPage();
+      await this.page.setViewport({ width: 1280, height: 720 });
       await this.page.goto('about:blank');
     }
   }
@@ -280,7 +279,6 @@ export class BrowserAdapter {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
-      this.context = null;
       this.page = null;
     }
   }

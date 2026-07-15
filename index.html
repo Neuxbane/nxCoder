@@ -985,6 +985,37 @@
       };
     }
 
+    function showAlertModal(title, description) {
+      const backdrop = document.getElementById('confirm-modal-backdrop');
+      const titleEl = document.getElementById('confirm-title');
+      const descEl = document.getElementById('confirm-desc');
+      const acceptBtn = document.getElementById('confirm-accept-btn');
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+      titleEl.innerText = title;
+      descEl.innerText = description;
+      
+      const originalAcceptText = acceptBtn.innerText;
+      acceptBtn.innerText = "OK";
+      cancelBtn.classList.add('hidden');
+      
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+
+      function cleanup() {
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+        cancelBtn.classList.remove('hidden');
+        acceptBtn.innerText = originalAcceptText;
+        acceptBtn.onclick = null;
+        cancelBtn.onclick = null;
+      }
+
+      acceptBtn.onclick = () => {
+        cleanup();
+      };
+    }
+
     // Construct Workspace Wizard State & Controls
     let wizardState = {
       step: 1,
@@ -1695,7 +1726,14 @@
                     <span class="text-zinc-200 font-sans font-medium">${k.name}</span>
                     <span class="text-[9px] text-zinc-500">(${k.id})</span>
                   </div>
-                  <button onclick="deleteApiKeyRegistry('${k.id}')" class="text-[10px] text-red-500 hover:underline">Remove Key</button>
+                  <div class="flex items-center space-x-3">
+                    <button onclick="toggleApiKeyActive('${k.id}', ${k.active !== 0 ? 0 : 1})" 
+                      class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${k.active !== 0 ? 'bg-brand-accent' : 'bg-zinc-700'}"
+                      title="${k.active !== 0 ? 'Deactivate Key' : 'Activate Key'}">
+                      <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${k.active !== 0 ? 'translate-x-4' : 'translate-x-0'}"></span>
+                    </button>
+                    <button onclick="deleteApiKeyRegistry('${k.id}')" class="text-[10px] text-red-500 hover:underline font-sans">Remove Key</button>
+                  </div>
                 </div>
               `).join('')
           }
@@ -1718,11 +1756,37 @@
             showToast('Key Added', 'Secure credentials saved to database.', 'success');
             await refreshSystemDatabase();
             toggleManagerSettings('keys');
+          } else {
+            const data = await res.json();
+            if (res.status === 409 || data.error === 'Key already exists') {
+              showAlertModal('Key Already Exists', 'This API key has already been registered in the database.');
+            } else {
+              showToast('Database Error', data.error || 'Could not save configurations.', 'error');
+            }
           }
         } catch(e) {
           showToast('Database Error', 'Could not save configurations.', 'error');
         }
       };
+    }
+
+    async function toggleApiKeyActive(id, active) {
+      try {
+        const res = await fetch(`/api/key/${id}/toggle`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active })
+        });
+        if (res.ok) {
+          showToast('Status Updated', 'API key status has been changed.', 'info');
+          await refreshSystemDatabase();
+          toggleManagerSettings('keys');
+        } else {
+          showToast('Error', 'Could not update API key status.', 'error');
+        }
+      } catch (err) {
+        showToast('Network Error', 'Connection failed.', 'error');
+      }
     }
 
     async function deleteApiKeyRegistry(id) {

@@ -52,6 +52,39 @@ const dbRun = (query, params = []) => {
   });
 };
 
+function cleanObjectForDebug(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(cleanObjectForDebug);
+  }
+  if (typeof obj === 'object') {
+    const cleaned = {};
+    for (const key of Object.keys(obj)) {
+      if (key === 'data' && typeof obj[key] === 'string' && obj[key].length > 1000) {
+        cleaned[key] = `<base64 data, length: ${obj[key].length}>`;
+      } else {
+        cleaned[key] = cleanObjectForDebug(obj[key]);
+      }
+    }
+    return cleaned;
+  }
+  return obj;
+}
+
+async function writeContextDebug(options) {
+  try {
+    const debugPath = path.join(__dirname, 'context_debug.json');
+    const cleanOptions = cleanObjectForDebug(options);
+    const dump = {
+      timestamp: new Date().toISOString(),
+      ...cleanOptions
+    };
+    await fs.writeFile(debugPath, JSON.stringify(dump, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to write context_debug.json:', err);
+  }
+}
+
 function getWorkspacePaths(workspaceId, sessionId) {
   const wsDir = path.resolve(path.join(__dirname, 'workspaces', workspaceId));
   const srcDir = path.join(wsDir, 'src');
@@ -482,8 +515,15 @@ async function initDatabase() {
     id TEXT PRIMARY KEY,
     name TEXT,
     key TEXT,
-    created_at TEXT
+    created_at TEXT,
+    active INTEGER DEFAULT 1
   )`);
+
+  try {
+    await dbRun(`ALTER TABLE api_keys ADD COLUMN active INTEGER DEFAULT 1`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
   
   await dbRun(`CREATE TABLE IF NOT EXISTS instructions (
     id TEXT PRIMARY KEY,
@@ -539,10 +579,10 @@ let keyRotationIndex = 0; // Circular pointer to track key rotation index
 
 async function getNextApiKey(requestedKeyId) {
   if (requestedKeyId) {
-    const keyRecord = await dbGet("SELECT key FROM api_keys WHERE id = ?", [requestedKeyId]);
+    const keyRecord = await dbGet("SELECT key FROM api_keys WHERE id = ? AND (active IS NULL OR active = 1)", [requestedKeyId]);
     if (keyRecord) return keyRecord.key;
   }
-  const keys = await dbQuery("SELECT key FROM api_keys");
+  const keys = await dbQuery("SELECT key FROM api_keys WHERE active IS NULL OR active = 1");
   if (!keys || keys.length === 0) {
     return process.env.GEMINI_API_KEY;
   }
@@ -1262,7 +1302,7 @@ ${imageInfoText}When you detect a place in the document where an image, figure, 
 Do not summarize the document. Convert the content fully and accurately.
 Do not include any introductory text, concluding text, explanations, or wrapping markdown code blocks (such as \`\`\`markdown ... \`\`\`). Output ONLY the raw Markdown text.`;
 
-    const response = await ai.models.generateContent({
+    const modelParams = {
       model: 'gemini-2.5-flash',
       contents: [
         {
@@ -1280,7 +1320,10 @@ Do not include any introductory text, concluding text, explanations, or wrapping
           ]
         }
       ]
-    });
+    };
+    await writeContextDebug(modelParams);
+
+    const response = await ai.models.generateContent(modelParams);
 
     const markdownText = response.text || '';
     const outputMdPath = path.join(outputDir, `${cleanFolderName}.md`);
@@ -1484,7 +1527,7 @@ app.get('/api/find-folder', async (req, res) => {
 
 app.get('/api/key', async (req, res) => {
   try {
-    const keys = await dbQuery("SELECT id, name, created_at FROM api_keys");
+    const keys = await dbQuery("SELECT id, name, active, created_at FROM api_keys");
     res.json(keys);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1497,12 +1540,38 @@ app.post('/api/key', async (req, res) => {
     if (!key || !name) {
       return res.status(400).json({ error: 'Missing parameter "key" or "name"' });
     }
+    // Check if key already exists
+    const existing = await dbGet("SELECT id FROM api_keys WHERE key = ?", [key]);
+    if (existing) {
+      return res.status(409).json({ error: 'Key already exists' });
+    }
     const id = 'key_' + crypto.randomUUID().substring(0, 8);
     await dbRun(
-      "INSERT INTO api_keys (id, name, key, created_at) VALUES (?, ?, ?, ?)",
-      [id, name, key, new Date().toISOString()]
+      "INSERT INTO api_keys (id, name, key, created_at, active) VALUES (?, ?, ?, ?, ?)",
+      [id, name, key, new Date().toISOString(), 1]
     );
     res.status(201).json({ message: 'added', id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/key/:id/toggle', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    if (active === undefined) {
+      return res.status(400).json({ error: 'Missing parameter "active"' });
+    }
+    const activeVal = active ? 1 : 0;
+    const result = await dbRun(
+      "UPDATE api_keys SET active = ? WHERE id = ?",
+      [activeVal, id]
+    );
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    res.json({ message: 'toggled', active: activeVal });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2816,7 +2885,10 @@ function isRetryableError(error) {
   const status = error.status || error.statusCode || (error.cause && (error.cause.status || error.cause.statusCode));
   if (status) {
     const s = parseInt(status, 10);
-    // 4xx client errors (like 400 Bad Request, 403 Forbidden, 429 Rate Limit) are NOT retryable
+    if (s === 429) {
+      return true;
+    }
+    // 4xx client errors (like 400 Bad Request, 403 Forbidden) are NOT retryable
     if (s >= 400 && s < 500) {
       return false;
     }
@@ -2827,12 +2899,12 @@ function isRetryableError(error) {
   }
 
   const msg = (error.message || '').toLowerCase();
+  if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) {
+    return true;
+  }
   if (
     msg.includes('400') || 
     msg.includes('bad request') || 
-    msg.includes('429') || 
-    msg.includes('rate limit') || 
-    msg.includes('quota') || 
     msg.includes('403') || 
     msg.includes('401') || 
     msg.includes('unauthorized')
@@ -2857,6 +2929,8 @@ function isRetryableError(error) {
 }
 
 async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, apiKeyId) {
+  let wsDir;
+  let runId;
   try {
     const currentKey = await getNextApiKey(apiKeyId);
     if (!currentKey) {
@@ -2887,7 +2961,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
     sessionStatus.set(sessionId, 'generating');
 
     // Avoid inserting duplicate consecutive user messages
-    const { wsDir } = getWorkspacePaths(workspaceId);
+    wsDir = getWorkspacePaths(workspaceId).wsDir;
     const messages = await loadSessionMessages(wsDir, sessionId);
     const lastMsg = messages[messages.length - 1];
     let isDuplicate = false;
@@ -3229,7 +3303,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
     const initialCheckpointMsgId = initialMessages.reduce((max, m) => m.id > max ? m.id : max, 0);
     let checkpointMsgId = initialCheckpointMsgId;
 
-    const runId = crypto.randomUUID();
+    runId = crypto.randomUUID();
     activeGenerations.set(sessionId, runId);
 
     const maxRetries = 10;
@@ -3319,11 +3393,13 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
             });
 
             const requestPromise = (async () => {
-              const stream = await ai.models.generateContentStream({
+              const modelParams = {
                 model,
                 config,
                 contents: [...contentStack, { role: 'user', parts: [{ text: "<systemNotification>There was a glitch in the system. Continue your progress.</systemNotification>" }] }]
-              });
+              };
+              await writeContextDebug(modelParams);
+              const stream = await ai.models.generateContentStream(modelParams);
               const iterator = stream[Symbol.asyncIterator]();
               const { value, done } = await iterator.next();
               return { stream, iterator, value, done };
@@ -3346,11 +3422,13 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
               throw err;
             }
           } else {
-            responseStream = await ai.models.generateContentStream({
+            const modelParams = {
               model,
               config,
               contents: contentStack,
-            });
+            };
+            await writeContextDebug(modelParams);
+            responseStream = await ai.models.generateContentStream(modelParams);
           }
 
           let assistantResponseParts = [];
@@ -3766,6 +3844,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
 
         // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, 30000); // Exponential backoff for next retry attempt
       }
     }
   } catch (error) {
