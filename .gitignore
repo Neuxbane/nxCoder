@@ -2,3 +2,4 @@ node_modules
 *.sqlite
 workspaces
 context_debug.json
+datasets/
