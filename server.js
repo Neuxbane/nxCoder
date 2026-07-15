@@ -2928,6 +2928,63 @@ function isRetryableError(error) {
   return true;
 }
 
+function mapContentStackToSteps(contentStack) {
+  const steps = [];
+  for (const turn of contentStack) {
+    if (turn.role === 'user') {
+      const userInputContent = [];
+      for (const part of turn.parts) {
+        if (part.functionResponse) {
+          if (userInputContent.length > 0) {
+            steps.push({
+              type: 'user_input',
+              content: [...userInputContent]
+            });
+            userInputContent.length = 0;
+          }
+          steps.push({
+            type: 'function_result',
+            call_id: part.functionResponse.id,
+            name: part.functionResponse.name,
+            result: part.functionResponse.response?.result ?? part.functionResponse.response
+          });
+        } else if (part.text) {
+          userInputContent.push({ type: 'text', text: part.text });
+        } else if (part.inlineData) {
+          userInputContent.push({
+            type: 'image',
+            data: part.inlineData.data,
+            mime_type: part.inlineData.mimeType
+          });
+        }
+      }
+      if (userInputContent.length > 0) {
+        steps.push({
+          type: 'user_input',
+          content: userInputContent
+        });
+      }
+    } else if (turn.role === 'model') {
+      for (const part of turn.parts) {
+        if (part.functionCall) {
+          steps.push({
+            type: 'function_call',
+            id: part.functionCall.id,
+            name: part.functionCall.name,
+            arguments: part.functionCall.args
+          });
+        } else if (part.text) {
+          steps.push({
+            type: 'model_output',
+            content: [{ type: 'text', text: part.text }]
+          });
+        }
+      }
+    }
+  }
+  return steps;
+}
+
 async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, apiKeyId) {
   let wsDir;
   let runId;
@@ -3393,13 +3450,28 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
             });
 
             const requestPromise = (async () => {
-              const modelParams = {
+              const historySteps = mapContentStackToSteps([
+                ...contentStack,
+                { role: 'user', parts: [{ text: "<systemNotification>There was a glitch in the system. Continue your progress.</systemNotification>" }] }
+              ]);
+              const params = {
                 model,
-                config,
-                contents: [...contentStack, { role: 'user', parts: [{ text: "<systemNotification>There was a glitch in the system. Continue your progress.</systemNotification>" }] }]
+                store: false,
+                input: historySteps,
+                stream: true,
+                system_instruction: dynamicInstruction,
+                tools: tools.flatMap(t => {
+                  if (t.functionDeclarations) {
+                    return t.functionDeclarations.map(fd => ({
+                      type: 'function',
+                      ...fd
+                    }));
+                  }
+                  return t;
+                })
               };
-              await writeContextDebug(modelParams);
-              const stream = await ai.models.generateContentStream(modelParams);
+              await writeContextDebug(params);
+              const stream = await ai.interactions.create(params);
               const iterator = stream[Symbol.asyncIterator]();
               const { value, done } = await iterator.next();
               return { stream, iterator, value, done };
@@ -3422,103 +3494,137 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
               throw err;
             }
           } else {
-            const modelParams = {
+            const historySteps = mapContentStackToSteps(contentStack);
+            const params = {
               model,
-              config,
-              contents: contentStack,
+              store: false,
+              input: historySteps,
+              stream: true,
+              system_instruction: dynamicInstruction,
+              tools: tools.flatMap(t => {
+                if (t.functionDeclarations) {
+                  return t.functionDeclarations.map(fd => ({
+                    type: 'function',
+                    ...fd
+                  }));
+                }
+                return t;
+              })
             };
-            await writeContextDebug(modelParams);
-            responseStream = await ai.models.generateContentStream(modelParams);
+            await writeContextDebug(params);
+            responseStream = await ai.interactions.create(params);
           }
 
           let assistantResponseParts = [];
           let pendingCalls = [];
+          let activeFunctionCall = null;
           let mergedParts = [];
 
-          for await (const chunk of responseStream) {
+          async function updateModelMessageInDb() {
+            mergedParts = [];
+            for (const p of assistantResponseParts) {
+              if (p.thought) {
+                mergedParts.push({ thought: true, text: p.text });
+              } else if (p.text) {
+                mergedParts.push({ text: p.text });
+              }
+            }
+            for (const fc of pendingCalls) {
+              mergedParts.push({ functionCall: { id: fc.id, name: fc.name, args: fc.args } });
+            }
+
+            const currentMessages = await loadSessionMessages(wsDir, sessionId);
+            if (!modelMessageId) {
+              modelMessageId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+              lastModelMessageId = modelMessageId;
+              currentMessages.push({
+                id: modelMessageId,
+                role: 'model',
+                parts: mergedParts,
+                createdAt: new Date().toISOString()
+              });
+            } else {
+              const idx = currentMessages.findIndex(m => m.id === modelMessageId);
+              if (idx !== -1) {
+                currentMessages[idx].parts = mergedParts;
+              }
+              lastModelMessageId = modelMessageId;
+            }
+            await saveSessionMessages(wsDir, sessionId, currentMessages);
+          }
+
+          for await (const event of responseStream) {
             // Check if this run has been superseded
             if (activeGenerations.get(sessionId) !== runId) {
               return;
+            }
+
+            // Check abort flag mid-stream
+            if (sessionAbortFlags.get(sessionId)) {
+              keepRunning = false;
+              break;
             }
 
             // Successful generation chunk received - reset attempts and backoff delay
             attempt = 0;
             delay = 2000;
 
-            // Extract parts directly from candidates to avoid the SDK "non-text parts" warning
-            const parts = chunk.candidates?.[0]?.content?.parts || [];
-
-            for (const part of parts) {
-              // Check abort flag mid-stream
-              if (sessionAbortFlags.get(sessionId)) {
-                keepRunning = false;
-                break;
+            if (event.event_type === "step.start") {
+              if (event.step && event.step.type === "function_call") {
+                activeFunctionCall = {
+                  id: event.step.id,
+                  name: event.step.name,
+                  argumentsString: ""
+                };
               }
-
-              let partAdded = false;
-              if (part.thought && part.text) {
-                assistantResponseParts.push({ thought: true, text: part.text });
-                partAdded = true;
-                sendToSession(sessionId, {
-                  type: 'THOUGHT_STREAM',
-                  text: part.text
-                });
-              } else if (part.text) {
-                assistantResponseParts.push({ text: part.text });
-                partAdded = true;
-                sendToSession(sessionId, {
-                  type: 'TOKEN_STREAM',
-                  text: part.text
-                });
-              } else if (part.functionCall) {
-                pendingCalls.push(part.functionCall);
-                partAdded = true;
+            } else if (event.event_type === "step.delta") {
+              if (event.delta) {
+                if (event.delta.type === "text" && event.delta.text) {
+                  assistantResponseParts.push({ text: event.delta.text });
+                  sendToSession(sessionId, {
+                    type: 'TOKEN_STREAM',
+                    text: event.delta.text
+                  });
+                  await updateModelMessageInDb();
+                } else if (event.delta.type === "thought_summary" && event.delta.content && event.delta.content.text) {
+                  const thoughtText = event.delta.content.text;
+                  assistantResponseParts.push({ thought: true, text: thoughtText });
+                  sendToSession(sessionId, {
+                    type: 'THOUGHT_STREAM',
+                    text: thoughtText
+                  });
+                  await updateModelMessageInDb();
+                } else if (event.delta.type === "arguments_delta" && event.delta.arguments) {
+                  if (activeFunctionCall) {
+                    activeFunctionCall.argumentsString += event.delta.arguments;
+                  }
+                }
+              }
+            } else if (event.event_type === "step.stop") {
+              if (activeFunctionCall) {
+                let args = {};
+                try {
+                  if (activeFunctionCall.argumentsString) {
+                    args = JSON.parse(activeFunctionCall.argumentsString);
+                  }
+                } catch (e) {
+                  console.error("Failed to parse function arguments JSON:", activeFunctionCall.argumentsString, e);
+                }
+                const finalCall = {
+                  id: activeFunctionCall.id,
+                  name: activeFunctionCall.name,
+                  args: args
+                };
+                pendingCalls.push(finalCall);
                 sendToSession(sessionId, {
                   type: 'FUNCTION_CALL',
-                  name: part.functionCall.name,
-                  callId: part.functionCall.id,
-                  args: part.functionCall.args
+                  name: finalCall.name,
+                  callId: finalCall.id,
+                  args: finalCall.args
                 });
+                await updateModelMessageInDb();
+                activeFunctionCall = null;
               }
-
-              if (partAdded) {
-                // Keep accumulator matching live streams
-                mergedParts = [];
-                for (const p of assistantResponseParts) {
-                  if (p.thought) {
-                    mergedParts.push({ thought: true, text: p.text });
-                  } else if (p.text) {
-                    mergedParts.push({ text: p.text });
-                  }
-                }
-                for (const fc of pendingCalls) {
-                  mergedParts.push({ functionCall: { id: fc.id, name: fc.name, args: fc.args } });
-                }
-
-                const currentMessages = await loadSessionMessages(wsDir, sessionId);
-                if (!modelMessageId) {
-                  modelMessageId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
-                  lastModelMessageId = modelMessageId;
-                  currentMessages.push({
-                    id: modelMessageId,
-                    role: 'model',
-                    parts: mergedParts,
-                    createdAt: new Date().toISOString()
-                  });
-                } else {
-                  const idx = currentMessages.findIndex(m => m.id === modelMessageId);
-                  if (idx !== -1) {
-                    currentMessages[idx].parts = mergedParts;
-                  }
-                  lastModelMessageId = modelMessageId;
-                }
-                await saveSessionMessages(wsDir, sessionId, currentMessages);
-              }
-            }
-
-            // If inner loop detected abort and set keepRunning to false, break the stream chunk loop
-            if (!keepRunning) {
-              break;
             }
           }
 
