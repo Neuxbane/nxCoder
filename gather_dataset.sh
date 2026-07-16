@@ -1,3 +1,4 @@
+rm -rf datasets
 # Create the target directory
 mkdir -p datasets
 
@@ -10,3 +11,6 @@ find ./workspaces -type f -name "messages.jsonl" | while read -r filepath; do
     echo "Copied: $filepath -> datasets/messages${count}.jsonl"
     count=$((count + 1))
 done
+
+python extract_dataset.py
+python inject_tools.py
