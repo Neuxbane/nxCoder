@@ -25,9 +25,9 @@ export class GeminiLiveProvider extends BaseProvider {
         {
           id: 'model',
           label: 'Live Model Name',
-          type: 'text',
-          placeholder: 'models/gemini-3.1-flash-live-preview',
-          default: 'models/gemini-3.1-flash-live-preview',
+          type: 'options',
+          options: ['gemini-3.1-flash-live-preview', 'gemini-2.5-flash-native-audio-preview-09-2025', 'gemini-2.5-flash-native-audio-preview-12-2025'],
+          default: 'gemini-3.1-flash-live-preview',
           required: true
         }
       ]
@@ -37,7 +37,7 @@ export class GeminiLiveProvider extends BaseProvider {
   async executeStream(params, callbacks) {
     const { messages, systemInstruction, tools, signal } = params;
     const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
-    let model = this.config.model || 'models/gemini-3.1-flash-live-preview';
+    let model = this.config.model || 'gemini-3.1-flash-live-preview';
 
     if (!apiKey) {
       throw new Error('API key is required for Gemini Live connection.');
