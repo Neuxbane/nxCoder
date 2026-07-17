@@ -49,15 +49,15 @@ export class GeminiLiveProvider extends BaseProvider {
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
-    console.log(`[Gemini Live] Connecting to: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
-    console.log(`[Gemini Live] Targeted model formatted parameter: ${model}`);
+    //console.log(`[Gemini Live] Connecting to: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
+    //console.log(`[Gemini Live] Targeted model formatted parameter: ${model}`);
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
 
       if (signal) {
         signal.addEventListener('abort', () => {
-          console.log('[Gemini Live] Abort signal received, closing socket.');
+          //console.log('[Gemini Live] Abort signal received, closing socket.');
           ws.close();
           reject(new Error('Operation aborted'));
         });
@@ -112,7 +112,7 @@ export class GeminiLiveProvider extends BaseProvider {
       }
 
       ws.on('open', () => {
-        console.log('[Gemini Live] Connection opened successfully.');
+        //console.log('[Gemini Live] Connection opened successfully.');
 
         // Send Setup frame only — clientContent MUST wait for setupComplete from server
         const setupMsg = {
@@ -140,14 +140,14 @@ export class GeminiLiveProvider extends BaseProvider {
           }];
         }
 
-        console.log('[Gemini Live] Outgoing setup frame:', JSON.stringify(setupMsg));
+        //console.log('[Gemini Live] Outgoing setup frame:', JSON.stringify(setupMsg));
         ws.send(JSON.stringify(setupMsg));
       });
 
       ws.on('message', (data) => {
         try {
           const parsed = JSON.parse(data.toString());
-          console.log('[Gemini Live] Incoming frame payload:', JSON.stringify(parsed));
+          //console.log('[Gemini Live] Incoming frame payload:', JSON.stringify(parsed));
 
           // Send history turns only AFTER server confirms setup is complete
           if (parsed.setupComplete !== undefined) {
@@ -158,7 +158,7 @@ export class GeminiLiveProvider extends BaseProvider {
                   turnComplete: true
                 }
               };
-              console.log('[Gemini Live] Outgoing clientContent turns frame:', JSON.stringify(clientContentMsg));
+              //console.log('[Gemini Live] Outgoing clientContent turns frame:', JSON.stringify(clientContentMsg));
               ws.send(JSON.stringify(clientContentMsg));
             }
             return;
@@ -180,7 +180,7 @@ export class GeminiLiveProvider extends BaseProvider {
 
           // Handle tool call events (Top-level toolCall payload)
           if (parsed.toolCall?.functionCalls) {
-            console.log('[Gemini Live] Server function call request detected:', JSON.stringify(parsed.toolCall.functionCalls));
+            //console.log('[Gemini Live] Server function call request detected:', JSON.stringify(parsed.toolCall.functionCalls));
             (async () => {
               try {
                 const functionResponses = [];
@@ -210,7 +210,7 @@ export class GeminiLiveProvider extends BaseProvider {
                     functionResponses
                   }
                 };
-                console.log('[Gemini Live] Outgoing toolResponse frame:', JSON.stringify(toolResponseMsg));
+                //console.log('[Gemini Live] Outgoing toolResponse frame:', JSON.stringify(toolResponseMsg));
                 ws.send(JSON.stringify(toolResponseMsg));
               } catch (err) {
                 console.error('[Gemini Live] Tool execution error:', err);
@@ -222,7 +222,7 @@ export class GeminiLiveProvider extends BaseProvider {
           }
 
           if (parsed.serverContent?.turnComplete) {
-            console.log('[Gemini Live] Server turnComplete flag received.');
+            //console.log('[Gemini Live] Server turnComplete flag received.');
             ws.close();
             resolve();
           }
@@ -239,7 +239,7 @@ export class GeminiLiveProvider extends BaseProvider {
       });
 
       ws.on('close', (code, reason) => {
-        console.log(`[Gemini Live] WebSocket closed (Code: ${code}, Reason: ${reason || 'none'}).`);
+        //console.log(`[Gemini Live] WebSocket closed (Code: ${code}, Reason: ${reason || 'none'}).`);
         resolve();
       });
     });
