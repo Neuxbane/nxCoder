@@ -15,6 +15,8 @@ import { promisify } from 'util';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
 import { deviceManager, createVisualGrid } from './deviceControl.js';
+import { MarketplaceManager } from './marketplace/manager.js';
+import { GeminiProvider } from './marketplace/builtin/providers/gemini.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +26,8 @@ const sqliteDb = new sqlite3.Database(dbSource);
 
 // Enable foreign key cascading constraints automatically
 sqliteDb.run("PRAGMA foreign_keys = ON");
+
+const marketplaceManager = new MarketplaceManager(sqliteDb);
 
 const dbQuery = (query, params = []) => {
   return new Promise((resolve, reject) => {
@@ -224,8 +228,37 @@ async function createWorkspaceMirror(workspaceId, sessionId) {
 
   for (const repo of repos) {
     const mirrorFolder = path.join(mirrorBase, repo.folderName);
-    await fs.mkdir(mirrorFolder, { recursive: true });
+    try {
+      await fs.rm(mirrorFolder, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(repo.realPath, mirrorFolder, 'dir');
+    } catch (err) {
+      console.error(`Failed to symlink workspace mirror for ${repo.folderName}:`, err.message);
+      await fs.mkdir(mirrorFolder, { recursive: true });
+    }
   }
+}
+
+async function cleanWorkspaceMirror(workspaceId, sessionId) {
+  const { wsDir } = getWorkspacePaths(workspaceId);
+  const repos = await getGitReposForWorkspace(workspaceId);
+  const mirrorBase = path.join(wsDir, 'sessions', sessionId, 'workspace_mirror');
+  
+  for (const repo of repos) {
+    const mirrorFolder = path.join(mirrorBase, repo.folderName);
+    try {
+      const stat = await fs.lstat(mirrorFolder);
+      if (stat.isSymbolicLink()) {
+        await fs.unlink(mirrorFolder);
+      } else {
+        await fs.rm(mirrorFolder, { recursive: true, force: true });
+      }
+    } catch {}
+  }
+  try {
+    await fs.rm(mirrorBase, { recursive: true, force: true });
+  } catch {}
 }
 
 async function mergeMirrorChangesBack(workspaceId, sessionId, modelMessageId) {
@@ -524,6 +557,12 @@ async function initDatabase() {
   } catch (e) {
     // Column already exists, ignore
   }
+
+  try {
+    await dbRun(`ALTER TABLE api_keys ADD COLUMN provider_id TEXT DEFAULT 'gemini'`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
   
   await dbRun(`CREATE TABLE IF NOT EXISTS instructions (
     id TEXT PRIMARY KEY,
@@ -560,11 +599,33 @@ async function initDatabase() {
 
 
   
+  await marketplaceManager.initDatabase();
+  await marketplaceManager.syncMarketplace();
+  
   console.log("💾 SQLite database schemas initialized successfully.");
 }
 
-initDatabase().then(() => {
-  return syncAllWorkspaces();
+const builtinToolsDeps = {
+  get listDirTool() { return listDirTool; },
+  get readFileTool() { return readFileTool; },
+  get writeFileTool() { return writeFileTool; },
+  get editFileTool() { return editFileTool; },
+  get executeCommandTool() { return executeCommandTool; },
+  get regexSearchTool() { return regexSearchTool; },
+  get sendTerminalInputTool() { return sendTerminalInputTool; },
+  get waitTool() { return waitTool; },
+  get waitTerminalTool() { return waitTerminalTool; },
+  get terminateTerminalTool() { return terminateTerminalTool; },
+  get setSessionNameTool() { return setSessionNameTool; },
+  get parseDocumentTool() { return parseDocumentTool; },
+  get viewImageTool() { return viewImageTool; },
+  deviceManager,
+  createVisualGrid
+};
+
+initDatabase().then(async () => {
+  await syncAllWorkspaces();
+  await marketplaceManager.connectMcpClients(builtinToolsDeps);
 }).catch(err => {
   console.error("❌ Schema initialization failed:", err);
 });
@@ -600,8 +661,11 @@ async function getNextApiKey(requestedKeyId) {
 async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
   const { wsDir, sessionFolder, sessionMirrorRoot, sessionUploadsDir, sessionArtifactDir, sessionScratchpadDir } = getWorkspacePaths(workspaceId, sessionId);
 
-  // Normalize targetPath separators
-  const normPath = targetPath.replace(/\\/g, '/');
+  // Normalize targetPath separators and strip leading slashes/spaces
+  let normPath = targetPath.replace(/\\/g, '/').trim();
+  while (normPath.startsWith('/')) {
+    normPath = normPath.substring(1);
+  }
 
   // If path starts with workspace_mirror, resolve to the physical path directly
   if (normPath.startsWith('workspace_mirror/') || normPath === 'workspace_mirror') {
@@ -629,13 +693,20 @@ async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
   await fs.mkdir(sessionArtifactDir, { recursive: true });
   await fs.mkdir(sessionScratchpadDir, { recursive: true });
 
-  // Reject absolute paths from the model entirely
+  // Reject absolute paths from the model entirely (ignoring sandbox virtual roots)
   if (path.isAbsolute(targetPath)) {
-    throw new Error(`Access Denied: Absolute paths are not permitted. Use paths relative to your session workspace root (e.g. "my_project/index.html" or "uploads/file.txt").`);
+    const cleanPath = targetPath.replace(/\\/g, '/');
+    const isSandboxRelative = cleanPath.startsWith('/workspace_mirror') || 
+                              cleanPath.startsWith('/uploads') || 
+                              cleanPath.startsWith('/scratchpad') || 
+                              cleanPath.startsWith('/terminals');
+    if (!isSandboxRelative) {
+      throw new Error(`Access Denied: Absolute paths are not permitted. Use paths relative to your session workspace root (e.g. "my_project/index.html" or "uploads/file.txt").`);
+    }
   }
 
   // Resolve relative to the session folder
-  const resolvedTarget = path.resolve(sessionFolder, targetPath);
+  const resolvedTarget = path.resolve(sessionFolder, normPath);
 
   // Ensure the resolved path is strictly within the session folder (prevent path traversal)
   const rel = path.relative(sessionFolder, resolvedTarget);
@@ -1523,11 +1594,170 @@ app.get('/api/find-folder', async (req, res) => {
     console.error(`[API] find-folder error:`, error);
     res.status(500).json({ error: error.message });
   }
+});// --- Marketplace API Endpoints ---
+app.get('/api/marketplace/sources', async (req, res) => {
+  try {
+    const sources = await marketplaceManager.getSources();
+    res.json(sources);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketplace/sources', async (req, res) => {
+  try {
+    const { type, source } = req.body;
+    if (!type || !source) {
+      return res.status(400).json({ error: 'Missing type or source' });
+    }
+    const result = await marketplaceManager.addSource(type, source);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/marketplace/sources/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await marketplaceManager.removeSource(id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/marketplace/providers', async (req, res) => {
+  try {
+    const list = marketplaceManager.getProvidersList();
+    const result = [];
+    for (const prov of list) {
+      const installed = await marketplaceManager.isProviderInstalled(prov.id);
+      result.push({ ...prov, installed });
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/marketplace/providers/configs', async (req, res) => {
+  try {
+    const configs = await marketplaceManager.getProviderConfigs();
+    res.json(configs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketplace/providers/configs', async (req, res) => {
+  try {
+    const { name, providerId, config } = req.body;
+    if (!name || !providerId || !config) {
+      return res.status(400).json({ error: 'Missing name, providerId or config' });
+    }
+    const result = await marketplaceManager.addProviderConfig(name, providerId, config);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/marketplace/providers/configs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, config } = req.body;
+    const result = await marketplaceManager.updateProviderConfig(id, name, config);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/marketplace/providers/configs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await marketplaceManager.deleteProviderConfig(id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketplace/providers/configs/:id/active', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await marketplaceManager.setActiveProviderConfig(id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/marketplace/mcps', async (req, res) => {
+  try {
+    const mcps = await marketplaceManager.getMcpServers();
+    const result = [];
+    for (const mcp of mcps) {
+      const installed = await marketplaceManager.isMcpInstalled(mcp);
+      result.push({ ...mcp, installed });
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketplace/mcps', async (req, res) => {
+  try {
+    const { name, type, source } = req.body;
+    if (!name || !type || !source) {
+      return res.status(400).json({ error: 'Missing name, type or source' });
+    }
+    const result = await marketplaceManager.addMcpServerDirect(name, type, source);
+    await marketplaceManager.connectMcpClients(builtinToolsDeps);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/marketplace/mcps/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await marketplaceManager.deleteMcpServerDirect(id);
+    await marketplaceManager.connectMcpClients(builtinToolsDeps);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketplace/mcps/:id/toggle', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    const result = await marketplaceManager.toggleMcpServer(id, active);
+    await marketplaceManager.connectMcpClients(builtinToolsDeps);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketplace/sync', async (req, res) => {
+  try {
+    await marketplaceManager.syncMarketplace();
+    await marketplaceManager.connectMcpClients(builtinToolsDeps);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/key', async (req, res) => {
   try {
-    const keys = await dbQuery("SELECT id, name, active, created_at FROM api_keys");
+    const keys = await dbQuery("SELECT id, name, active, created_at, provider_id FROM api_keys");
     res.json(keys);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1536,19 +1766,19 @@ app.get('/api/key', async (req, res) => {
 
 app.post('/api/key', async (req, res) => {
   try {
-    const { key, name } = req.body;
+    const { key, name, provider_id } = req.body;
     if (!key || !name) {
       return res.status(400).json({ error: 'Missing parameter "key" or "name"' });
     }
-    // Check if key already exists
-    const existing = await dbGet("SELECT id FROM api_keys WHERE key = ?", [key]);
+    // Check if key already exists for this provider
+    const existing = await dbGet("SELECT id FROM api_keys WHERE key = ? AND provider_id = ?", [key, provider_id || 'gemini']);
     if (existing) {
       return res.status(409).json({ error: 'Key already exists' });
     }
     const id = 'key_' + crypto.randomUUID().substring(0, 8);
     await dbRun(
-      "INSERT INTO api_keys (id, name, key, created_at, active) VALUES (?, ?, ?, ?, ?)",
-      [id, name, key, new Date().toISOString(), 1]
+      "INSERT INTO api_keys (id, name, key, created_at, active, provider_id) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, name, key, new Date().toISOString(), 1, provider_id || 'gemini']
     );
     res.status(201).json({ message: 'added', id });
   } catch (err) {
@@ -1751,7 +1981,7 @@ app.get('/api/workspace/:id/session', async (req, res) => {
 app.delete('/api/workspace/:id/session/:sessionID', async (req, res) => {
   try {
     const { id: workspaceId, sessionID } = req.params;
-    // Set abort flag so that any active executeGeminiStream loop for this session stops
+    // Set abort flag so that any active executeStream loop for this session stops
     sessionAbortFlags.set(sessionID, true);
 
     // Terminate any running processes associated with the deleted session
@@ -2882,6 +3112,9 @@ function trimHistoryToLast100Turns(historyRows) {
 }
 
 function isRetryableError(error) {
+  if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+    return false;
+  }
   const status = error.status || error.statusCode || (error.cause && (error.cause.status || error.cause.statusCode));
   if (status) {
     const s = parseInt(status, 10);
@@ -2985,20 +3218,22 @@ function mapContentStackToSteps(contentStack) {
   return steps;
 }
 
-async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, apiKeyId) {
+async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKeyId) {
   let wsDir;
   let runId;
   try {
-    const currentKey = await getNextApiKey(apiKeyId);
-    if (!currentKey) {
-      ws.send(JSON.stringify({ 
-        type: 'ERROR', 
-        message: 'No available API Key in rotation storage database.' 
-      }));
-      return;
+    let provider = await marketplaceManager.getActiveProvider();
+    if (!provider) {
+      const currentKey = await getNextApiKey(apiKeyId);
+      if (!currentKey) {
+        ws.send(JSON.stringify({ 
+          type: 'ERROR', 
+          message: 'No available API Key in rotation storage database.' 
+        }));
+        return;
+      }
+      provider = new GeminiProvider({ apiKey: currentKey, defaultModel: 'gemini-2.5-flash' });
     }
-
-    const ai = new GoogleGenAI({ apiKey: currentKey });
 
     // Ensure session exists to prevent SQLITE_CONSTRAINT foreign key issues on user text messages
     let session = await dbGet("SELECT * FROM sessions WHERE id = ?", [sessionId]);
@@ -3017,7 +3252,6 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
 
     sessionStatus.set(sessionId, 'generating');
 
-    // Avoid inserting duplicate consecutive user messages
     wsDir = getWorkspacePaths(workspaceId).wsDir;
     const messages = await loadSessionMessages(wsDir, sessionId);
     const lastMsg = messages[messages.length - 1];
@@ -3083,269 +3317,8 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
 
     const dynamicInstruction = await assembleContextualInstruction(workspaceId, sessionId, baseInstruction, userMessageText);
 
-    const tools = [
-      {
-        functionDeclarations: [
-          {
-            name: 'list_dir',
-            description: 'Lists files and directory structures inside paths. All paths are relative to your session workspace root.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                path: { type: Type.STRING, description: 'Relative path within your session workspace (e.g. "workspace_mirror/myproject/src", "uploads").' }
-              },
-              required: ['path']
-            }
-          },
-          {
-            name: 'read_file',
-            description: 'Reads contents of file, supporting pagination. Returns the content and the total line count of the file.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                path: { type: Type.STRING, description: 'Relative path to the target file within your session workspace (e.g. "workspace_mirror/myproject/index.html" or "uploads/abc_doc.pdf").' },
-                from_line: { type: Type.INTEGER, description: 'First line index target. Use negative values to count from the end of the file (e.g., -1 is the last line).' },
-                to_line: { type: Type.INTEGER, description: 'End line index target. Use negative values to count from the end of the file (e.g., -1 is the last line).' }
-              },
-              required: ['path']
-            }
-          },
-          {
-            name: 'write_file',
-            description: 'Creates a new file or completely overwrites an existing file. Use ONLY for creating new files or when replacing the entire content. For editing existing files, use edit_file instead.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                path: { type: Type.STRING, description: 'Relative path within your session workspace (e.g. "workspace_mirror/myproject/new_file.js").' },
-                content: { type: Type.STRING, description: 'Complete file contents to write.' }
-              },
-              required: ['path', 'content']
-            }
-          },
-          {
-            name: 'edit_file',
-            description: 'Patches an existing file using a search-block / replace-block strategy. Finds an exact occurrence of `search` in the file and replaces it with `replace`. Prefer this over write_file when editing existing files — only the changed section needs to be specified. The `search` block must exactly match the file content including whitespace and indentation. Use `occurrence` to target a specific match when the same block appears multiple times.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                path: { type: Type.STRING, description: 'Relative path within your session workspace to the file to patch (e.g. "workspace_mirror/myproject/src/index.js").' },
-                search: { type: Type.STRING, description: 'The exact text block to find in the file. Must match character-for-character.' },
-                replace: { type: Type.STRING, description: 'The replacement text that will substitute the matched search block.' },
-                occurrence: { type: Type.INTEGER, description: 'Which occurrence to replace when there are multiple matches (1-based, default 1).' }
-              },
-              required: ['path', 'search', 'replace']
-            }
-          },
-          {
-            name: 'execute_command',
-            description: 'Spawns terminal actions asynchronously. Outputs write continuously inside logs. Returns a terminal_id and a relative log_file path you can read with read_file.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                command: { type: Type.STRING, description: 'The terminal command to run.' },
-                path: { type: Type.STRING, description: 'Relative path within your session workspace where the command should run (e.g. "workspace_mirror/myproject").' },
-                name: { type: Type.STRING, description: 'An optional descriptive name for the terminal session.' }
-              },
-              required: ['command', 'path']
-            }
-          },
-          {
-            name: 'regex_search',
-            description: 'Searches for a regular expression in file names or file contents within specified paths.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                regexStr: { type: Type.STRING, description: 'The regular expression to search for.' },
-                paths: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'The paths to search within.' },
-                options: {
-                  type: Type.OBJECT,
-                  properties: {
-                    searchFileName: { type: Type.BOOLEAN, description: 'Whether to search in file names.' },
-                    searchFileContent: { type: Type.BOOLEAN, description: 'Whether to search in file contents.' }
-                  },
-                  description: 'Search options.'
-                }
-              },
-              required: ['regexStr', 'paths']
-            }
-          },
-          {
-            name: 'send_terminal_input',
-            description: 'Sends keyboard input or ASCII/escape sequences to a running terminal session\'s stdin. Useful for answering interactive prompts (e.g. y/n), sending Enter, Escape, Ctrl+C to interrupt, Ctrl+D to signal EOF, or any arbitrary text. Supports standard escape sequences: \\n (Enter/newline), \\r (carriage return), \\t (tab), \\e or \\x1b (Escape key), \\x03 (Ctrl+C / SIGINT), \\x04 (Ctrl+D / EOF), and arbitrary hex/unicode via \\xHH or \\uHHHH.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                terminal_id: { type: Type.STRING, description: 'The target terminal session ID returned from execute_command.' },
-                input: { type: Type.STRING, description: 'The input string to write to terminal stdin. Supports escape sequences: \\n (newline/Enter), \\r (carriage return), \\t (tab), \\e or \\x1b (Escape), \\x03 (Ctrl+C), \\x04 (Ctrl+D), \\xHH (arbitrary hex byte), \\uHHHH (unicode codepoint).' }
-              },
-              required: ['terminal_id', 'input']
-            }
-          },
-          {
-            name: 'wait',
-            description: 'Pauses active stream model turns for processing tasks.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                seconds: { type: Type.INTEGER, description: 'Seconds count to pause.' }
-              },
-              required: ['seconds']
-            }
-          },
-          {
-            name: 'wait_terminal',
-            description: 'Awaits complete background program outputs or logs.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                terminal_id: { type: Type.STRING, description: 'Target terminal tracking process ID.' },
-                timeout_seconds: { type: Type.INTEGER, description: 'Max check timeout seconds (Default 10).' }
-              },
-              required: ['terminal_id']
-            }
-          },
-          {
-            name: 'terminate_terminal',
-            description: 'Immediately kills running terminal tasks.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                terminal_id: { type: Type.STRING, description: 'Active terminal target ID.' }
-              },
-              required: ['terminal_id']
-            }
-          },
-          {
-            name: 'set_session_name',
-            description: 'Renames the current active chat window title dynamically.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                name: { type: Type.STRING, description: 'Fresh chat title string.' }
-              },
-              required: ['name']
-            }
-          },
-          {
-            name: 'parse_document',
-            description: 'Converts a document (PDF, Word, Excel, PowerPoint, Text, HTML, CSV) to Markdown and extracts any embedded images. The output is saved in a subfolder inside the session folder, containing the markdown file and the extracted images.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                filepath: { type: Type.STRING, description: 'Relative path within your session workspace to the document file (e.g. "uploads/abc_report.pdf").' },
-                outputName: { type: Type.STRING, description: 'Optional custom name for the output folder and Markdown file. If not specified, the source file name (without extension) is used.' }
-              },
-              required: ['filepath']
-            }
-          },
-          {
-            name: 'view_image',
-            description: 'Loads an image file (PNG, JPEG, WEBP, GIF, etc.) at the specified path and injects it directly inline into your multimodal context so you can see/inspect it directly.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                path: { type: Type.STRING, description: 'Relative path within your session workspace to the image file (e.g. "uploads/abc_photo.png" or "workspace_mirror/myproject/assets/logo.svg").' }
-              },
-              required: ['path']
-            }
-          },
-          {
-            name: 'list_devices',
-            description: 'Lists all available virtual or physical devices (e.g., adb android devices, local desktop environment, active browsers).',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {}
-            }
-          },
-          {
-            name: 'get_device_visuals',
-            description: 'Captures the current visual display of the specified device. Returns both a raw screenshot and a screenshot overlayed with a high-contrast coordinate grid.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                deviceId: { type: Type.STRING, description: 'The unique ID of the target device.' }
-              },
-              required: ['deviceId']
-            }
-          },
-          {
-            name: 'device_click',
-            description: 'Performs a mouse click or screen tap on the specified device at the given coordinates.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                deviceId: { type: Type.STRING, description: 'The unique ID of the target device.' },
-                x: { type: Type.INTEGER, description: 'The X coordinate.' },
-                y: { type: Type.INTEGER, description: 'The Y coordinate.' }
-              },
-              required: ['deviceId', 'x', 'y']
-            }
-          },
-          {
-            name: 'device_keyboard',
-            description: 'Emulates keyboard input on the target device, typing text or sending key events.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                deviceId: { type: Type.STRING, description: 'The unique ID of the target device.' },
-                text: { type: Type.STRING, description: 'Text to type into the active input field.' }
-              },
-              required: ['deviceId', 'text']
-            }
-          },
-          {
-            name: 'device_swipe',
-            description: 'Performs a swipe or drag gesture on the target device from a starting coordinate to an ending coordinate using a natural movement curve.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                deviceId: { type: Type.STRING, description: 'The unique ID of the target device.' },
-                fromX: { type: Type.INTEGER, description: 'Starting X coordinate.' },
-                fromY: { type: Type.INTEGER, description: 'Starting Y coordinate.' },
-                toX: { type: Type.INTEGER, description: 'Ending X coordinate.' },
-                toY: { type: Type.INTEGER, description: 'Ending Y coordinate.' },
-                duration: { type: Type.INTEGER, description: 'Duration of the swipe event in milliseconds (default 300).' }
-              },
-              required: ['deviceId', 'fromX', 'fromY', 'toX', 'toY']
-            }
-          },
-          {
-            name: 'device_navigate',
-            description: 'Directs the target device to navigate to the specified URL.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                deviceId: { type: Type.STRING, description: 'The unique ID of the target device.' },
-                url: { type: Type.STRING, description: 'The URL to open/navigate to.' }
-              },
-              required: ['deviceId', 'url']
-            }
-          },
-          {
-            name: 'device_scroll',
-            description: 'Emulates scrolling on the target device starting at a specific coordinate position.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                deviceId: { type: Type.STRING, description: 'The unique ID of the target device.' },
-                x: { type: Type.INTEGER, description: 'The X coordinate where the scroll starts (hover position).' },
-                y: { type: Type.INTEGER, description: 'The Y coordinate where the scroll starts (hover position).' },
-                deltaX: { type: Type.INTEGER, description: 'Horizontal scroll distance (positive: right, negative: left).' },
-                deltaY: { type: Type.INTEGER, description: 'Vertical scroll distance (positive: down, negative: up).' }
-              },
-              required: ['deviceId', 'x', 'y', 'deltaX', 'deltaY']
-            }
-          }
-        ]
-      }
-    ];
-
-    const config = {
-      tools,
-      systemInstruction: dynamicInstruction
-    };
-
-    const model = 'gemma-4-31b-it';
+    // Dynamic MCP tool discovery
+    const tools = await marketplaceManager.connectMcpClients(builtinToolsDeps);
 
     await initSessionGit(wsDir, sessionId);
     
@@ -3369,16 +3342,13 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
     let success = false;
 
     while (attempt < maxRetries && !success) {
-      // Check if this run has been superseded before starting the attempt
       if (activeGenerations.get(sessionId) !== runId) {
         return;
       }
       attempt++;
       try {
-        // Retrieve global database message history
         const historyRows = await loadSessionMessages(wsDir, sessionId);
         
-        // Parse parts columns and apply turn trimming algorithms
         const fullHistory = [];
         for (const row of historyRows) {
           if (row.role === 'system') {
@@ -3390,18 +3360,14 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
 
           for (const part of parsedParts) {
             if (part._localFilePath) {
-              // Do not send binary files (image, pdf, document) directly as base64 inlineData.
-              // The prompt injection already contains the location of the file in workspace/session storage,
-              // allowing the model to interact with it via tools (like parse_document) if needed.
+              // Skip local file parts
             } else if (part.thought) {
-              // Skip internal thought reasoning parts when sending history to Gemini API
+              // Skip thoughts
             } else if (isOldHistory) {
-              // For old history, only keep text parts (omit functionCall / functionResponse)
               if (part.text) {
                 processedParts.push(part);
               }
             } else {
-              // For the current turn (id > initialCheckpointMsgId), keep text, functionCall, and functionResponse
               processedParts.push(part);
             }
           }
@@ -3423,96 +3389,19 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
           }
         }
 
-        // Mark session as active; clear any prior abort signal
         sessionAbortFlags.set(sessionId, false);
 
         let keepRunning = true;
         let lastModelMessageId = null;
-        let isFirstTurn = true;
 
         while (keepRunning) {
           let modelMessageId = null;
-          // Check if this run has been superseded
           if (activeGenerations.get(sessionId) !== runId) {
             return;
           }
 
-          // Check for client-requested cancellation before each turn
           if (sessionAbortFlags.get(sessionId)) {
             break;
-          }
-
-          let responseStream;
-          if (isFirstTurn) {
-            let timeoutId;
-            const timeoutPromise = new Promise((_, reject) => {
-              timeoutId = setTimeout(() => reject(new Error('Gemini initial response timeout after 30s')), 30 * 1000);
-            });
-
-            const requestPromise = (async () => {
-              const historySteps = mapContentStackToSteps([
-                ...contentStack,
-                { role: 'user', parts: [{ text: "<systemNotification>There was a glitch in the system. Continue your progress.</systemNotification>" }] }
-              ]);
-              const params = {
-                model,
-                store: false,
-                input: historySteps,
-                stream: true,
-                system_instruction: dynamicInstruction,
-                tools: tools.flatMap(t => {
-                  if (t.functionDeclarations) {
-                    return t.functionDeclarations.map(fd => ({
-                      type: 'function',
-                      ...fd
-                    }));
-                  }
-                  return t;
-                })
-              };
-              await writeContextDebug(params);
-              const stream = await ai.interactions.create(params);
-              const iterator = stream[Symbol.asyncIterator]();
-              const { value, done } = await iterator.next();
-              return { stream, iterator, value, done };
-            })();
-
-            try {
-              const { iterator, value, done } = await Promise.race([requestPromise, timeoutPromise]);
-              clearTimeout(timeoutId);
-              
-              const wrappedStream = (async function* () {
-                if (!done) yield value;
-                for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) {
-                  yield chunk;
-                }
-              })();
-              responseStream = wrappedStream;
-              isFirstTurn = false;
-            } catch (err) {
-              clearTimeout(timeoutId);
-              throw err;
-            }
-          } else {
-            const historySteps = mapContentStackToSteps(contentStack);
-            const params = {
-              model,
-              store: false,
-              input: historySteps,
-              stream: true,
-              system_instruction: dynamicInstruction,
-              tools: tools.flatMap(t => {
-                if (t.functionDeclarations) {
-                  return t.functionDeclarations.map(fd => ({
-                    type: 'function',
-                    ...fd
-                  }));
-                }
-                return t;
-              })
-            };
-            await writeContextDebug(params);
-            responseStream = await ai.interactions.create(params);
           }
 
           let assistantResponseParts = [];
@@ -3520,7 +3409,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
           let activeFunctionCall = null;
           let mergedParts = [];
 
-          async function updateModelMessageInDb() {
+          const updateModelMessageInDb = async () => {
             mergedParts = [];
             for (const p of assistantResponseParts) {
               if (p.thought) {
@@ -3551,81 +3440,70 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
               lastModelMessageId = modelMessageId;
             }
             await saveSessionMessages(wsDir, sessionId, currentMessages);
-          }
+          };
 
-          for await (const event of responseStream) {
-            // Check if this run has been superseded
-            if (activeGenerations.get(sessionId) !== runId) {
-              return;
+          const controller = new AbortController();
+          const abortCheckInterval = setInterval(() => {
+            if (sessionAbortFlags.get(sessionId) || activeGenerations.get(sessionId) !== runId) {
+              controller.abort();
+              clearInterval(abortCheckInterval);
             }
+          }, 200);
 
-            // Check abort flag mid-stream
-            if (sessionAbortFlags.get(sessionId)) {
-              keepRunning = false;
-              break;
-            }
-
-            // Successful generation chunk received - reset attempts and backoff delay
-            attempt = 0;
-            delay = 2000;
-
-            if (event.event_type === "step.start") {
-              if (event.step && event.step.type === "function_call") {
-                activeFunctionCall = {
-                  id: event.step.id,
-                  name: event.step.name,
-                  argumentsString: ""
-                };
-              }
-            } else if (event.event_type === "step.delta") {
-              if (event.delta) {
-                if (event.delta.type === "text" && event.delta.text) {
-                  assistantResponseParts.push({ text: event.delta.text });
-                  sendToSession(sessionId, {
-                    type: 'TOKEN_STREAM',
-                    text: event.delta.text
-                  });
-                  await updateModelMessageInDb();
-                } else if (event.delta.type === "thought_summary" && event.delta.content && event.delta.content.text) {
-                  const thoughtText = event.delta.content.text;
-                  assistantResponseParts.push({ thought: true, text: thoughtText });
-                  sendToSession(sessionId, {
-                    type: 'THOUGHT_STREAM',
-                    text: thoughtText
-                  });
-                  await updateModelMessageInDb();
-                } else if (event.delta.type === "arguments_delta" && event.delta.arguments) {
-                  if (activeFunctionCall) {
-                    activeFunctionCall.argumentsString += event.delta.arguments;
-                  }
-                }
-              }
-            } else if (event.event_type === "step.stop") {
-              if (activeFunctionCall) {
-                let args = {};
-                try {
-                  if (activeFunctionCall.argumentsString) {
-                    args = JSON.parse(activeFunctionCall.argumentsString);
-                  }
-                } catch (e) {
-                  console.error("Failed to parse function arguments JSON:", activeFunctionCall.argumentsString, e);
-                }
-                const finalCall = {
-                  id: activeFunctionCall.id,
-                  name: activeFunctionCall.name,
-                  args: args
-                };
-                pendingCalls.push(finalCall);
-                sendToSession(sessionId, {
-                  type: 'FUNCTION_CALL',
-                  name: finalCall.name,
-                  callId: finalCall.id,
-                  args: finalCall.args
-                });
+          try {
+            await provider.executeStream({
+              messages: contentStack,
+              systemInstruction: dynamicInstruction,
+              tools,
+              signal: controller.signal
+            }, {
+              onTextChunk: async (text) => {
+                assistantResponseParts.push({ text });
+                sendToSession(sessionId, { type: 'TOKEN_STREAM', text });
                 await updateModelMessageInDb();
-                activeFunctionCall = null;
+              },
+              onThoughtChunk: async (text) => {
+                assistantResponseParts.push({ thought: true, text });
+                sendToSession(sessionId, { type: 'THOUGHT_STREAM', text });
+                await updateModelMessageInDb();
+              },
+              onStepStart: ({ id, name }) => {
+                activeFunctionCall = { id, name, argumentsString: "" };
+              },
+              onStepDelta: (delta) => {
+                if (activeFunctionCall) {
+                  activeFunctionCall.argumentsString += delta;
+                }
+              },
+              onStepStop: async () => {
+                if (activeFunctionCall) {
+                  let args = {};
+                  try {
+                    if (activeFunctionCall.argumentsString) {
+                      args = JSON.parse(activeFunctionCall.argumentsString);
+                    }
+                  } catch (e) {
+                    console.error("Failed to parse function arguments JSON:", activeFunctionCall.argumentsString, e);
+                  }
+                  const finalCall = {
+                    id: activeFunctionCall.id,
+                    name: activeFunctionCall.name,
+                    args
+                  };
+                  pendingCalls.push(finalCall);
+                  sendToSession(sessionId, {
+                    type: 'FUNCTION_CALL',
+                    name: finalCall.name,
+                    callId: finalCall.id,
+                    args: finalCall.args
+                  });
+                  await updateModelMessageInDb();
+                  activeFunctionCall = null;
+                }
               }
-            }
+            });
+          } finally {
+            clearInterval(abortCheckInterval);
           }
 
           if (pendingCalls.length > 0) {
@@ -3634,102 +3512,16 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
             let toolOutputMsgId = null;
 
             for (const call of pendingCalls) {
-              // Check if this run has been superseded before running each tool
               if (activeGenerations.get(sessionId) !== runId) {
                 return;
               }
 
               let toolResult;
               try {
-                if (call.name === 'list_dir') {
-                  toolResult = await listDirTool(workspaceId, sessionId, call.args?.path);
-                } else if (call.name === 'read_file') {
-                  toolResult = await readFileTool(workspaceId, sessionId, call.args?.path, call.args?.from_line, call.args?.to_line);
-                } else if (call.name === 'write_file') {
-                  toolResult = await writeFileTool(workspaceId, sessionId, call.args?.path, call.args?.content);
-                } else if (call.name === 'edit_file') {
-                  toolResult = await editFileTool(workspaceId, sessionId, call.args?.path, call.args?.search, call.args?.replace, call.args?.occurrence ?? 1);
-                } else if (call.name === 'execute_command') {
-                  toolResult = await executeCommandTool(workspaceId, sessionId, call.args?.command, call.args?.path, call.args?.name);
-                } else if (call.name === 'regex_search') {
-                  toolResult = await regexSearchTool(workspaceId, sessionId, call.args?.regexStr, call.args?.paths, call.args?.options);
-                } else if (call.name === 'send_terminal_input') {
-                  toolResult = await sendTerminalInputTool(call.args?.terminal_id, call.args?.input);
-                } else if (call.name === 'wait') {
-                  toolResult = await waitTool(call.args?.seconds);
-                } else if (call.name === 'wait_terminal') {
-                  toolResult = await waitTerminalTool(call.args?.terminal_id, call.args?.timeout_seconds);
-                } else if (call.name === 'terminate_terminal') {
-                  toolResult = await terminateTerminalTool(call.args?.terminal_id);
-                } else if (call.name === 'set_session_name') {
-                  toolResult = await setSessionNameTool(sessionId, call.args?.name);
-                } else if (call.name === 'parse_document') {
-                  toolResult = await parseDocumentTool(workspaceId, sessionId, call.args?.filepath, call.args?.outputName);
-                } else if (call.name === 'view_image') {
-                  toolResult = await viewImageTool(workspaceId, sessionId, call.args?.path);
-                } else if (call.name === 'list_devices') {
-                  toolResult = await deviceManager.listDevices();
-                } else if (call.name === 'get_device_visuals') {
-                  const adapter = deviceManager.getAdapter(call.args?.deviceId);
-                  if (!adapter) {
-                    toolResult = { error: `Device adapter not found for ID: ${call.args?.deviceId}` };
-                  } else {
-                    const rawBuffer = await adapter.getScreenshot();
-                    const sideBySideBuffer = await createVisualGrid(rawBuffer);
-                    toolResult = {
-                      success: true,
-                      message: "Screen captured successfully. Grid overlay has been injected into context.",
-                      inlineImage: {
-                        data: sideBySideBuffer.toString('base64'),
-                        mimeType: 'image/png'
-                      }
-                    };
-                  }
-                } else if (call.name === 'device_click') {
-                  const adapter = deviceManager.getAdapter(call.args?.deviceId);
-                  if (!adapter) {
-                    toolResult = { error: `Device adapter not found for ID: ${call.args?.deviceId}` };
-                  } else {
-                    await adapter.click(call.args?.x, call.args?.y);
-                    toolResult = { success: true };
-                  }
-                } else if (call.name === 'device_keyboard') {
-                  const adapter = deviceManager.getAdapter(call.args?.deviceId);
-                  if (!adapter) {
-                    toolResult = { error: `Device adapter not found for ID: ${call.args?.deviceId}` };
-                  } else {
-                    await adapter.type(call.args?.text);
-                    toolResult = { success: true };
-                  }
-                } else if (call.name === 'device_swipe') {
-                  const adapter = deviceManager.getAdapter(call.args?.deviceId);
-                  if (!adapter) {
-                    toolResult = { error: `Device adapter not found for ID: ${call.args?.deviceId}` };
-                  } else {
-                    await adapter.swipe(call.args?.fromX, call.args?.fromY, call.args?.toX, call.args?.toY, call.args?.duration || 300);
-                    toolResult = { success: true };
-                  }
-                } else if (call.name === 'device_navigate') {
-                  const adapter = deviceManager.getAdapter(call.args?.deviceId);
-                  if (!adapter) {
-                    toolResult = { error: `Device adapter not found for ID: ${call.args?.deviceId}` };
-                  } else {
-                    await adapter.navigate(call.args?.url);
-                    toolResult = { success: true };
-                  }
-                } else if (call.name === 'device_scroll') {
-                  const adapter = deviceManager.getAdapter(call.args?.deviceId);
-                  if (!adapter) {
-                    toolResult = { error: `Device adapter not found for ID: ${call.args?.deviceId}` };
-                  } else {
-                    await adapter.scroll(call.args?.x, call.args?.y, call.args?.deltaX, call.args?.deltaY);
-                    toolResult = { success: true };
-                  }
-                } else {
-                  toolResult = { error: `Tool execution logic targeting "${call.name}" is missing.` };
-                }
+                const enrichedArgs = { ...call.args, workspaceId, sessionId };
+                toolResult = await marketplaceManager.executeMcpTool(call.name, enrichedArgs);
               } catch (err) {
-                toolResult = { error: `Internal crash inside tool execution pipeline: ${err.message}` };
+                toolResult = { error: `MCP Tool execution failed: ${err.message}` };
               }
 
               if (toolResult && toolResult.inlineImage) {
@@ -3756,7 +3548,6 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
                 }
               });
 
-              // Streamingly save the completed tool responses to the database immediately
               if (activeGenerations.get(sessionId) !== runId) {
                 return;
               }
@@ -3779,31 +3570,17 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
               await saveSessionMessages(wsDir, sessionId, currentMessages);
             }
 
-            // Save complete model message (with thoughts, text, and function calls) to database
             if (activeGenerations.get(sessionId) !== runId) {
               return;
             }
 
             const currentMessages = await loadSessionMessages(wsDir, sessionId);
-            if (modelMessageId) {
-              const idx = currentMessages.findIndex(m => m.id === modelMessageId);
-              if (idx !== -1) {
-                currentMessages[idx].parts = mergedParts;
-              }
-              lastModelMessageId = modelMessageId;
-            } else {
-              modelMessageId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
-              lastModelMessageId = modelMessageId;
-              currentMessages.push({
-                id: modelMessageId,
-                role: 'model',
-                parts: mergedParts,
-                createdAt: new Date().toISOString()
-              });
+            const idx = currentMessages.findIndex(m => m.id === modelMessageId);
+            if (idx !== -1) {
+              currentMessages[idx].parts = mergedParts;
             }
             await saveSessionMessages(wsDir, sessionId, currentMessages);
 
-            // Build clean in-memory model message parts for the next API call (excluding thoughts)
             const modelContentParts = [];
             for (const p of assistantResponseParts) {
               if (!p.thought && p.text) {
@@ -3842,27 +3619,18 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
             }
 
             keepRunning = true;
-            try {
-              const currentMessages = await loadSessionMessages(wsDir, sessionId);
-              checkpointMsgId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0);
-            } catch (e) {
-              console.error(`Failed to update checkpointMsgId:`, e.message);
-            }
           } else {
             keepRunning = false;
           }
         }
 
-        // Finalize status only if this generation run is still active
         if (activeGenerations.get(sessionId) === runId) {
-          // 1. Commit messages in session Git repository
           try {
             await commitSessionMessage(wsDir, sessionId, lastModelMessageId, 'model');
           } catch (e) {
             console.error(`Failed to commit session messages:`, e.message);
           }
 
-          // 2. Commit and merge changes back to the real project folders
           try {
             await mergeMirrorChangesBack(workspaceId, sessionId, lastModelMessageId);
           } catch (e) {
@@ -3873,10 +3641,8 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
             }));
           }
 
-          // 3. Clean up the mirror workspace directory
           try {
-            const mirrorBase = path.join(wsDir, 'sessions', sessionId, 'workspace_mirror');
-            await fs.rm(mirrorBase, { recursive: true, force: true });
+            await cleanWorkspaceMirror(workspaceId, sessionId);
           } catch {}
 
           sendToSession(sessionId, { type: 'DONE', modelMessageId: lastModelMessageId });
@@ -3887,17 +3653,22 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
         success = true;
       } catch (error) {
         if (activeGenerations.get(sessionId) !== runId) {
-          return; // Ignore errors from superseded runs
+          return;
         }
-        console.error(`Attempt ${attempt} of executeGeminiStream failed:`, error);
-        if (error.cause) {
-          console.error("Failure cause details:", error.cause);
+        if (sessionAbortFlags.get(sessionId) || error.name === 'AbortError' || error.message?.includes('aborted')) {
+          try {
+            await cleanWorkspaceMirror(workspaceId, sessionId);
+          } catch {}
+          sendToSession(sessionId, { type: 'DONE', modelMessageId: lastModelMessageId });
+          sessionAbortFlags.delete(sessionId);
+          sessionStatus.set(sessionId, 'idle');
+          activeGenerations.delete(sessionId);
+          return;
         }
-
-        // Roll back database changes from this attempt to restore correct conversation context
+        console.error(`Attempt ${attempt} of executeStream failed:`, error);
         try {
           const currentMessages = await loadSessionMessages(wsDir, sessionId);
-          const rolledBack = currentMessages.filter(m => m.id <= checkpointMsgId);
+          const rolledBack = currentMessages.filter(m => m.id <= initialCheckpointMsgId);
           await saveSessionMessages(wsDir, sessionId, rolledBack);
         } catch (e) {
           console.error(`Failed to roll back messages in JSONL file:`, e.message);
@@ -3924,8 +3695,7 @@ async function executeGeminiStream(ws, workspaceId, sessionId, userMessageText, 
 
           // Clean up mirror on final failure
           try {
-            const mirrorBase = path.join(wsDir, 'sessions', sessionId, 'workspace_mirror');
-            await fs.rm(mirrorBase, { recursive: true, force: true });
+            await cleanWorkspaceMirror(workspaceId, sessionId);
           } catch {}
 
           // Send final failure ERROR to client
@@ -4020,14 +3790,14 @@ wss.on('connection', (ws) => {
       if (payload.type === 'USER_MESSAGE') {
         const prompt = payload.text;
         const apiKeyId = payload.apiKeyId;
-        await executeGeminiStream(ws, ws.workspaceId, ws.sessionId, prompt, apiKeyId);
+        await executeStream(ws, ws.workspaceId, ws.sessionId, prompt, apiKeyId);
       } else if (payload.type === 'RETRY') {
         const { wsDir } = getWorkspacePaths(ws.workspaceId);
         const messages = await loadSessionMessages(wsDir, ws.sessionId);
         const lastUserMsg = messages.slice().reverse().find(m => m.role === 'user');
         if (lastUserMsg) {
           let prompt = lastUserMsg.parts[0]?.text || "";
-          await executeGeminiStream(ws, ws.workspaceId, ws.sessionId, prompt, null);
+          await executeStream(ws, ws.workspaceId, ws.sessionId, prompt, null);
         } else {
           ws.send(JSON.stringify({ type: 'ERROR', message: 'No user message history available to retry.' }));
         }

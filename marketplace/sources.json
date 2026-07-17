@@ -1,0 +1,14 @@
+[
+  {
+    "type": "provider",
+    "source": "marketplace/builtin/providers/gemini.js"
+  },
+  {
+    "type": "provider",
+    "source": "marketplace/builtin/providers/ollama.js"
+  },
+  {
+    "type": "mcp",
+    "source": "builtin://filesystem"
+  }
+]

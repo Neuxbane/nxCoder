@@ -406,6 +406,10 @@
             <i class="fa-solid fa-sliders text-zinc-500 text-[11px]"></i>
             <span>Agent Profiles</span>
           </button>
+          <button onclick="navigateToView('marketplace')" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
+            <i class="fa-solid fa-shop text-zinc-500 text-[11px]"></i>
+            <span>Marketplace</span>
+          </button>
         </div>
       </div>
 
@@ -438,6 +442,117 @@
         </div>
       </div>
     </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW D: MARKETPLACE HUB VIEW               -->
+    <!-- ========================================== -->
+    <section id="view-marketplace" class="absolute inset-0 bg-brand-black/60 overflow-y-auto flex flex-col p-6 space-y-6 z-10 transition-all duration-300 transform translate-x-12 opacity-0 pointer-events-none">
+      <div class="max-w-7xl mx-auto w-full flex flex-col space-y-6">
+        
+        <!-- Top Navigation / Pill Toggle -->
+        <div class="flex items-center justify-between border-b border-brand-gray/30 pb-5">
+          <div class="flex items-center space-x-4">
+            <button onclick="navigateToView('manager')" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 p-2 rounded-lg text-zinc-400 hover:text-white transition-colors">
+              <i class="fa-solid fa-arrow-left text-xs"></i>
+            </button>
+            <div>
+              <h1 class="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
+                <span>Extension Marketplace</span>
+              </h1>
+              <p class="text-xs text-zinc-500 mt-1">Browse and install providers, MCP tool servers, and marketplace extensions.</p>
+            </div>
+          </div>
+
+          <!-- Installed vs Marketplace Pill selector -->
+          <div class="bg-zinc-950 p-1 rounded-full border border-zinc-805 flex items-center space-x-1 text-xs">
+            <button id="marketplace-toggle-installed" onclick="switchMarketplacePageMode('installed')" class="px-4 py-1.5 rounded-full font-medium transition-all text-zinc-400 hover:text-white">Installed</button>
+            <button id="marketplace-toggle-browse" onclick="switchMarketplacePageMode('browse')" class="px-4 py-1.5 rounded-full font-medium transition-all bg-brand-accent text-white shadow">Marketplace</button>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button onclick="syncMarketplaceSources()" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
+              <i class="fa-solid fa-arrows-rotate text-[11px] text-zinc-500"></i>
+              <span>Refresh</span>
+            </button>
+            <button onclick="openManageSourcesModal()" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
+              <i class="fa-solid fa-gear text-[11px] text-zinc-500"></i>
+              <span>Manage Sources</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter pills row -->
+        <div class="flex items-center space-x-2 pb-2 overflow-x-auto shrink-0 border-b border-zinc-900">
+          <button id="marketplace-filter-all" onclick="filterMarketplaceGrid('all')" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-brand-accent text-white border border-brand-accent/30 transition-all">All Types</button>
+          <button id="marketplace-filter-providers" onclick="filterMarketplaceGrid('providers')" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all">AI Providers</button>
+          <button id="marketplace-filter-mcps" onclick="filterMarketplaceGrid('mcps')" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all">MCP Tools</button>
+        </div>
+
+        <!-- Sub-Header row: Search & Status banner -->
+        <div class="relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-zinc-500 text-xs"></i>
+          <input type="text" id="marketplace-search-input" oninput="searchMarketplaceGrid(this.value)" placeholder="Search extensions..." class="bg-zinc-950 border border-zinc-800 rounded-lg py-2 pl-9 pr-4 text-xs text-white w-full focus:outline-none focus:border-brand-accent placeholder-zinc-600">
+        </div>
+
+        <!-- Grid Container -->
+        <div id="marketplace-grid-heading" class="text-sm font-bold text-zinc-200 flex items-center space-x-2 mt-4">
+          <i class="fa-solid fa-plug text-brand-accent"></i>
+          <span id="marketplace-grid-title">Plugins / Extensions</span>
+        </div>
+
+        <!-- Grid list cards -->
+        <div id="marketplace-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <!-- Dynamically populated extension cards -->
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Sources Management Modal Dialog -->
+    <div id="marketplace-sources-modal" class="fixed inset-0 bg-brand-black/95 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+      <div class="bg-brand-dark border border-zinc-800 rounded-xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+        <button onclick="closeMarketplaceSourcesModal()" class="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+        <div class="border-b border-zinc-800 pb-3">
+          <h4 class="text-xs font-bold text-zinc-200">Manage Marketplace Repositories</h4>
+          <p class="text-[10px] text-zinc-500 mt-0.5">Configure upstream marketplace links and custom extension sources.</p>
+        </div>
+        <form id="marketplace-modal-source-form" class="space-y-3">
+          <div>
+            <label class="block text-[10px] text-zinc-500 font-medium mb-1">Source Type</label>
+            <select id="modal-src-type" class="bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white w-full focus:outline-none focus:border-brand-accent">
+              <option value="marketplace">Marketplace Repository URL</option>
+              <option value="provider">Custom Provider URL</option>
+              <option value="mcp">SSE MCP Server URL</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-zinc-500 font-medium mb-1">Source URL</label>
+            <input type="text" id="modal-src-source" placeholder="https://example.com/marketplace.json" class="bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white w-full focus:outline-none focus:border-brand-accent" required>
+          </div>
+          <button type="submit" class="bg-brand-accent hover:bg-brand-accent/80 text-white text-xs font-semibold py-1.5 px-3 rounded w-full transition-all">Add Source</button>
+        </form>
+        <div class="space-y-2 max-h-48 overflow-y-auto pt-2" id="marketplace-modal-sources-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Provider Config Modal Dialog -->
+    <div id="marketplace-config-modal" class="fixed inset-0 bg-brand-black/95 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+      <div class="bg-brand-dark border border-zinc-800 rounded-xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+        <button onclick="closeMarketplaceConfigModal()" class="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+        <div class="border-b border-zinc-800 pb-3" id="marketplace-config-modal-header">
+          <!-- Dynamic header loaded here -->
+        </div>
+        <div id="marketplace-config-modal-body">
+          <!-- Dynamic form loaded here -->
+        </div>
+      </div>
+    </div>
 
     <!-- ========================================== -->
     <!-- VIEW B: CONSTRUCT WORKSPACE / FILE MANAGER  -->
@@ -780,6 +895,7 @@
       viewManager: document.getElementById('view-manager'),
       viewSession: document.getElementById('view-session'),
       viewConstructWorkspace: document.getElementById('view-construct-workspace'),
+      viewMarketplace: document.getElementById('view-marketplace'),
       workspacesDashboardGrid: document.getElementById('workspaces-dashboard-grid'),
       managerSettingsDrawer: document.getElementById('manager-settings-drawer'),
       settingsDrawerContent: document.getElementById('settings-drawer-content'),
@@ -1467,7 +1583,8 @@
       const views = {
         manager: elements.viewManager,
         session: elements.viewSession,
-        construct: elements.viewConstructWorkspace
+        construct: elements.viewConstructWorkspace,
+        marketplace: elements.viewMarketplace
       };
 
       Object.keys(views).forEach(key => {
@@ -1498,6 +1615,11 @@
         elements.viewConstructWorkspace.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
         elements.viewConstructWorkspace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
         elements.breadcrumbActiveSection.innerText = "Construct Workspace";
+      } else if (targetView === 'marketplace') {
+        elements.viewMarketplace.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
+        elements.viewMarketplace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.breadcrumbActiveSection.innerText = "Marketplace";
+        renderMarketplaceViewPage();
       }
 
       toggleMobileSidebar(false); // Ensure sidebar is closed when navigating
@@ -1687,10 +1809,18 @@
       const vignette = document.getElementById('vintage-vignette');
       if (vignette) vignette.classList.remove('hidden');
 
+      if (panelType === 'marketplace') {
+        drawer.firstElementChild.className = "bg-brand-dark border border-zinc-800 rounded-xl max-w-4xl w-full p-6 space-y-4 shadow-2xl relative max-h-[85vh] overflow-y-auto";
+      } else {
+        drawer.firstElementChild.className = "bg-brand-dark border border-zinc-800 rounded-xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative";
+      }
+
       if (panelType === 'keys') {
         renderApiKeyRotationSettings(body);
       } else if (panelType === 'instructions') {
         renderAgentProfilesSettings(body);
+      } else if (panelType === 'marketplace') {
+        renderMarketplaceSettings(body);
       }
     }
 
@@ -1700,74 +1830,149 @@
     }
 
     // Render the interactive API rotation wizard
-    function renderApiKeyRotationSettings(targetEl) {
+    async function renderApiKeyRotationSettings(targetEl, providerId = '') {
+      if (marketplaceState.providers.length === 0) {
+        try {
+          await fetchMarketplaceData();
+        } catch (e) {
+          marketplaceState.providers = [
+            { id: 'gemini', name: 'Google Gemini', schema: { fields: [{ id: 'apiKey', label: 'API Key', type: 'password', required: true }] } }
+          ];
+        }
+      }
+
+      let selectedProviderId = providerId || (marketplaceState.providers[0] ? marketplaceState.providers[0].id : 'gemini');
+      const selectedProv = marketplaceState.providers.find(p => p.id === selectedProviderId);
+      
+      // Build fields HTML
+      let dynamicFieldsHtml = "";
+      if (selectedProv && selectedProv.schema && selectedProv.schema.fields) {
+        for (const field of selectedProv.schema.fields) {
+          const placeholder = field.placeholder || '';
+          const defVal = field.default || '';
+          const reqAttr = field.required ? 'required' : '';
+          
+          dynamicFieldsHtml += `
+            <div>
+              <label class="block text-[10px] text-zinc-500 font-medium mb-1">${field.label || field.id}</label>
+          `;
+          if (field.type === 'select') {
+            dynamicFieldsHtml += `
+              <select id="rotation-field-${field.id}" class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent">
+                ${(field.options || []).map(opt => `<option value="${opt}" ${opt === defVal ? 'selected' : ''}>${opt}</option>`).join('')}
+              </select>
+            `;
+          } else {
+            const inputType = field.type === 'password' ? 'password' : 'text';
+            dynamicFieldsHtml += `
+              <input type="${inputType}" id="rotation-field-${field.id}" placeholder="${placeholder}" value="${defVal}" class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent" ${reqAttr}>
+            `;
+          }
+          dynamicFieldsHtml += `</div>`;
+        }
+      }
+
       targetEl.innerHTML = `
         <div class="border-b border-zinc-800 pb-3 flex items-center justify-between">
           <div>
-            <h4 class="text-xs font-bold text-zinc-200">API Keys Auto-Rotation Deck</h4>
-            <p class="text-[10px] text-zinc-500 mt-0.5">Register keys to execute calls using standard token distribution metrics.</p>
+            <h4 class="text-xs font-bold text-zinc-200">API Key Rotation & Credentials Deck</h4>
+            <p class="text-[10px] text-zinc-500 mt-0.5">Configure access keys for your installed AI providers.</p>
           </div>
-          <span class="bg-brand-accent/20 text-brand-accent text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold">Total Keys: ${state.apiKeys.length}</span>
+          <span class="bg-brand-accent/20 text-brand-accent text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold">Keys: ${state.apiKeys.length}</span>
         </div>
         
-        <form id="drawer-form-add-key" class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800">
-          <input type="text" id="add-key-name" placeholder="Label Name" class="bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
-          <input type="password" id="add-key-val" placeholder="Gemini Key (AIzaSy...)" class="bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
-          <button type="submit" class="bg-brand-accent/20 hover:bg-brand-accent hover:text-white text-brand-accent text-xs font-semibold py-2 px-3 rounded transition-all">Add key</button>
+        <form id="drawer-form-add-key" class="space-y-3 bg-zinc-900/40 p-4 rounded-lg border border-zinc-800">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[10px] text-zinc-500 font-medium mb-1">Select Provider</label>
+              <select id="rotation-prov-select" class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent">
+                ${marketplaceState.providers.map(p => `<option value="${p.id}" ${p.id === selectedProviderId ? 'selected' : ''}>${p.name}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] text-zinc-500 font-medium mb-1">Configuration / Key Label</label>
+              <input type="text" id="rotation-key-name" placeholder="e.g. My Gemini Key" class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent" required>
+            </div>
+          </div>
+
+          <div class="border-t border-zinc-800/60 pt-3 space-y-3">
+            ${dynamicFieldsHtml}
+          </div>
+
+          <button type="submit" class="bg-brand-accent hover:bg-brand-accent/80 text-white text-xs font-semibold py-2 px-3 rounded w-full transition-all mt-2">Add Key to Rotation Pool</button>
         </form>
 
-        <div class="space-y-2 max-h-48 overflow-y-auto pt-2">
+        <div class="space-y-2 max-h-52 overflow-y-auto pt-2">
           ${state.apiKeys.length === 0 
-            ? `<div class="text-[11px] text-zinc-600 italic text-center py-4">No custom API keys loaded. System defaults to default credentials.</div>`
-            : state.apiKeys.map(k => `
-                <div class="flex items-center justify-between p-2.5 bg-zinc-900 rounded-lg border border-zinc-800 text-xs font-mono">
-                  <div class="flex items-center space-x-2">
-                    <i class="fa-solid fa-key text-zinc-600"></i>
-                    <span class="text-zinc-200 font-sans font-medium">${k.name}</span>
-                    <span class="text-[9px] text-zinc-500">(${k.id})</span>
+            ? `<div class="text-[11px] text-zinc-600 italic text-center py-4">No provider credentials registered. Defaults to default parameters.</div>`
+            : state.apiKeys.map(k => {
+                const prov = marketplaceState.providers.find(p => p.id === k.provider_id);
+                return `
+                  <div class="flex items-center justify-between p-3 bg-zinc-900 rounded-lg border border-zinc-800 text-xs font-mono">
+                    <div class="flex items-center space-x-2">
+                      <i class="fa-solid fa-key text-zinc-600"></i>
+                      <span class="text-zinc-200 font-sans font-medium">${k.name}</span>
+                      <span class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold">${prov?.name || k.provider_id || 'gemini'}</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                      <button onclick="toggleApiKeyActive('${k.id}', ${k.active !== 0 ? 0 : 1})" 
+                        class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${k.active !== 0 ? 'bg-brand-accent' : 'bg-zinc-700'}"
+                        title="${k.active !== 0 ? 'Deactivate Key' : 'Activate Key'}">
+                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${k.active !== 0 ? 'translate-x-4' : 'translate-x-0'}"></span>
+                      </button>
+                      <button onclick="deleteApiKeyRegistry('${k.id}')" class="text-[10px] text-red-500 hover:underline font-sans">Remove</button>
+                    </div>
                   </div>
-                  <div class="flex items-center space-x-3">
-                    <button onclick="toggleApiKeyActive('${k.id}', ${k.active !== 0 ? 0 : 1})" 
-                      class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${k.active !== 0 ? 'bg-brand-accent' : 'bg-zinc-700'}"
-                      title="${k.active !== 0 ? 'Deactivate Key' : 'Activate Key'}">
-                      <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${k.active !== 0 ? 'translate-x-4' : 'translate-x-0'}"></span>
-                    </button>
-                    <button onclick="deleteApiKeyRegistry('${k.id}')" class="text-[10px] text-red-500 hover:underline font-sans">Remove Key</button>
-                  </div>
-                </div>
-              `).join('')
+                `;
+              }).join('')
           }
         </div>
       `;
 
-      // Handle Key Submissions
-      document.getElementById('drawer-form-add-key').onsubmit = async function(e) {
-        e.preventDefault();
-        const name = document.getElementById('add-key-name').value;
-        const key = document.getElementById('add-key-val').value;
+      // Setup change listener
+      const provSelect = document.getElementById('rotation-prov-select');
+      if (provSelect) {
+        provSelect.onchange = (e) => {
+          renderApiKeyRotationSettings(targetEl, e.target.value);
+        };
+      }
 
-        try {
-          const res = await fetch('/api/key', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, key })
-          });
-          if (res.ok) {
-            showToast('Key Added', 'Secure credentials saved to database.', 'success');
-            await refreshSystemDatabase();
-            toggleManagerSettings('keys');
-          } else {
-            const data = await res.json();
-            if (res.status === 409 || data.error === 'Key already exists') {
-              showAlertModal('Key Already Exists', 'This API key has already been registered in the database.');
-            } else {
-              showToast('Database Error', data.error || 'Could not save configurations.', 'error');
+      // Setup Form Submit
+      const form = document.getElementById('drawer-form-add-key');
+      if (form) {
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          const name = document.getElementById('rotation-key-name').value;
+          
+          const config = {};
+          if (selectedProv && selectedProv.schema && selectedProv.schema.fields) {
+            for (const field of selectedProv.schema.fields) {
+              const el = document.getElementById(`rotation-field-${field.id}`);
+              config[field.id] = el ? el.value : '';
             }
           }
-        } catch(e) {
-          showToast('Database Error', 'Could not save configurations.', 'error');
-        }
-      };
+
+          const keyPayload = JSON.stringify(config);
+
+          try {
+            const res = await fetch('/api/key', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, key: keyPayload, provider_id: selectedProviderId })
+            });
+            if (res.ok) {
+              showToast('Credentials Registered', 'Profile added to rotation key deck.', 'success');
+              await refreshSystemDatabase();
+              toggleManagerSettings('keys');
+            } else {
+              const data = await res.json();
+              showToast('Error', data.error || 'Could not save credentials.', 'error');
+            }
+          } catch (err) {
+            showToast('Database Error', 'Network connection failure.', 'error');
+          }
+        };
+      }
     }
 
     async function toggleApiKeyActive(id, active) {
@@ -1872,6 +2077,571 @@
           } catch(e) {}
         }
       );
+    }
+
+    // --- Marketplace View Page Logic ---
+    let marketplaceState = {
+      providers: [],
+      configs: [],
+      mcps: [],
+      sources: [],
+      pageMode: 'browse', // 'installed' or 'browse'
+      filterType: 'all',  // 'all', 'providers', 'mcps'
+      filterLang: 'all',  // 'all', 'javascript', 'typescript', 'python'
+      searchQuery: ''
+    };
+
+    async function fetchMarketplaceData() {
+      const [provRes, cfgRes, mcpRes, srcRes] = await Promise.all([
+        fetch('/api/marketplace/providers'),
+        fetch('/api/marketplace/providers/configs'),
+        fetch('/api/marketplace/mcps'),
+        fetch('/api/marketplace/sources')
+      ]);
+      marketplaceState.providers = await provRes.json();
+      marketplaceState.configs = await cfgRes.json();
+      marketplaceState.mcps = await mcpRes.json();
+      marketplaceState.sources = await srcRes.json();
+    }
+
+    async function renderMarketplaceViewPage() {
+      // Toggle button active classes based on mode
+      const btnInstalled = document.getElementById('marketplace-toggle-installed');
+      const btnBrowse = document.getElementById('marketplace-toggle-browse');
+      if (marketplaceState.pageMode === 'installed') {
+        btnInstalled.className = "px-4 py-1.5 rounded-full font-medium transition-all bg-brand-accent text-white shadow";
+        btnBrowse.className = "px-4 py-1.5 rounded-full font-medium transition-all text-zinc-400 hover:text-white";
+        document.getElementById('marketplace-grid-title').innerText = "Active Installed Extensions";
+      } else {
+        btnInstalled.className = "px-4 py-1.5 rounded-full font-medium transition-all text-zinc-400 hover:text-white";
+        btnBrowse.className = "px-4 py-1.5 rounded-full font-medium transition-all bg-brand-accent text-white shadow";
+        document.getElementById('marketplace-grid-title').innerText = "Available Marketplace Extensions";
+      }
+
+      // Update type filter button styling
+      const types = ['all', 'providers', 'mcps'];
+      types.forEach(t => {
+        const btn = document.getElementById(`marketplace-filter-${t}`);
+        if (btn) {
+          if (marketplaceState.filterType === t) {
+            btn.className = "px-3.5 py-1.5 rounded-full text-xs font-semibold bg-brand-accent text-white border border-brand-accent/30 transition-all";
+          } else {
+            btn.className = "px-3.5 py-1.5 rounded-full text-xs font-medium bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all";
+          }
+        }
+      });
+
+      const gridEl = document.getElementById('marketplace-grid');
+      gridEl.innerHTML = `<div class="col-span-full text-center py-12 text-zinc-500"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading Marketplace Extensions...</div>`;
+
+      try {
+        await fetchMarketplaceData();
+      } catch (err) {
+        gridEl.innerHTML = `<div class="col-span-full text-red-500 text-center py-6">Error loading extensions: ${err.message}</div>`;
+        return;
+      }
+
+      renderMarketplaceGrid();
+    }
+
+    function switchMarketplacePageMode(mode) {
+      marketplaceState.pageMode = mode;
+      renderMarketplaceViewPage();
+    }
+
+    function filterMarketplaceGrid(type) {
+      marketplaceState.filterType = type;
+      renderMarketplaceViewPage();
+    }
+
+    function searchMarketplaceGrid(query) {
+      marketplaceState.searchQuery = query;
+      renderMarketplaceGrid();
+    }
+
+    function renderMarketplaceGrid() {
+      const gridEl = document.getElementById('marketplace-grid');
+      gridEl.innerHTML = "";
+
+      let items = [];
+
+      if (marketplaceState.pageMode === 'browse') {
+        // Providers
+        marketplaceState.providers.forEach(prov => {
+          items.push({
+            id: prov.id,
+            type: 'provider',
+            name: prov.name,
+            slug: prov.id,
+            description: prov.description || 'Flexible AI interface supporting text compilation & stream processing.',
+            author: prov.author || 'Neuxbane',
+            lang: prov.lang || 'javascript',
+            schema: prov.schema,
+            installed: prov.installed
+          });
+        });
+
+        // MCPs
+        marketplaceState.mcps.forEach(mcp => {
+          items.push({
+            id: mcp.id,
+            type: 'mcp',
+            name: mcp.name,
+            slug: mcp.source,
+            description: mcp.type === 'builtin' ? 'Secure local sandboxed terminal execution, file system management, and shell interface tools.' : 'SSE Connection Bridge to remote tool server.',
+            author: mcp.type === 'builtin' ? 'Neuxbane' : (mcp.author || 'Neuxbane'),
+            lang: mcp.type === 'builtin' ? 'javascript' : 'sse',
+            active: mcp.active,
+            installed: mcp.installed
+          });
+        });
+      } else {
+        // Installed mode lists all configured provider instances and MCP servers
+        // Configured Provider Instances
+        marketplaceState.configs.forEach(cfg => {
+          const prov = marketplaceState.providers.find(p => p.id === cfg.provider_id);
+          items.push({
+            id: cfg.id,
+            type: 'provider_config',
+            name: cfg.name,
+            slug: cfg.provider_id,
+            description: `Configured instance of ${prov?.name || cfg.provider_id}. Details: ${Object.keys(cfg.config).map(k => `${k}: ${k.toLowerCase().includes('key') ? '••••' : cfg.config[k]}`).join(', ')}`,
+            author: 'Neuxbane',
+            lang: prov?.lang || 'javascript',
+            active: cfg.active,
+            config: cfg.config
+          });
+        });
+
+        // Configured MCP Servers (built-in and remote connected ones)
+        marketplaceState.mcps.forEach(mcp => {
+          items.push({
+            id: mcp.id,
+            type: 'mcp',
+            name: mcp.name,
+            slug: mcp.source,
+            description: mcp.type === 'builtin' ? 'Secure local sandboxed terminal execution, file system management, and shell interface tools.' : 'SSE Connection Bridge to remote tool server.',
+            author: mcp.type === 'builtin' ? 'Neuxbane' : (mcp.author || 'Neuxbane'),
+            lang: mcp.type === 'builtin' ? 'javascript' : 'sse',
+            active: mcp.active,
+            canToggle: true,
+            isBuiltin: mcp.type === 'builtin'
+          });
+        });
+      }
+
+      // Filter by Type
+      if (marketplaceState.filterType === 'providers') {
+        items = items.filter(i => i.type === 'provider' || i.type === 'provider_config');
+      } else if (marketplaceState.filterType === 'mcps') {
+        items = items.filter(i => i.type === 'mcp');
+      }
+
+      // Filter by Search Query
+      if (marketplaceState.searchQuery.trim() !== '') {
+        const q = marketplaceState.searchQuery.toLowerCase();
+        items = items.filter(i => 
+          i.name.toLowerCase().includes(q) || 
+          i.description.toLowerCase().includes(q) || 
+          i.slug.toLowerCase().includes(q)
+        );
+      }
+
+      if (items.length === 0) {
+        gridEl.innerHTML = `<div class="col-span-full text-center py-12 text-zinc-600 italic">No extensions found matching criteria.</div>`;
+        return;
+      }
+
+      items.forEach(item => {
+        let iconHtml = `<i class="fa-solid fa-plug text-lg"></i>`;
+        if (item.type === 'provider' || item.type === 'provider_config') {
+          if (item.slug.includes('gemini')) {
+            iconHtml = `<i class="fa-solid fa-brain text-purple-400 text-lg"></i>`;
+          } else if (item.slug.includes('ollama')) {
+            iconHtml = `<i class="fa-solid fa-server text-teal-400 text-lg"></i>`;
+          } else if (item.slug.includes('openai')) {
+            iconHtml = `<i class="fa-solid fa-atom text-blue-400 text-lg"></i>`;
+          } else {
+            iconHtml = `<i class="fa-solid fa-robot text-brand-accent text-lg"></i>`;
+          }
+        } else if (item.type === 'mcp') {
+          iconHtml = `<i class="fa-solid fa-network-wired text-amber-400 text-lg"></i>`;
+        }
+
+        let typeBadgeHtml = "";
+        if (item.type === 'provider' || item.type === 'provider_config') {
+          typeBadgeHtml = `<span class="bg-purple-950/45 text-purple-400 px-2 py-0.5 rounded border border-purple-900/30 font-medium text-[9px] uppercase font-mono">Provider</span>`;
+        } else {
+          typeBadgeHtml = `<span class="bg-amber-950/45 text-amber-400 px-2 py-0.5 rounded border border-amber-900/30 font-medium text-[9px] uppercase font-mono">MCP Tool</span>`;
+        }
+
+        let actionBtnHtml = "";
+        if (marketplaceState.pageMode === 'browse') {
+          if (item.type === 'provider') {
+            if (item.installed) {
+              actionBtnHtml = `
+                <span class="text-brand-accent bg-brand-accent/10 px-2.5 py-1 rounded-md text-[10px] font-bold border border-brand-accent/25 flex items-center space-x-1">
+                  <i class="fa-solid fa-circle-check"></i>
+                  <span>Installed</span>
+                </span>
+              `;
+            } else {
+              actionBtnHtml = `
+                <button onclick="toggleManagerSettings('keys'); setTimeout(() => { renderApiKeyRotationSettings(document.getElementById('settings-drawer-content'), '${item.id}'); }, 80);" class="bg-zinc-850 hover:bg-zinc-750 border border-zinc-700 text-zinc-300 hover:text-white p-2 rounded-lg transition-all" title="Configure credentials and install">
+                  <i class="fa-solid fa-download text-xs"></i>
+                </button>
+              `;
+            }
+          } else if (item.type === 'mcp') {
+            if (item.installed) {
+              actionBtnHtml = `
+                <span class="text-brand-accent bg-brand-accent/10 px-2.5 py-1 rounded-md text-[10px] font-bold border border-brand-accent/25 flex items-center space-x-1">
+                  <i class="fa-solid fa-circle-check"></i>
+                  <span>Active</span>
+                </span>
+              `;
+            } else {
+              actionBtnHtml = `
+                <button onclick="installMcpDirect('${item.name}', '${item.slug}')" class="bg-zinc-850 hover:bg-zinc-750 border border-zinc-700 text-zinc-300 hover:text-white p-2 rounded-lg transition-all" title="Install MCP server">
+                  <i class="fa-solid fa-download text-xs"></i>
+                </button>
+              `;
+            }
+          }
+        } else {
+          // Installed page view controls
+          if (item.type === 'provider_config') {
+            actionBtnHtml = `
+              <div class="flex items-center space-x-2">
+                ${item.active 
+                  ? `<span class="bg-brand-accent/20 text-brand-accent font-bold px-2 py-0.5 rounded text-[9px] border border-brand-accent/25 flex items-center space-x-1"><i class="fa-solid fa-circle-check"></i><span>Active</span></span>`
+                  : `<button onclick="setMarketplaceProviderActive('${item.id}')" class="text-[9px] text-zinc-400 hover:text-white bg-zinc-850 hover:bg-zinc-750 px-2 py-0.5 rounded border border-zinc-700 transition-colors">Activate</button>`
+                }
+                <button onclick="deleteMarketplaceProviderConfig('${item.id}')" class="text-red-500 hover:text-red-400 p-1.5 transition-colors" title="Delete Instance"><i class="fa-solid fa-trash-can text-[11px]"></i></button>
+              </div>
+            `;
+          } else if (item.type === 'mcp') {
+            actionBtnHtml = `
+              <div class="flex items-center space-x-3">
+                <button onclick="toggleMcpServerActive('${item.id}', ${item.active !== 0 ? 0 : 1})" 
+                  class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${item.active !== 0 ? 'bg-brand-accent' : 'bg-zinc-700'}"
+                  title="${item.active !== 0 ? 'Deactivate Tool Server' : 'Activate Tool Server'}">
+                  <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${item.active !== 0 ? 'translate-x-4' : 'translate-x-0'}"></span>
+                </button>
+                ${!item.isBuiltin 
+                  ? `<button onclick="deleteMcpServerDirect('${item.id}')" class="text-red-500 hover:text-red-400 p-1.5 transition-colors" title="Remove MCP Connection"><i class="fa-solid fa-trash-can text-[11px]"></i></button>`
+                  : ''
+                }
+              </div>
+            `;
+          }
+        }
+
+        const card = document.createElement('div');
+        card.className = "bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700/60 rounded-xl p-5 flex flex-col justify-between transition-all duration-200 group relative";
+        card.innerHTML = `
+          <div class="space-y-3">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center space-x-3 flex-1 min-w-0">
+                <div class="w-10 h-10 bg-brand-black border border-zinc-800 rounded-lg flex items-center justify-center text-zinc-400 shrink-0">
+                  ${iconHtml}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <h4 class="text-sm font-bold text-zinc-200 group-hover:text-white transition-colors leading-snug truncate">${item.name}</h4>
+                  <span class="text-[9px] text-zinc-500 font-mono block truncate">${item.slug}</span>
+                </div>
+              </div>
+              <div class="ml-2 shrink-0">
+                ${actionBtnHtml}
+              </div>
+            </div>
+            <p class="text-xs text-zinc-400 leading-relaxed font-normal">${item.description}</p>
+          </div>
+          
+          <div class="flex items-center justify-between border-t border-zinc-900/50 pt-3 mt-4 text-[10px]">
+            <div class="flex items-center space-x-1 text-zinc-500 font-medium">
+              <span>By</span>
+              <span class="text-zinc-400 font-semibold">${item.author}</span>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <span class="bg-zinc-950 text-zinc-400 px-2 py-0.5 rounded border border-zinc-800 font-mono uppercase text-[9px]">${item.lang}</span>
+              ${typeBadgeHtml}
+            </div>
+          </div>
+        `;
+        gridEl.appendChild(card);
+      });
+    }
+
+    // Modal Config Handling
+    function openMarketplaceConfigModal(providerId) {
+      const prov = marketplaceState.providers.find(p => p.id === providerId);
+      if (!prov) return;
+
+      const headerEl = document.getElementById('marketplace-config-modal-header');
+      const bodyEl = document.getElementById('marketplace-config-modal-body');
+
+      headerEl.innerHTML = `
+        <h4 class="text-xs font-bold text-zinc-200 flex items-center space-x-2">
+          <i class="fa-solid fa-sliders text-brand-accent"></i>
+          <span>Configure ${prov.name}</span>
+        </h4>
+        <p class="text-[10px] text-zinc-500 mt-0.5">${prov.description || 'Save custom credentials to access this provider.'}</p>
+      `;
+
+      let formFields = `
+        <div class="space-y-3">
+          <div>
+            <label class="block text-[10px] text-zinc-500 font-medium mb-1">Configuration Name / Profile Label</label>
+            <input type="text" id="modal-prov-config-name" placeholder="e.g. My ${prov.name}" class="bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white w-full focus:outline-none focus:border-brand-accent" required>
+          </div>
+      `;
+
+      for (const field of prov.schema.fields) {
+        const placeholder = field.placeholder || '';
+        const defVal = field.default || '';
+        const reqAttr = field.required ? 'required' : '';
+
+        formFields += `
+          <div>
+            <label class="block text-[10px] text-zinc-500 font-medium mb-1">${field.label || field.id}</label>
+        `;
+
+        if (field.type === 'select') {
+          formFields += `
+            <select id="modal-prov-field-${field.id}" class="bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white w-full focus:outline-none focus:border-brand-accent">
+              ${(field.options || []).map(opt => `<option value="${opt}" ${opt === defVal ? 'selected' : ''}>${opt}</option>`).join('')}
+            </select>
+          `;
+        } else {
+          const inputType = field.type === 'password' ? 'password' : 'text';
+          formFields += `
+            <input type="${inputType}" id="modal-prov-field-${field.id}" placeholder="${placeholder}" value="${defVal}" class="bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white w-full focus:outline-none focus:border-brand-accent" ${reqAttr}>
+          `;
+        }
+
+        formFields += `</div>`;
+      }
+
+      formFields += `
+          <button type="submit" class="bg-brand-accent hover:bg-brand-accent/80 text-white text-xs font-semibold py-2 px-3 rounded w-full transition-all mt-3">Install Provider Profile</button>
+        </div>
+      `;
+
+      bodyEl.innerHTML = `
+        <form id="modal-dynamic-provider-form">
+          ${formFields}
+        </form>
+      `;
+
+      const form = document.getElementById('modal-dynamic-provider-form');
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('modal-prov-config-name').value;
+        const config = {};
+        for (const field of prov.schema.fields) {
+          const el = document.getElementById(`modal-prov-field-${field.id}`);
+          config[field.id] = el ? el.value : '';
+        }
+
+        try {
+          const res = await fetch('/api/marketplace/providers/configs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, providerId: prov.id, config })
+          });
+          if (res.ok) {
+            showToast('Extension Installed', 'Provider instance loaded and active.', 'success');
+            closeMarketplaceConfigModal();
+            marketplaceState.pageMode = 'installed';
+            renderMarketplaceViewPage();
+          } else {
+            const data = await res.json();
+            showToast('Error', data.error || 'Configuration failed', 'error');
+          }
+        } catch (err) {
+          showToast('Error', 'Save request failed.', 'error');
+        }
+      };
+
+      document.getElementById('marketplace-config-modal').classList.remove('hidden');
+      document.getElementById('marketplace-config-modal').classList.add('flex');
+    }
+
+    function closeMarketplaceConfigModal() {
+      document.getElementById('marketplace-config-modal').classList.add('hidden');
+      document.getElementById('marketplace-config-modal').classList.remove('flex');
+    }
+
+    // Modal Sources handling
+    function openManageSourcesModal() {
+      renderSourcesModalList();
+      document.getElementById('marketplace-sources-modal').classList.remove('hidden');
+      document.getElementById('marketplace-sources-modal').classList.add('flex');
+    }
+
+    function closeMarketplaceSourcesModal() {
+      document.getElementById('marketplace-sources-modal').classList.add('hidden');
+      document.getElementById('marketplace-sources-modal').classList.remove('flex');
+    }
+
+    async function renderSourcesModalList() {
+      const listEl = document.getElementById('marketplace-modal-sources-list');
+      listEl.innerHTML = `<div class="text-center py-4 text-zinc-600"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading Sources...</div>`;
+
+      try {
+        const res = await fetch('/api/marketplace/sources');
+        const sources = await res.json();
+        marketplaceState.sources = sources;
+
+        if (sources.length === 0) {
+          listEl.innerHTML = `<div class="text-[10px] text-zinc-600 italic py-2 text-center">No extension repositories registered.</div>`;
+          return;
+        }
+
+        listEl.innerHTML = sources.map(src => `
+          <div class="flex items-center justify-between p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[11px]">
+            <div class="truncate max-w-[300px]">
+              <strong class="text-zinc-200 block truncate">${src.source}</strong>
+              <span class="text-[9px] text-zinc-500 uppercase font-mono">${src.type}</span>
+            </div>
+            <button onclick="deleteMarketplaceSource('${src.id}')" class="text-red-500 hover:text-red-400 p-1 transition-colors"><i class="fa-solid fa-trash-can text-[10px]"></i></button>
+          </div>
+        `).join('');
+      } catch (err) {
+        listEl.innerHTML = `<div class="text-red-500 text-center py-2 text-[10px]">Error: ${err.message}</div>`;
+      }
+    }
+
+    // Connect form listener for sources modal
+    setTimeout(() => {
+      const modalSrcForm = document.getElementById('marketplace-modal-source-form');
+      if (modalSrcForm) {
+        modalSrcForm.onsubmit = async (e) => {
+          e.preventDefault();
+          const type = document.getElementById('modal-src-type').value;
+          const source = document.getElementById('modal-src-source').value;
+
+          try {
+            const res = await fetch('/api/marketplace/sources', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type, source })
+            });
+            if (res.ok) {
+              showToast('Source Registered', 'Repository added to upstream registry.', 'success');
+              document.getElementById('modal-src-source').value = '';
+              renderSourcesModalList();
+              renderMarketplaceViewPage();
+            } else {
+              const data = await res.json();
+              showToast('Error', data.error || 'Registration failed', 'error');
+            }
+          } catch (err) {
+            showToast('Error', 'Save request failed.', 'error');
+          }
+        };
+      }
+    }, 500);
+
+    async function installMcpDirect(name, source) {
+      showToast('Connecting', 'Initializing tunnel to SSE MCP server...', 'info');
+      try {
+        const res = await fetch('/api/marketplace/mcps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, type: 'sse', source })
+        });
+        if (res.ok) {
+          showToast('Server Tunnel Installed', 'Dynamic MCP server is now active.', 'success');
+          marketplaceState.pageMode = 'installed';
+          renderMarketplaceViewPage();
+        } else {
+          showToast('Installation Failed', 'SSE endpoint handshaking error.', 'error');
+        }
+      } catch (err) {
+        showToast('Error', 'Install request timeout.', 'error');
+      }
+    }
+
+    async function setMarketplaceProviderActive(id) {
+      try {
+        const res = await fetch(`/api/marketplace/providers/configs/${id}/active`, { method: 'POST' });
+        if (res.ok) {
+          showToast('Status Updated', 'Active AI Provider changed.', 'success');
+          renderMarketplaceViewPage();
+        }
+      } catch (err) {
+        showToast('Error', 'Activation request failed.', 'error');
+      }
+    }
+
+    async function deleteMarketplaceProviderConfig(id) {
+      showConfirmModal(
+        'Delete configuration?',
+        'This saved provider configuration instance will be purged.',
+        async () => {
+          try {
+            await fetch(`/api/marketplace/providers/configs/${id}`, { method: 'DELETE' });
+            showToast('Purged', 'Configuration removed.', 'info');
+            renderMarketplaceViewPage();
+          } catch(e) {}
+        }
+      );
+    }
+
+    async function toggleMcpServerActive(id, active) {
+      try {
+        const res = await fetch(`/api/marketplace/mcps/${id}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active })
+        });
+        if (res.ok) {
+          showToast('Connection Toggled', 'MCP client session restarted.', 'success');
+          renderMarketplaceViewPage();
+        }
+      } catch (err) {
+        showToast('Error', 'Toggle request failed.', 'error');
+      }
+    }
+
+    async function deleteMcpServerDirect(id) {
+      showConfirmModal(
+        'Disconnect MCP Server?',
+        'This will permanently sever the tool connection bridge.',
+        async () => {
+          try {
+            await fetch(`/api/marketplace/mcps/${id}`, { method: 'DELETE' });
+            showToast('Server Purged', 'MCP tunnel deleted.', 'info');
+            renderMarketplaceViewPage();
+          } catch(e) {}
+        }
+      );
+    }
+
+    async function deleteMarketplaceSource(id) {
+      try {
+        await fetch(`/api/marketplace/sources/${id}`, { method: 'DELETE' });
+        showToast('Source Purged', 'Marketplace source unregistered.', 'info');
+        renderSourcesModalList();
+        renderMarketplaceViewPage();
+      } catch(e) {}
+    }
+
+    async function syncMarketplaceSources() {
+      showToast('Syncing', 'Fetching marketplace manifest files...', 'info');
+      try {
+        const res = await fetch('/api/marketplace/sync', { method: 'POST' });
+        if (res.ok) {
+          showToast('Sync Completed', 'All tools and extension manifests parsed.', 'success');
+          renderMarketplaceViewPage();
+        } else {
+          showToast('Sync Failed', 'Failed to fetch external schemas.', 'error');
+        }
+      } catch (err) {
+        showToast('Sync Failed', 'Network connection timeout.', 'error');
+      }
     }
 
     async function resolveExistingPathAndFilter(pathStr) {
