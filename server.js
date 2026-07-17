@@ -3289,8 +3289,8 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
     sessionStatus.set(sessionId, 'generating');
 
     wsDir = getWorkspacePaths(workspaceId).wsDir;
-    const messages = await loadSessionMessages(wsDir, sessionId);
-    const lastMsg = messages[messages.length - 1];
+    const liveMessages = await loadSessionMessages(wsDir, sessionId);
+    const lastMsg = liveMessages[liveMessages.length - 1];
     let isDuplicate = false;
     if (lastMsg && lastMsg.role === 'user') {
       try {
@@ -3303,15 +3303,14 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
     let userMsgId = null;
     if (!isDuplicate) {
       const userParts = [{ text: userMessageText }];
-      const newMessages = await loadSessionMessages(wsDir, sessionId);
-      userMsgId = newMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
-      newMessages.push({
+      userMsgId = liveMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+      liveMessages.push({
         id: userMsgId,
         role: 'user',
         parts: userParts,
         createdAt: new Date().toISOString()
       });
-      await saveSessionMessages(wsDir, sessionId, newMessages);
+      await saveSessionMessages(wsDir, sessionId, liveMessages);
       await commitSessionMessage(wsDir, sessionId, userMsgId, 'user');
     } else if (lastMsg) {
       userMsgId = lastMsg.id;
@@ -3319,7 +3318,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
 
     if (userMsgId) {
       try {
-        const messagesList = await loadSessionMessages(wsDir, sessionId);
+        const messagesList = liveMessages;
         const prevModelMsg = messagesList.slice().reverse().find(m => m.role === 'model' && m.id < userMsgId);
         const commitMsgId = prevModelMsg ? String(prevModelMsg.id) : `user_${userMsgId}`;
 
@@ -3365,7 +3364,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
       console.error(`Failed to create workspace mirror:`, e.message);
     }
 
-    const initialMessages = await loadSessionMessages(wsDir, sessionId);
+    const initialMessages = liveMessages;
     const initialCheckpointMsgId = initialMessages.reduce((max, m) => m.id > max ? m.id : max, 0);
     let checkpointMsgId = initialCheckpointMsgId;
 
@@ -3383,7 +3382,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
       }
       attempt++;
       try {
-        const historyRows = await loadSessionMessages(wsDir, sessionId);
+        const historyRows = liveMessages;
         
         const fullHistory = [];
         for (const row of historyRows) {
@@ -3446,7 +3445,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
           let inlineToolCallsHandled = 0; // tracks Gemini Live inline tool calls
 
           const updateModelMessageInDb = async () => {
-            const currentMessages = await loadSessionMessages(wsDir, sessionId);
+            const currentMessages = liveMessages;
             if (!modelMessageId) {
               modelMessageId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
               lastModelMessageId = modelMessageId;
@@ -3545,7 +3544,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 if (callIdx !== -1) pendingCalls.splice(callIdx, 1);
 
                 // --- Persist model's functionCall to DB and commit ---
-                const msgsBeforeResponse = await loadSessionMessages(wsDir, sessionId);
+                const msgsBeforeResponse = liveMessages;
                 const modelFcMsgId = msgsBeforeResponse.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
 
                 if (modelMessageId) {
@@ -3584,7 +3583,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 });
 
                 // --- Persist functionResponse to DB and commit ---
-                const msgsForResponse = await loadSessionMessages(wsDir, sessionId);
+                const msgsForResponse = liveMessages;
                 const toolOutputMsgId = msgsForResponse.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
                 msgsForResponse.push({
                   id: toolOutputMsgId,
@@ -3658,7 +3657,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 return;
               }
 
-              const currentMessages = await loadSessionMessages(wsDir, sessionId);
+              const currentMessages = liveMessages;
               if (!toolOutputMsgId) {
                 toolOutputMsgId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
                 currentMessages.push({
@@ -3680,12 +3679,13 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               return;
             }
 
-            const currentMessages = await loadSessionMessages(wsDir, sessionId);
+            const currentMessages = liveMessages;
             const idx = currentMessages.findIndex(m => m.id === modelMessageId);
             if (idx !== -1) {
               currentMessages[idx].parts = mergedParts;
             }
             await saveSessionMessages(wsDir, sessionId, currentMessages);
+
 
             const modelContentParts = [];
             for (const p of assistantResponseParts) {
@@ -3773,7 +3773,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
         }
         console.error(`Attempt ${attempt} of executeStream failed:`, error);
         try {
-          const currentMessages = await loadSessionMessages(wsDir, sessionId);
+          const currentMessages = liveMessages;
           const rolledBack = currentMessages.filter(m => m.id <= initialCheckpointMsgId);
           await saveSessionMessages(wsDir, sessionId, rolledBack);
         } catch (e) {
@@ -3787,7 +3787,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
           
           // Save the final error state as a system message in the database history
           try {
-            const currentMessages = await loadSessionMessages(wsDir, sessionId);
+            const currentMessages = liveMessages;
             currentMessages.push({
               id: checkpointMsgId + 1,
               role: 'system',

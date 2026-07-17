@@ -1,0 +1,4240 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nxStudio - Manager Console & Developer</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#8b5cf6">
+  <link rel="apple-touch-icon" href="/assets/streaming.png">
+  
+  <!-- Markdown-It for rich markdown support in chats/plans -->
+  <script src="/cdn/markdown-it.min.js"></script>
+  <script>
+    if (typeof window.markdownit !== 'function') {
+      document.write('<script src="/node_modules/markdown-it/dist/markdown-it.min.js"><\/script>');
+    }
+  </script>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="/cdn/tailwind.js"></script>
+  <script src="/cdn/monaco-loader.js"></script>
+  <script>
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              black: '#09090b',
+              darker: '#121214',
+              dark: '#18181b',
+              gray: '#27272a',
+              accent: '#8b5cf6',
+              accentBg: '#1e152f',
+              muted: '#71717a'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Google Fonts & FontAwesome Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/cdn/font-awesome-all.min.css">
+
+
+
+  <style>
+    /* Premium scrollbar designs */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #09090b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 99px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #8b5cf6;
+    }
+    
+    /* Code block container layouts */
+    pre code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.825rem;
+    }
+    
+    details > summary {
+      list-style: none;
+    }
+    details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    /* Markdown content styling for chat bubbles */
+    .chat-body-content p {
+      margin-bottom: 0.75rem;
+    }
+    .chat-body-content p:last-child {
+      margin-bottom: 0;
+    }
+    .chat-body-content ul, .chat-body-content ol {
+      margin-bottom: 0.75rem;
+      padding-left: 1.25rem;
+    }
+    .chat-body-content ul {
+      list-style-type: disc;
+    }
+    .chat-body-content ol {
+      list-style-type: decimal;
+    }
+    .chat-body-content li {
+      margin-bottom: 0.25rem;
+    }
+    .chat-body-content code:not(pre code) {
+      background-color: rgba(139, 92, 246, 0.15);
+      color: #a78bfa;
+      padding: 0.1rem 0.3rem;
+      border-radius: 0.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+    }
+    .chat-body-content pre {
+      background-color: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+      overflow-x: auto;
+    }
+    .chat-body-content blockquote {
+      border-left: 3px solid #8b5cf6;
+      padding-left: 0.75rem;
+      color: #a1a1aa;
+      font-style: italic;
+      margin-bottom: 0.75rem;
+    }
+    .chat-body-content h1, .chat-body-content h2, .chat-body-content h3 {
+      font-weight: 600;
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+      color: #fff;
+    }
+    .chat-body-content h1 { font-size: 1.25rem; }
+    .chat-body-content h2 { font-size: 1.1rem; }
+    .chat-body-content h3 { font-size: 1rem; }
+    .chat-body-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 0.75rem;
+      font-size: 0.8rem;
+    }
+    .chat-body-content th, .chat-body-content td {
+      border: 1px solid #27272a;
+      padding: 0.4rem 0.6rem;
+      text-align: left;
+    }
+    .chat-body-content th {
+      background-color: #18181b;
+      color: #d4d4d8;
+    }
+
+    /* Markdown rendering styles for artifact previewer */
+    .artifact-markdown-content {
+      color: #d4d4d8;
+      line-height: 1.6;
+    }
+    .artifact-markdown-content p {
+      margin-bottom: 1rem;
+    }
+    .artifact-markdown-content h1 {
+      font-size: 1.875rem;
+      font-weight: 700;
+      margin-top: 1.5rem;
+      margin-bottom: 1rem;
+      color: #fff;
+      border-bottom: 1px solid #27272a;
+      padding-bottom: 0.5rem;
+    }
+    .artifact-markdown-content h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-top: 1.25rem;
+      margin-bottom: 0.75rem;
+      color: #fff;
+    }
+    .artifact-markdown-content h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+      color: #fff;
+    }
+    .artifact-markdown-content ul, .artifact-markdown-content ol {
+      margin-bottom: 1rem;
+      padding-left: 1.5rem;
+    }
+    .artifact-markdown-content ul { list-style-type: disc; }
+    .artifact-markdown-content ol { list-style-type: decimal; }
+    .artifact-markdown-content li { margin-bottom: 0.25rem; }
+    .artifact-markdown-content code:not(pre code) {
+      background-color: rgba(139, 92, 246, 0.15);
+      color: #a78bfa;
+      padding: 0.1rem 0.3rem;
+      border-radius: 0.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
+    }
+    .artifact-markdown-content pre {
+      background-color: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      overflow-x: auto;
+    }
+    .artifact-markdown-content pre code {
+      color: #e4e4e7;
+    }
+    .artifact-markdown-content blockquote {
+      border-left: 4px solid #8b5cf6;
+      padding-left: 1rem;
+      color: #a1a1aa;
+      font-style: italic;
+      margin-bottom: 1rem;
+    }
+    .artifact-markdown-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+    .artifact-markdown-content th, .artifact-markdown-content td {
+      border: 1px solid #27272a;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    .artifact-markdown-content th {
+      background-color: #18181b;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* Spinning gradient outline for the chat input when agent is generating */
+    @keyframes spin-element {
+      to { transform: rotate(360deg); }
+    }
+
+    .generating-ring {
+      position: relative;
+      border-color: transparent !important;
+      transition: none;
+    }
+
+    .generating-ring::before {
+      content: '';
+      position: absolute;
+      inset: -1.5px;
+      border-radius: 0.85rem;
+      background: conic-gradient(from var(--spin-angle), #8b5cf6 0%, #ec4899 25%, #6366f1 50%, #a78bfa 75%, #8b5cf6 100%);
+      animation: spin-angle 2s linear infinite;
+      z-index: 0;
+    }
+
+    .generating-ring::after {
+      content: '';
+      position: absolute;
+      inset: 1.5px;
+      border-radius: 0.75rem;
+      background: #18181b; /* brand-dark */
+      z-index: 1;
+    }
+
+    .generating-ring > * {
+      position: relative;
+      z-index: 2;
+    }
+
+    .vintage-vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.7) 100%);
+    }
+  </style>
+</head>
+<body class="bg-brand-black text-zinc-100 font-sans h-full overflow-hidden flex flex-col selection:bg-brand-accent/30 selection:text-white">
+
+  <!-- Gaussian Noise Background Canvas -->
+  <canvas id="bg-canvas" class="fixed inset-0 z-0 pointer-events-none"></canvas>
+  <div id="vintage-vignette" class="vintage-vignette"></div>
+
+  <!-- Floating Alert Toast Notification HUD -->
+  <div id="toast-hub" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+
+  <!-- Styled Alert/Confirm Confirmation Modal Replacement Overlay -->
+  <div id="confirm-modal-backdrop" class="fixed inset-0 bg-brand-black/90 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+    <div class="bg-brand-dark border border-zinc-800 rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex items-start space-x-3">
+        <div id="confirm-icon" class="p-2 bg-red-500/10 text-red-500 rounded-lg">
+          <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+        </div>
+        <div>
+          <h4 id="confirm-title" class="text-sm font-semibold text-zinc-200">Are you sure?</h4>
+          <p id="confirm-desc" class="text-xs text-zinc-400 mt-1 leading-relaxed">This action cannot be undone.</p>
+        </div>
+      </div>
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button id="confirm-cancel-btn" class="px-3 py-1.5 bg-brand-gray hover:bg-zinc-700 text-zinc-300 rounded text-xs transition-colors">Cancel</button>
+        <button id="confirm-accept-btn" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-semibold transition-colors">Delete Permanently</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Construct Workspace Wizard Modal Overlay -->
+  <div id="construct-wizard-backdrop" class="fixed inset-0 bg-brand-black/85 backdrop-blur-sm z-[90] hidden items-center justify-center p-4">
+    <div class="bg-brand-dark border border-zinc-800 rounded-xl w-[480px] max-w-full p-6 space-y-4 shadow-2xl relative">
+      <!-- Cross Close Button -->
+      <button id="construct-wizard-close" onclick="closeConstructWizard()" class="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+      
+      <!-- Dynamic Wizard Step Container -->
+      <div id="construct-wizard-content" class="space-y-4">
+        <!-- Content will be rendered dynamically by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Undo/Rollback Confirmation Modal Overlay -->
+  <div id="undo-modal-backdrop" class="fixed inset-0 bg-brand-black/90 backdrop-blur-sm z-[100] hidden items-center justify-center p-4 animate-fadeIn">
+    <div class="bg-brand-dark border border-zinc-800 rounded-xl w-[440px] max-w-full p-6 space-y-4 shadow-2xl relative">
+      <button onclick="closeUndoModal()" class="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+      
+      <div>
+        <h4 class="text-sm font-semibold text-zinc-200">Confirm Undo</h4>
+        <p class="text-xs text-zinc-400 mt-3 leading-relaxed">Confirming this undo action will make the following changes:</p>
+      </div>
+      
+      <!-- Files list -->
+      <div id="undo-modal-files" class="space-y-2 py-1 max-h-40 overflow-y-auto">
+         <!-- Dynamically generated file additions/deletions -->
+      </div>
+      
+      <div class="flex items-center justify-end space-x-3 pt-2">
+        <button onclick="closeUndoModal()" class="px-4 py-2 bg-transparent text-zinc-400 hover:text-zinc-200 text-xs font-semibold transition-colors">Cancel</button>
+        <button id="undo-modal-confirm-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1">
+          <span>Confirm</span>
+          <span class="text-[10px] text-blue-200">↵</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Application Header Bar -->
+  <header class="h-12 bg-brand-black border-b border-brand-gray/30 px-6 flex items-center justify-between select-none shrink-0 z-40">
+    <div class="flex items-center space-x-4">
+      <!-- Mobile Menu Toggle -->
+      <button id="btn-mobile-menu" onclick="toggleMobileSidebar()" class="md:hidden text-zinc-400 hover:text-white p-1 -ml-1 transition-colors">
+        <i class="fa-solid fa-bars text-lg"></i>
+      </button>
+      <span class="text-xs font-bold text-brand-accent flex items-center space-x-1.5 cursor-pointer" onclick="navigateToView('manager')">
+        <i class="fa-solid fa-feather-pointed text-base"></i>
+        <span class="tracking-wide uppercase">nxStudio</span>
+      </span>
+      <span class="text-zinc-600 hidden sm:inline">|</span>
+      <div id="header-breadcrumbs" class="text-[11px] font-mono text-zinc-400 flex items-center space-x-2 hidden md:flex">
+        <span class="hover:text-zinc-200 cursor-pointer" onclick="navigateToView('manager')">Dashboard</span>
+        <span class="text-zinc-600">/</span>
+        <span id="breadcrumb-active-section">Workspace Hub</span>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-4">
+      <!-- Active WS Sync Heartbeat Status Indicator -->
+      <div id="conn-indicator" class="flex items-center px-2 py-1 rounded bg-zinc-900 text-zinc-500 border border-zinc-800 text-[10px] font-mono">
+        <span class="h-1.5 w-1.5 rounded-full bg-zinc-600 mr-2"></span> DISCONNECTED
+      </div>
+      
+      <!-- Quick View-Switcher Toggle Button -->
+      <button id="btn-quick-dashboard" onclick="navigateToView('manager')" class="text-xs bg-brand-gray/50 hover:bg-brand-gray border border-brand-gray/80 px-2.5 py-1 rounded text-zinc-300 hover:text-white transition-all flex items-center space-x-1.5">
+        <i class="fa-solid fa-table-columns text-[10px]"></i>
+        <span>Workspace Console</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN ROUTER FRAMEWORK PANELS -->
+  <main class="flex-1 flex overflow-hidden min-h-0 relative">
+
+    <!-- ========================================== -->
+    <!-- VIEW A: WORKSPACE HUB & MANAGER WINDOW    -->
+    <!-- ========================================== -->
+    <section id="view-manager" class="absolute inset-0 bg-brand-black/60 overflow-y-auto flex flex-col p-6 space-y-6 z-10 transition-all duration-300 transform translate-x-0 opacity-100">
+      
+      <!-- Top Overview Dashboard Banner -->
+      <div class="max-w-7xl mx-auto w-full flex flex-col md:flex-row md:items-center md:justify-between border-b border-brand-gray/30 pb-5 gap-4">
+        <div>
+          <h1 class="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
+            <span>Developer Hub</span>
+            <span class="text-[10px] bg-brand-accent/20 text-brand-accent px-2 py-0.5 rounded-full font-semibold font-mono">V0.0.1-beta</span>
+          </h1>
+          <p class="text-xs text-zinc-500 mt-1">Isolate system directories, configure custom system profiles, and coordinate multi-turn operations.</p>
+        </div>
+        
+        <!-- Quick Action Tabs for Management Config -->
+        <div class="flex items-center space-x-2">
+          <button onclick="toggleManagerSettings('keys')" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
+            <i class="fa-solid fa-key text-zinc-500 text-[11px]"></i>
+            <span>API Key Rotation</span>
+          </button>
+          <button onclick="toggleManagerSettings('instructions')" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
+            <i class="fa-solid fa-sliders text-zinc-500 text-[11px]"></i>
+            <span>Agent Profiles</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Settings Hub Modal Dialog Replacement Overlay -->
+      <div id="manager-settings-drawer" class="fixed inset-0 bg-brand-black/90 backdrop-blur-sm z-[90] hidden items-center justify-center p-4">
+        <div class="bg-brand-dark border border-zinc-800 rounded-xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+          <button onclick="closeSettingsDrawer()" class="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors">
+            <i class="fa-solid fa-xmark text-sm"></i>
+          </button>
+          
+          <!-- Dynamic Form Target (Loaded dynamically based on button clicks) -->
+          <div id="settings-drawer-content" class="space-y-4">
+            <!-- Dynamic parameters load here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Workspace Cards & Creation Container Grid -->
+      <div class="max-w-7xl mx-auto w-full">
+        <h2 class="text-xs uppercase font-bold tracking-wider text-zinc-500 mb-4">Workspace</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <!-- Dynamically Rendered Workspaces + Creation triggers -->
+          <div id="workspaces-dashboard-grid" class="contents">
+            <!-- Loading state -->
+            <div class="col-span-full text-center py-12 text-zinc-500 text-xs italic">
+              <i class="fa-solid fa-circle-notch animate-spin mr-2"></i> Loading Configurations...
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW B: CONSTRUCT WORKSPACE / FILE MANAGER  -->
+    <!-- ========================================== -->
+    <section id="view-construct-workspace" class="absolute inset-0 z-10 flex flex-col opacity-0 translate-x-12 pointer-events-none transition-all duration-300 ease-out">
+      <!-- Fixed Top Panel -->
+      <div class="h-auto bg-brand-dark/80 backdrop-blur-md border-b border-zinc-800 p-6 space-y-4 shrink-0 z-20 shadow-xl">
+        <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Column 1: Label -->
+          <div class="space-y-2">
+            <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Workspace Label</label>
+            <input type="text" id="construct-ws-name" placeholder="e.g., Python Microservice App" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-brand-accent transition-all">
+          </div>
+          <!-- Column 2: Instruction Profile -->
+          <div class="space-y-2">
+            <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Instruct Profile</label>
+            <select id="construct-ws-instruct" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-brand-accent transition-all">
+              <option value="">Standard Default Personality Prompt</option>
+              <!-- Populated by JS -->
+            </select>
+          </div>
+          <!-- Column 3: Action -->
+          <div class="flex items-end">
+            <button id="btn-activate-ws" class="w-full bg-brand-accent text-white text-sm font-bold py-2.5 rounded-lg shadow-lg hover:bg-brand-accent/90 transition-all flex items-center justify-center space-x-2">
+              <i class="fa-solid fa-rocket text-xs"></i>
+              <span>Activate Workspace</span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Selected Folders List (Below Inputs) -->
+        <div class="max-w-7xl mx-auto">
+          <div class="flex items-center space-x-2 mb-2">
+            <span class="text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Bounded Directories</span>
+            <div id="construct-ws-folder-count" class="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">0</div>
+          </div>
+          <div id="construct-ws-folders-list" class="flex flex-wrap gap-2">
+            <!-- Folder chips will be rendered here -->
+            <span class="text-xs text-zinc-600 italic">No folders selected. Explore the file manager below to add paths.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Folder Explorer -->
+      <div class="flex-1 overflow-hidden flex flex-col bg-brand-black">
+        <!-- Explorer Toolbar -->
+        <div class="bg-zinc-900/30 border-b border-zinc-800 px-6 py-3 flex items-center justify-between gap-4 shrink-0">
+          <div class="flex items-center space-x-3 flex-1">
+            <button id="btn-explorer-up" class="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-md transition-all" title="Go Up">
+              <i class="fa-solid fa-arrow-up-from-bracket"></i>
+            </button>
+            <div class="flex-1 flex items-center bg-brand-black border border-zinc-800 rounded-md px-3 py-1.5 text-xs font-mono text-zinc-300 overflow-hidden">
+              <span id="explorer-current-path" class="truncate">/</span>
+            </div>
+          </div>
+          <div class="relative w-full max-w-xs">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-xs"></i>
+            <input type="text" id="explorer-search" placeholder="Search in current folder..." class="w-full bg-brand-black border border-zinc-800 rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-accent transition-all">
+          </div>
+        </div>
+
+        <!-- Explorer Content -->
+        <div id="explorer-items-grid" class="flex-1 overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 content-start">
+          <!-- Items populated by JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW B: SESSION DEVELOPMENT VIEW  -->
+    <!-- ========================================== -->
+    <section id="view-session" class="absolute inset-0 bg-brand-black/60 flex overflow-hidden z-0 pointer-events-none opacity-0 transition-all duration-300 transform translate-x-12">
+      
+      <!-- Mobile Sidebar Overlay -->
+      <div id="sidebar-overlay" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
+      
+      <!-- SESSIONS LEFT SIDEBAR (Focused on current workspace) -->
+      <aside id="session-sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-brand-dark border-r border-brand-gray/30 flex flex-col shrink-0 transition-transform duration-300 transform -translate-x-full md:relative md:translate-x-0">
+        
+        <!-- Back to Workspace Selection Dashboard Anchor -->
+        <div class="p-4 border-b border-brand-gray/30 shrink-0">
+          <button onclick="navigateToView('manager')" class="w-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-brand-accent/50 py-2 px-3 rounded text-xs font-semibold text-zinc-300 hover:text-white flex items-center justify-center space-x-2 transition-all">
+            <i class="fa-solid fa-chevron-left text-[10px]"></i>
+            <span>All Workspaces</span>
+          </button>
+        </div>
+
+        <!-- Sidebar Header Context Information -->
+        <div class="px-4 py-3 bg-zinc-900/40 border-b border-brand-gray/20 shrink-0">
+          <h3 id="sidebar-active-ws-name" class="text-xs font-bold text-white truncate">Select Workspace</h3>
+          <p class="text-[10px] text-zinc-500 mt-0.5 truncate font-mono" id="sidebar-active-ws-paths">No active bounds</p>
+        </div>
+
+        <!-- Action: New Session Trigger inside Workspace -->
+        <div class="p-3 shrink-0">
+          <button id="btn-sidebar-new-session" class="w-full bg-brand-accent/15 hover:bg-brand-accent text-brand-accent hover:text-white border border-brand-accent/30 hover:border-brand-accent py-2 px-3 rounded text-xs font-medium flex items-center justify-between transition-all group">
+            <span>+ New Chat Thread</span>
+            <span class="text-[10px] bg-brand-black text-zinc-400 px-1.5 py-0.5 rounded group-hover:text-zinc-200">S</span>
+          </button>
+        </div>
+
+        <!-- Scrollable Active Session List -->
+        <div class="flex-1 overflow-y-auto px-2 space-y-1 select-none">
+          <div class="px-2 py-1.5 text-[10px] uppercase font-bold tracking-wider text-zinc-500 flex items-center justify-between">
+            <span>Sessions</span>
+            <i class="fa-solid fa-clock-rotate-left"></i>
+          </div>
+          <div id="sidebar-session-list" class="space-y-0.5">
+            <!-- Sessions load dynamically -->
+          </div>
+        </div>
+
+        <!-- Workspace Controls Panel -->
+        <div class="p-3 bg-brand-darker border-t border-brand-gray/40 shrink-0 space-y-2">
+          <div class="text-[10px] text-zinc-500 font-semibold px-1 select-none">WORKSPACE DETAILS</div>
+          <button onclick="openWorkspaceFolderViewer()" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
+            <span class="flex items-center"><i class="fa-solid fa-folder-tree mr-2 text-zinc-500"></i> Browser</span>
+            <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-zinc-500"></i>
+          </button>
+
+          <button onclick="toggleSourceControlView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
+            <span class="flex items-center"><i class="fa-solid fa-code-branch mr-2 text-zinc-500"></i> Source Control</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
+          </button>
+
+          <button onclick="toggleArtifactsView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
+            <span class="flex items-center"><i class="fa-solid fa-cube mr-2 text-zinc-500"></i> Artifacts</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
+          </button>
+        </div>
+      </aside>
+
+      <!-- CENTRAL ACTIVE SESSION CHAT STREAM CONSOLE -->
+      <div class="flex-1 flex flex-col bg-brand-darker overflow-hidden min-w-0 relative">
+        
+        <!-- Live Run Headers / Active configuration logs -->
+        <div class="px-5 py-2.5 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between text-xs text-zinc-400 select-none shrink-0">
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-terminal text-brand-accent mr-1"></i>
+            <span id="session-running-model" class="font-mono text-zinc-300">gemma-4-31b-it</span>
+            <span class="text-zinc-700">|</span>
+            <span class="text-[11px] text-zinc-400" id="session-turn-counter">Loading Turn history bounds...</span>
+          </div>
+          <div class="flex items-center">
+            <span id="executing-loader" class="hidden items-center text-brand-accent font-medium space-x-2">
+              <i class="fa-solid fa-spinner animate-spin text-[11px]"></i>
+              <span class="text-[11px]">Agent thinking...</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Chat Interface Wrapper -->
+        <div id="chat-interface-wrapper" class="flex-1 flex flex-col overflow-hidden">
+          <!-- Chat History Scroll Target Box -->
+          <div id="session-chat-container" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+            <!-- Dynamic bubble inputs appended here -->
+          </div>
+
+          <!-- Chat Prompt & Configuration Input Box -->
+          <div class="p-4 bg-brand-black border-t border-brand-gray/40 shrink-0">
+            <div class="max-w-4xl mx-auto space-y-3">
+              
+              <!-- Upload Attachment chips -->
+              <div id="chat-upload-indicator" class="hidden flex flex-wrap gap-2 py-1.5 border-b border-zinc-800"></div>
+
+              <!-- Main Input Bar Box Container -->
+              <div id="chat-input-container" class="bg-brand-dark border border-brand-gray/60 rounded-xl p-3 focus-within:border-brand-accent/80 transition-colors shadow-lg">
+                <textarea id="chat-prompt-input" rows="2" placeholder="Describe instructions, execute tasks, or invoke terminal commands..." class="w-full bg-transparent border-0 outline-none resize-none text-xs text-zinc-100 placeholder-zinc-500 focus:ring-0" disabled></textarea>
+                
+                <div class="flex items-center justify-between border-t border-zinc-800/60 pt-2.5 mt-2 select-none">
+                  <div class="flex items-center space-x-3">
+                    
+                    <!-- File attachment trigger -->
+                    <button onclick="document.getElementById('file-upload-input').click()" class="text-zinc-500 hover:text-zinc-200 transition-colors" title="Attach multi-modal files (Max 25MB)">
+                      <i class="fa-solid fa-paperclip text-sm"></i>
+                    </button>
+                    <input type="file" id="file-upload-input" class="hidden" multiple onchange="handleChatFileUpload(event)">
+
+                    <!-- Dynamic Instruction Behavior Selector -->
+                    <div class="flex items-center space-x-1.5">
+                      <span class="text-[10px] text-zinc-500 font-medium">Agent Profile:</span>
+                      <select id="chat-instruction-selector" class="bg-brand-black text-[11px] text-zinc-300 border border-brand-gray/50 rounded-md py-1 px-2 focus:outline-none focus:border-brand-accent cursor-pointer">
+                        <option value="">Default Profile</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center space-x-2">
+                    <span class="text-[10px] text-zinc-500 hidden sm:inline" id="send-hint">Press Ctrl+Enter to run</span>
+                    <!-- Send button (shown when idle) -->
+                    <button id="btn-chat-submit" onclick="submitActivePrompt()" class="bg-brand-accent/20 hover:bg-brand-accent text-brand-accent hover:text-white border border-brand-accent/30 py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center space-x-2 disabled:opacity-50" disabled>
+                      <span>Send</span>
+                      <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                    </button>
+                    <!-- Stop / Interrupt button (shown when generating) -->
+                    <button id="btn-chat-stop" onclick="cancelActiveGeneration()" class="hidden bg-red-500/15 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center space-x-2">
+                      <i class="fa-solid fa-stop text-[9px]"></i>
+                      <span>Stop</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Source Control Interface Container -->
+        <div id="source-control-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
+          <!-- Tabs Header -->
+          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
+            <div class="flex items-center space-x-1">
+              <button id="btn-sc-files" onclick="setScTab('files')" class="text-xs font-semibold px-3 py-1.5 rounded transition-all text-brand-accent bg-brand-accent/10 border border-brand-accent/20">Files Explorer</button>
+              <button id="btn-sc-timeline" onclick="setScTab('timeline')" class="text-xs font-semibold px-3 py-1.5 rounded transition-all text-zinc-400 hover:text-zinc-200">Timeline</button>
+            </div>
+            <!-- Close button to go back to chat -->
+            <button onclick="toggleSourceControlView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
+              <i class="fa-solid fa-xmark mr-1"></i> Close
+            </button>
+          </div>
+          
+          <!-- Content Area -->
+          <div id="source-control-content" class="flex-1 overflow-y-auto p-5 space-y-4">
+            <!-- Dynamically rendered content goes here -->
+          </div>
+        </div>
+
+        <!-- Artifacts Interface Container -->
+        <div id="artifacts-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
+          <!-- Header -->
+          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-cube text-brand-accent"></i>
+              <span class="text-xs font-semibold text-zinc-200">Artifacts Explorer</span>
+            </div>
+            <!-- Close button to go back to chat -->
+            <button onclick="toggleArtifactsView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
+              <i class="fa-solid fa-xmark mr-1"></i> Close
+            </button>
+          </div>
+          
+          <!-- Split Layout for File List and File Preview -->
+          <div class="flex-1 flex overflow-hidden">
+            <!-- Left Side: Artifact File List -->
+            <div class="w-64 border-r border-brand-gray/30 overflow-y-auto p-4 space-y-2 bg-brand-dark/40 shrink-0">
+              <div id="artifacts-list" class="space-y-1">
+                <!-- Dynamically loaded artifact files -->
+              </div>
+            </div>
+            <!-- Right Side: Artifact File Preview -->
+            <div id="artifacts-preview-panel" class="flex-1 overflow-y-auto p-5 bg-brand-darker font-sans text-sm text-zinc-300">
+              <div id="artifacts-preview-placeholder" class="h-full flex flex-col items-center justify-center text-zinc-500 italic space-y-2">
+                <i class="fa-solid fa-file text-3xl text-zinc-600"></i>
+                <span>Select an artifact file to preview</span>
+              </div>
+              <div id="artifacts-preview-content" class="hidden h-full flex flex-col">
+                <!-- File header/metadata -->
+                <div class="pb-3 border-b border-brand-gray/30 mb-4 flex items-center justify-between shrink-0">
+                  <div>
+                    <h3 id="artifacts-preview-filename" class="text-sm font-bold text-zinc-100 font-mono"></h3>
+                    <span id="artifacts-preview-size" class="text-[10px] text-zinc-500 font-mono"></span>
+                  </div>
+                </div>
+                <!-- Preview area -->
+                <div id="artifacts-preview-body" class="flex-1 min-h-0 overflow-auto">
+                  <!-- Dynamically rendered file content preview -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDEOUT CONTEXT DRAWER (Tasks & browser details) -->
+      <aside id="session-right-drawer" class="w-80 bg-brand-dark border-l border-brand-gray/30 flex flex-col shrink-0 hidden">
+        <div class="p-4 border-b border-brand-gray/30 flex items-center justify-between bg-zinc-900/20 shrink-0">
+          <h4 id="right-drawer-title" class="text-xs font-bold uppercase tracking-wider text-zinc-300">Context</h4>
+          <button onclick="closeSessionRightDrawer()" class="text-zinc-500 hover:text-zinc-200">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+        
+        <!-- Drawer content mount body -->
+        <div id="right-drawer-body" class="flex-1 overflow-y-auto p-4 space-y-4">
+          <!-- Custom tasks matrices or file views mount here -->
+        </div>
+      </aside>
+
+    </section>
+
+  </main>
+
+  <!-- CORE JAVASCRIPT STATE CONTROLLERS -->
+  <script>
+    // State Variables
+    let state = {
+      view: 'manager', // 'manager' | 'session'
+      workspaces: [],
+      apiKeys: [],
+      instructions: [],
+      sessions: [], // sessions belonging to the active workspace
+      workspaceFoldersState: [], // Bounded paths collection during creation
+      
+      activeWorkspaceId: null,
+      activeSessionId: null,
+      activeWsURL: null,
+      selectedAttachments: [],
+      isGenerating: false,
+      stickToBottom: true,
+      thoughtStickToBottom: true,
+      
+      lastHistoryModelTextBubble: null,
+      lastHistoryModelThoughtBubble: null,
+      lastHistoryModelText: "",
+      lastHistoryModelThoughts: "",
+      
+      wsConn: null,
+      markdownParser: typeof window.markdownit === 'function' ? window.markdownit({
+        html: true,
+        linkify: true,
+        typographer: true
+      }) : {
+        render: (text) => {
+          return (text || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+        }
+      }
+    };
+
+    // DOM Elements Map
+    const elements = {
+      headerBreadcrumbs: document.getElementById('header-breadcrumbs'),
+      breadcrumbActiveSection: document.getElementById('breadcrumb-active-section'),
+      connIndicator: document.getElementById('conn-indicator'),
+      btnQuickDashboard: document.getElementById('btn-quick-dashboard'),
+      
+      // Views
+      viewManager: document.getElementById('view-manager'),
+      viewSession: document.getElementById('view-session'),
+      viewConstructWorkspace: document.getElementById('view-construct-workspace'),
+      workspacesDashboardGrid: document.getElementById('workspaces-dashboard-grid'),
+      managerSettingsDrawer: document.getElementById('manager-settings-drawer'),
+      settingsDrawerContent: document.getElementById('settings-drawer-content'),
+      
+      // Session Elements
+      sidebarActiveWsName: document.getElementById('sidebar-active-ws-name'),
+      sidebarActiveWsPaths: document.getElementById('sidebar-active-ws-paths'),
+      btnSidebarNewSession: document.getElementById('btn-sidebar-new-session'),
+      sidebarSessionList: document.getElementById('sidebar-session-list'),
+      
+      sessionRunningModel: document.getElementById('session-running-model'),
+      sessionTurnCounter: document.getElementById('session-turn-counter'),
+      executingLoader: document.getElementById('executing-loader'),
+      sessionChatContainer: document.getElementById('session-chat-container'),
+      
+      chatUploadIndicator: document.getElementById('chat-upload-indicator'),
+      chatPromptInput: document.getElementById('chat-prompt-input'),
+      chatInstructionSelector: document.getElementById('chat-instruction-selector'),
+      btnChatSubmit: document.getElementById('btn-chat-submit'),
+      
+      // Slideout Context Drawer
+      sessionRightDrawer: document.getElementById('session-right-drawer'),
+      rightDrawerTitle: document.getElementById('right-drawer-title'),
+      rightDrawerBody: document.getElementById('right-drawer-body')
+    };
+
+    // Initialize Dashboard Systems on window load
+    window.onload = async function() {
+      await refreshSystemDatabase();
+      setupMainActions();
+      navigateToView('manager');
+    };
+
+    // Wrap navigateToView to trigger Construct Workspace initialization
+    const originalNavigateToView = navigateToView;
+    navigateToView = function(targetView) {
+      if (targetView === 'construct') {
+        openConstructWizard();
+        return;
+      }
+      originalNavigateToView(targetView);
+    };
+
+    // Wire global click events
+    function setupMainActions() {
+      // Hotkey prompts submission (Ctrl+Enter)
+      elements.chatPromptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.ctrlKey) {
+          e.preventDefault();
+          submitActivePrompt();
+        }
+      });
+
+      // Track chat container scroll to toggle stick-to-bottom
+      elements.sessionChatContainer.addEventListener('scroll', () => {
+        const { scrollTop, scrollHeight, clientHeight } = elements.sessionChatContainer;
+        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 20; // 20px threshold
+        
+        if (isAtBottom) {
+          state.stickToBottom = true;
+        } else {
+          state.stickToBottom = false;
+        }
+      });
+
+      // Paste image directly into the input area
+      elements.chatPromptInput.addEventListener('paste', (e) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imageItems = items.filter(it => it.type.startsWith('image/'));
+        if (imageItems.length === 0) return; // let normal text paste proceed
+        e.preventDefault();
+        imageItems.forEach(item => {
+          const file = item.getAsFile();
+          if (!file) return;
+          state.selectedAttachments.push({ name: `paste_${Date.now()}.png`, mime: file.type, size: file.size, raw: file });
+        });
+        renderAttachmentChips();
+      });
+
+      // Drag & drop files onto the chat input container
+      const inputContainer = elements.chatPromptInput.closest('div.bg-brand-dark');
+      if (inputContainer) {
+        inputContainer.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          inputContainer.classList.add('border-brand-accent');
+        });
+        inputContainer.addEventListener('dragleave', () => {
+          inputContainer.classList.remove('border-brand-accent');
+        });
+        inputContainer.addEventListener('drop', (e) => {
+          e.preventDefault();
+          inputContainer.classList.remove('border-brand-accent');
+          const files = Array.from(e.dataTransfer?.files || []);
+          files.forEach(file => {
+            state.selectedAttachments.push({ name: file.name, mime: file.type, size: file.size, raw: file });
+          });
+          renderAttachmentChips();
+        });
+      }
+
+      // Thread trigger button inside
+      elements.btnSidebarNewSession.onclick = async function() {
+        if (!state.activeWorkspaceId) {
+          showToast('Configuration Error', 'Select or construct a workspace first.', 'error');
+          return;
+        }
+        const customSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
+        await initializeSession(customSessionId);
+        await refreshSessionList();
+      };
+    }
+
+    function renderAttachmentChips() {
+      const indicator = elements.chatUploadIndicator;
+      if (state.selectedAttachments.length === 0) {
+        indicator.classList.add('hidden');
+        indicator.innerHTML = "";
+        return;
+      }
+      indicator.classList.remove('hidden');
+      indicator.innerHTML = "";
+      state.selectedAttachments.forEach((f, index) => {
+        const isImage = f.mime && f.mime.startsWith('image/');
+        const chip = document.createElement('div');
+        chip.className = "flex items-center space-x-2 bg-brand-dark px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 select-none font-mono";
+        const previewSrc = isImage ? URL.createObjectURL(f.raw) : null;
+        chip.innerHTML = `
+          ${isImage ? `<img src="${previewSrc}" class="w-6 h-6 object-cover rounded">` : `<i class="fa-solid fa-file text-zinc-500"></i>`}
+          <span class="truncate max-w-[100px]">${f.name}</span>
+          <button onclick="removeSelectedFile(${index})" class="text-zinc-500 hover:text-zinc-200 transition-colors"><i class="fa-solid fa-xmark"></i></button>
+        `;
+        indicator.appendChild(chip);
+      });
+    }
+
+    // Premium Toast UI System
+    function showToast(title, desc, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = "p-4 bg-brand-dark border rounded-xl shadow-2xl flex items-start space-x-3 transition-all transform duration-300 translate-y-2 opacity-0 pointer-events-auto select-none";
+      
+      let icon = '<i class="fa-solid fa-circle-check text-emerald-500"></i>';
+      let border = 'border-emerald-500/20';
+      if (type === 'error') {
+        icon = '<i class="fa-solid fa-triangle-exclamation text-red-500"></i>';
+        border = 'border-red-500/20';
+      } else if (type === 'info') {
+        icon = '<i class="fa-solid fa-circle-info text-brand-accent"></i>';
+        border = 'border-brand-accent/20';
+      }
+
+      toast.className += ` ${border}`;
+      toast.innerHTML = `
+        <div class="text-sm shrink-0 mt-0.5">${icon}</div>
+        <div class="flex-1 min-w-0">
+          <h5 class="text-xs font-bold text-zinc-200">${title}</h5>
+          <p class="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">${desc}</p>
+        </div>
+      `;
+
+      document.getElementById('toast-hub').appendChild(toast);
+      
+      // Animation ticks
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 50);
+
+      // Dismiss schedule
+      setTimeout(() => {
+        toast.classList.add('translate-y-2', 'opacity-0');
+        setTimeout(() => { toast.remove(); }, 300);
+      }, 4000);
+    }
+
+    // Custom non-alert confirm modal replacement
+    function showConfirmModal(title, description, onAccept) {
+      const backdrop = document.getElementById('confirm-modal-backdrop');
+      const titleEl = document.getElementById('confirm-title');
+      const descEl = document.getElementById('confirm-desc');
+      const acceptBtn = document.getElementById('confirm-accept-btn');
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+      titleEl.innerText = title;
+      descEl.innerText = description;
+      
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+
+      function cleanup() {
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+        // Unbind events to prevent memory leaks
+        acceptBtn.onclick = null;
+        cancelBtn.onclick = null;
+      }
+
+      acceptBtn.onclick = () => {
+        cleanup();
+        onAccept();
+      };
+
+      cancelBtn.onclick = () => {
+        cleanup();
+      };
+    }
+
+    function showAlertModal(title, description) {
+      const backdrop = document.getElementById('confirm-modal-backdrop');
+      const titleEl = document.getElementById('confirm-title');
+      const descEl = document.getElementById('confirm-desc');
+      const acceptBtn = document.getElementById('confirm-accept-btn');
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+      titleEl.innerText = title;
+      descEl.innerText = description;
+      
+      const originalAcceptText = acceptBtn.innerText;
+      acceptBtn.innerText = "OK";
+      cancelBtn.classList.add('hidden');
+      
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+
+      function cleanup() {
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+        cancelBtn.classList.remove('hidden');
+        acceptBtn.innerText = originalAcceptText;
+        acceptBtn.onclick = null;
+        cancelBtn.onclick = null;
+      }
+
+      acceptBtn.onclick = () => {
+        cleanup();
+      };
+    }
+
+    // Construct Workspace Wizard State & Controls
+    let wizardState = {
+      step: 1,
+      selectedFolders: [],
+      securitySetting: 'default',
+      projectName: '',
+      showAddInput: false
+    };
+
+    function openConstructWizard() {
+      wizardState = {
+        step: 1,
+        selectedFolders: [],
+        securitySetting: 'default',
+        projectName: '',
+        showAddInput: false
+      };
+      
+      const backdrop = document.getElementById('construct-wizard-backdrop');
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+      
+      renderConstructWizardStep();
+    }
+
+    function closeConstructWizard() {
+      const backdrop = document.getElementById('construct-wizard-backdrop');
+      backdrop.classList.add('hidden');
+      backdrop.classList.remove('flex');
+    }
+
+    function removeWizardFolder(path) {
+      wizardState.selectedFolders = wizardState.selectedFolders.filter(f => f.path !== path);
+      if (wizardState.selectedFolders.length > 0) {
+        const firstFolder = wizardState.selectedFolders[0].path;
+        const parts = firstFolder.split('/').filter(Boolean);
+        wizardState.projectName = parts[parts.length - 1] || 'New Project';
+      } else {
+        wizardState.projectName = '';
+      }
+      renderConstructWizardStep();
+    }
+
+    async function resolveAndAddFolder(folderName) {
+      try {
+        const res = await fetch(`/api/find-folder?name=${encodeURIComponent(folderName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const absolutePath = data.path;
+          
+          if (wizardState.selectedFolders.some(f => f.path === absolutePath)) {
+            showToast('Duplicate Path', 'This folder is already in the list.', 'info');
+            return;
+          }
+          
+          let branchName = 'main';
+          try {
+            const branchRes = await fetch(`/api/folder?path=${encodeURIComponent(absolutePath)}`);
+            if (branchRes.ok) {
+              const branchData = await branchRes.json();
+              if (branchData.gitBranch) {
+                branchName = branchData.gitBranch;
+              }
+            }
+          } catch (err) {}
+          
+          wizardState.selectedFolders.push({
+            path: absolutePath,
+            branch: branchName
+          });
+          
+          if (!wizardState.projectName) {
+            wizardState.projectName = folderName;
+          }
+          
+          renderConstructWizardStep();
+          showToast('Folder Added', `Successfully added ${folderName}`, 'success');
+        } else {
+          showToast('Not Found', `Could not find folder named "${folderName}" in search paths.`, 'error');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
+    function fallbackNativeDirectoryPicker() {
+      let picker = document.getElementById('wizard-native-directory-picker');
+      if (!picker) {
+        picker = document.createElement('input');
+        picker.type = 'file';
+        picker.id = 'wizard-native-directory-picker';
+        picker.webkitdirectory = true;
+        picker.directory = true;
+        picker.multiple = true;
+        picker.className = 'hidden';
+        document.body.appendChild(picker);
+      }
+      
+      picker.onchange = async (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+          const firstFile = files[0];
+          const relativePath = firstFile.webkitRelativePath || '';
+          const folderName = relativePath.split('/')[0] || firstFile.name;
+          
+          if (!folderName) {
+            showToast('Invalid Selection', 'Could not determine the folder name.', 'error');
+            return;
+          }
+          
+          showToast('Resolving Folder', `Scanning path for ${folderName}...`, 'info');
+          await resolveAndAddFolder(folderName);
+        }
+      };
+      
+      picker.click();
+    }
+
+    async function showWizardAddFolderInput() {
+      if (window.showDirectoryPicker) {
+        try {
+          const handle = await window.showDirectoryPicker({
+            mode: 'read'
+          });
+          const folderName = handle.name;
+          if (!folderName) {
+            showToast('Invalid Selection', 'Could not determine the folder name.', 'error');
+            return;
+          }
+          
+          showToast('Resolving Folder', `Scanning path for ${folderName}...`, 'info');
+          await resolveAndAddFolder(folderName);
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.error('Directory picker error:', err);
+            fallbackNativeDirectoryPicker();
+          }
+        }
+      } else {
+        fallbackNativeDirectoryPicker();
+      }
+    }
+
+    async function addWizardFolderFromInput() {
+      const input = document.getElementById('wizard-folder-autocomplete-input');
+      if (!input) return;
+      
+      let val = input.value.trim();
+      if (!val) {
+        showToast('Invalid Path', 'Please enter or select a folder path.', 'error');
+        return;
+      }
+      
+      let normalized = val.replace(/\\/g, '/').replace(/\/+/g, '/');
+      if (normalized.endsWith('/') && normalized.length > 1) {
+        normalized = normalized.slice(0, -1);
+      }
+      
+      if (wizardState.selectedFolders.some(f => f.path === normalized)) {
+        showToast('Duplicate Path', 'This path is already in the list.', 'info');
+        return;
+      }
+      
+      let branchName = 'main';
+      try {
+        const res = await fetch(`/api/folder?path=${encodeURIComponent(normalized)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.gitBranch) {
+            branchName = data.gitBranch;
+          }
+        }
+      } catch (e) {}
+
+      wizardState.selectedFolders.push({
+        path: normalized,
+        branch: branchName
+      });
+      
+      if (!wizardState.projectName) {
+        const parts = normalized.split('/').filter(Boolean);
+        wizardState.projectName = parts[parts.length - 1] || 'New Project';
+      }
+      
+      wizardState.showAddInput = false;
+      renderConstructWizardStep();
+      showToast('Path Added', `Added folder path: ${normalized}`, 'success');
+    }
+
+    function setupWizardAutocomplete() {
+      const autocompleteInput = document.getElementById('wizard-folder-autocomplete-input');
+      if (!autocompleteInput) return;
+      
+      let autocompleteTimeout = null;
+      autocompleteInput.addEventListener('input', async (e) => {
+        const val = e.target.value;
+        if (!val) {
+          const suggestionsEl = document.getElementById('wizard-folder-autocomplete-suggestions');
+          if (suggestionsEl) suggestionsEl.classList.add('hidden');
+          return;
+        }
+        
+        clearTimeout(autocompleteTimeout);
+        autocompleteTimeout = setTimeout(async () => {
+          const result = await resolveExistingPathAndFilter(val);
+          const suggestionsEl = document.getElementById('wizard-folder-autocomplete-suggestions');
+          if (!suggestionsEl) return;
+          
+          if (!result.exists) {
+            suggestionsEl.innerHTML = `<div class="p-2 text-[10px] text-zinc-500 italic select-none">Directory parent path not found.</div>`;
+            suggestionsEl.classList.remove('hidden');
+            return;
+          }
+          
+          const folders = result.items.filter(item => {
+            const isFolder = item.type === 'folder' || item.type === 'directory';
+            const matchesFilter = !result.filter || item.name.toLowerCase().includes(result.filter.toLowerCase());
+            return isFolder && matchesFilter;
+          });
+          
+          suggestionsEl.innerHTML = "";
+          
+          if (folders.length === 0) {
+            suggestionsEl.innerHTML = `<div class="p-2 text-[10px] text-zinc-500 italic select-none">No subfolders match "${result.filter}" in ${result.resolvedPath}</div>`;
+            suggestionsEl.classList.remove('hidden');
+            return;
+          }
+          
+          folders.forEach(folder => {
+            const row = document.createElement('div');
+            row.className = "flex items-center space-x-2 p-2 hover:bg-zinc-900 cursor-pointer text-[11px] font-mono text-zinc-300 transition-colors";
+            row.innerHTML = `<i class="fa-solid fa-folder text-amber-500 text-[10px]"></i><span class="truncate">${folder.name}</span>`;
+            
+            row.onclick = () => {
+              let nextPath = `${result.resolvedPath}/${folder.name}/`.replace(/\/\/+/g, '/');
+              autocompleteInput.value = nextPath;
+              autocompleteInput.focus();
+              
+              const event = new Event('input', { bubbles: true });
+              autocompleteInput.dispatchEvent(event);
+            };
+            suggestionsEl.appendChild(row);
+          });
+          
+          suggestionsEl.classList.remove('hidden');
+        }, 150);
+      });
+      
+      autocompleteInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addWizardFolderFromInput();
+        }
+      });
+    }
+
+    async function submitConstructWizard() {
+      const name = wizardState.projectName.trim();
+      if (!name) {
+        showToast('Missing Label', 'Please provide a label for your project.', 'error');
+        return;
+      }
+      
+      const folders_path = wizardState.selectedFolders.map(f => f.path);
+      
+      try {
+        const res = await fetch('/api/workspace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            name, 
+            folders_path,
+            instruction_id: null
+          })
+        });
+        if (res.ok) {
+          showToast('Workspace Activated', 'Indexes created successfully.', 'success');
+          closeConstructWizard();
+          refreshSystemDatabase();
+        } else {
+          const errData = await res.json();
+          showToast('Creation Failed', errData.error || 'Unknown server error', 'error');
+        }
+      } catch (e) {
+        showToast('System Error', 'Could not communicate with API.', 'error');
+      }
+    }
+
+    function renderConstructWizardStep() {
+      const content = document.getElementById('construct-wizard-content');
+      if (!content) return;
+      
+      content.innerHTML = '';
+      
+      if (wizardState.step === 1) {
+        const hasFolders = wizardState.selectedFolders.length > 0;
+        
+        let foldersListHtml = '';
+        if (hasFolders) {
+          foldersListHtml = `
+            <div class="space-y-2 mb-4">
+              ${wizardState.selectedFolders.map(folder => {
+                const parts = folder.path.split('/').filter(Boolean);
+                const folderName = parts[parts.length - 1] || folder.path;
+                return `
+                  <div class="flex items-center justify-between bg-zinc-900/60 p-3 rounded-lg border border-zinc-800/80">
+                    <div class="flex items-center space-x-2">
+                      <i class="fa-solid fa-folder text-amber-500 text-sm"></i>
+                      <span class="text-xs font-semibold text-zinc-300 font-sans">${folderName}/</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                      <span class="text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-700/60 px-1.5 py-0.5 rounded font-mono flex items-center space-x-1">
+                        <i class="fa-solid fa-code-branch text-[8px] text-zinc-500"></i>
+                        <span>${folder.branch}</span>
+                      </span>
+                      <button onclick="removeWizardFolder('${folder.path}')" class="text-zinc-500 hover:text-zinc-200 transition-colors">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }
+        
+        content.innerHTML = `
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-200">Create Project</h3>
+            <span class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider mt-3 mb-2">Select Folder(s)</span>
+            
+            ${foldersListHtml}
+            
+            <div onclick="showWizardAddFolderInput()" class="bg-zinc-800/40 hover:bg-zinc-800/80 border border-dashed border-zinc-800 hover:border-brand-accent/50 rounded-lg p-3.5 flex items-center justify-center text-center cursor-pointer transition-all group">
+              <span class="text-xs font-semibold text-zinc-400 group-hover:text-white transition-colors flex items-center space-x-1.5">
+                <i class="fa-solid fa-plus text-[10px]"></i>
+                <span>Add Folder</span>
+              </span>
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-end pt-3">
+            ${hasFolders ? `
+              <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
+            ` : `
+              <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Skip</button>
+            `}
+          </div>
+        `;
+        
+      } else if (wizardState.step === 2) {
+        content.innerHTML = `
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-200">Agent Security Settings</h3>
+            
+            <div class="space-y-2 mt-4">
+              <!-- Default -->
+              <div onclick="wizardState.securitySetting = 'default'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'default' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
+                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
+                  <i class="fa-solid fa-shield-halved text-xs"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-semibold text-zinc-200">Default</h4>
+                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Requires manual review for all terminal commands and file accesses outside of the working folders.</p>
+                </div>
+              </div>
+              
+              <!-- Full Machine -->
+              <div onclick="wizardState.securitySetting = 'full_machine'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'full_machine' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
+                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
+                  <i class="fa-solid fa-unlock-keyhole text-xs"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-semibold text-zinc-200">Full machine</h4>
+                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">All terminal commands require review. The agent can read or write to any file in the machine.</p>
+                </div>
+              </div>
+              
+              <!-- Turbo Mode -->
+              <div onclick="wizardState.securitySetting = 'turbo'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'turbo' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
+                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
+                  <i class="fa-solid fa-circle-exclamation text-xs"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-semibold text-zinc-200">Turbo mode</h4>
+                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Disables all safety barriers for maximal iteration velocity.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-between pt-3">
+            <button onclick="wizardState.step = 1; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
+            <button onclick="wizardState.step = 3; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
+          </div>
+        `;
+        
+      } else if (wizardState.step === 3) {
+        content.innerHTML = `
+          <div>
+            <h3 class="text-sm font-semibold text-zinc-200">Set Project Name</h3>
+            
+            <div class="space-y-1.5 mt-4">
+              <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Project Name</label>
+              <input type="text" id="wizard-project-name-input" value="${wizardState.projectName}" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-brand-accent transition-all" placeholder="e.g., my-app">
+            </div>
+          </div>
+          
+          <div class="flex items-center justify-between pt-3">
+            <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
+            <button id="btn-wizard-create" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Create</button>
+          </div>
+        `;
+        
+        const nameInput = document.getElementById('wizard-project-name-input');
+        if (nameInput) {
+          nameInput.focus();
+          nameInput.select();
+          
+          nameInput.addEventListener('input', (e) => {
+            wizardState.projectName = e.target.value;
+          });
+          nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submitConstructWizard();
+            }
+          });
+        }
+        
+        const createBtn = document.getElementById('btn-wizard-create');
+        if (createBtn) {
+          createBtn.onclick = submitConstructWizard;
+        }
+      }
+    }
+
+    // Primary View Navigation Controller
+    function navigateToView(targetView) {
+      state.view = targetView;
+      closeSessionRightDrawer();
+      
+      const vignette = document.getElementById('vintage-vignette');
+      if (vignette) {
+        vignette.classList.toggle('hidden', targetView !== 'manager');
+      }
+
+      // Reset all views to hidden/inactive state
+      const views = {
+        manager: elements.viewManager,
+        session: elements.viewSession,
+        construct: elements.viewConstructWorkspace
+      };
+
+      Object.keys(views).forEach(key => {
+        const el = views[key];
+        if (!el) return;
+        el.classList.add('pointer-events-none', 'opacity-0', 'translate-x-12');
+        el.classList.remove('pointer-events-auto', 'opacity-100', 'translate-x-0');
+      });
+
+      if (targetView === 'manager') {
+        elements.viewManager.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
+        elements.viewManager.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        
+        elements.breadcrumbActiveSection.innerText = "Workspace Dashboard";
+        elements.btnQuickDashboard.classList.add('hidden');
+        
+        if (state.wsConn) {
+          state.wsConn.close();
+          state.wsConn = null;
+        }
+
+        refreshSystemDatabase();
+      } else if (targetView === 'session') {
+        elements.viewSession.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
+        elements.viewSession.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.breadcrumbActiveSection.innerText = "Session Orchestration";
+      } else if (targetView === 'construct') {
+        elements.viewConstructWorkspace.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
+        elements.viewConstructWorkspace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.breadcrumbActiveSection.innerText = "Construct Workspace";
+      }
+
+      toggleMobileSidebar(false); // Ensure sidebar is closed when navigating
+    }
+    // Core Database Synchronization Queries
+    async function refreshSystemDatabase() {
+      try {
+        const [wsRes, keysRes, instRes] = await Promise.all([
+          fetch('/api/workspace'),
+          fetch('/api/key'),
+          fetch('/api/instruction')
+        ]);
+
+        state.workspaces = await wsRes.json();
+        state.apiKeys = await keysRes.json();
+        state.instructions = await instRes.json();
+        
+
+        // Update the dropdown for custom instructions on prompt input
+        populateInstructionsDropdown();
+        
+        // Build landing page dashboard elements
+        if (state.view === 'manager') {
+          await renderManagerWorkspaceDashboard();
+        }
+
+      } catch(err) {
+        showToast('Hydration Error', 'Could not query database systems.', 'error');
+        console.error(err);
+      }
+    }
+
+    // Build the beautiful Manager Workspace Hub panel
+    async function renderManagerWorkspaceDashboard() {
+      const container = elements.workspacesDashboardGrid;
+      container.innerHTML = "";
+
+      // 1. Render Creation Action Card
+      const addCard = document.createElement('div');
+      addCard.className = "bg-brand-dark/40 backdrop-blur-[2px] hover:bg-brand-dark border-2 border-dashed border-zinc-800 hover:border-brand-accent/50 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer min-h-[190px] transition-all group";
+      addCard.onclick = () => openConstructWizard();
+      addCard.innerHTML = `
+        <div class="w-10 h-10 rounded-full bg-zinc-900 group-hover:bg-brand-accent/10 border border-zinc-800 group-hover:border-brand-accent/40 flex items-center justify-center mb-3 text-zinc-500 group-hover:text-brand-accent transition-all">
+          <i class="fa-solid fa-circle-plus text-base"></i>
+        </div>
+        <h3 class="text-xs font-bold text-zinc-300 group-hover:text-white transition-colors">Construct Workspace</h3>
+        <p class="text-[10px] text-zinc-500 max-w-[200px] mt-1">Bind new physical directories on the local machine and start orchestrations.</p>
+      `;
+      container.appendChild(addCard);
+
+      // 2. Fetch Sessions inside workspaces and render details
+      if (state.workspaces.length === 0) {
+        return;
+      }
+
+      for (const ws of state.workspaces) {
+        const card = document.createElement('div');
+        card.className = "bg-brand-dark border border-zinc-800 rounded-xl p-5 flex flex-col justify-between shadow-lg relative hover:border-brand-accent/40 transition-all min-h-[190px]";
+        
+        // Load sessions to check for running state and lists
+        let sList = [];
+        try {
+          const sRes = await fetch(`/api/workspace/${ws.id}/session`);
+          sList = await sRes.json();
+        } catch(e) {}
+
+        const activePathsStr = ws.folders_path.join(', ');
+        
+        // Determine running status (Green if sessions have logs processing background commands, grey otherwise)
+        let isRunning = sList.some(s => s.status === 'generating' || s.hasRunningTerminal); 
+
+        const statusIndicator = isRunning 
+          ? `<span class="flex items-center text-[10px] text-emerald-500 font-mono"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>ACTIVE RUNNER</span>`
+          : `<span class="flex items-center text-[10px] text-zinc-500 font-mono"><span class="h-1.5 w-1.5 rounded-full bg-zinc-600 mr-1.5"></span>IDLE SECURED</span>`;
+
+        card.innerHTML = `
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              ${statusIndicator}
+              <div class="flex items-center space-x-1.5">
+                <button onclick="event.stopPropagation(); deleteWorkspaceRegistry('${ws.id}')" class="text-zinc-500 hover:text-red-500 text-[10px] p-1 rounded hover:bg-zinc-900 transition-all" title="Wipe Context">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div class="pt-1 select-none cursor-pointer" onclick="navigateToWorkspaceSession('${ws.id}', null)">
+              <h3 class="text-sm font-semibold text-zinc-200 hover:text-brand-accent transition-colors truncate">${ws.name}</h3>
+              <p class="text-[10px] text-zinc-500 font-mono mt-1 leading-relaxed truncate" title="${activePathsStr}"><i class="fa-solid fa-link mr-1 text-[8px]"></i>${activePathsStr}</p>
+            </div>
+          </div>
+
+          <!-- Nested Session list inside Workspace Card (Optimized Attention) -->
+          <div class="mt-4 pt-3 border-t border-zinc-800/60 flex-1 flex flex-col justify-end">
+            <div class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 mb-1.5">Existing Workspace Sessions</div>
+            <div class="space-y-1 max-h-24 overflow-y-auto">
+              ${sList.length === 0 
+                ? `<div class="text-[10px] text-zinc-600 italic">No session history runs. Click above to start.</div>`
+                : sList.map(s => `
+                    <div onclick="event.stopPropagation(); navigateToWorkspaceSession('${ws.id}', '${s.id}')" class="flex items-center justify-between p-1 rounded hover:bg-zinc-900 cursor-pointer text-[11px] group text-zinc-400 hover:text-white transition-all font-mono">
+                      <span class="truncate"><i class="fa-solid fa-message text-[8px] mr-1.5 text-zinc-600 group-hover:text-brand-accent"></i>${s.name || `Session #${s.id.substring(5)}`}</span>
+                      <i class="fa-solid fa-chevron-right text-[8px] opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                    </div>
+                  `).join('')
+              }
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      }
+    }
+
+    // Remove Workspace configurations with premium modal replacements
+    function deleteWorkspaceRegistry(id) {
+      showConfirmModal(
+        'Wipe Workspace?',
+        'Wiping this workspace will cascade delete all nested execution logs, history files, and workspace definitions. Your actual disk files remain safe.',
+        async () => {
+          try {
+            const res = await fetch(`/api/workspace/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+              showToast('Deleted Context', 'Workspace database registry removed.', 'info');
+              refreshSystemDatabase();
+            }
+          } catch(e) {
+            showToast('Action Failed', 'Failed to remove database record.', 'error');
+          }
+        }
+      );
+    }
+
+    // Navigate smoothly to active chat view
+    async function navigateToWorkspaceSession(workspaceId, sessionId = null) {
+      state.activeWorkspaceId = workspaceId;
+      state.activeSessionId = null;
+      
+      const wsObj = state.workspaces.find(w => w.id === workspaceId);
+      if (!wsObj) return;
+
+      // Hydrate dynamic sidebar context metadata
+      elements.sidebarActiveWsName.innerText = wsObj.name;
+      elements.sidebarActiveWsPaths.innerText = wsObj.folders_path.join(', ');
+
+      // Refresh instructions dropdown context to preserve profile mapping
+      populateInstructionsDropdown();
+
+      // Retrieve and render sessions inside this workspace
+      const sRes = await fetch(`/api/workspace/${workspaceId}/session`);
+      state.sessions = await sRes.json();
+      
+      // Check if any session in this workspace is currently running
+      const isWorkspaceActive = state.sessions.some(s => s.status === 'generating');
+      
+      // Update Workspace header styling based on activity
+      if (isWorkspaceActive) {
+        elements.sidebarActiveWsName.parentElement.classList.add('text-brand-accent', 'animate-pulse');
+        elements.sidebarActiveWsName.parentElement.classList.remove('text-zinc-300');
+      } else {
+        elements.sidebarActiveWsName.parentElement.classList.remove('text-brand-accent', 'animate-pulse');
+        elements.sidebarActiveWsName.parentElement.classList.add('text-zinc-300');
+      }
+
+      renderSidebarSessionsList();
+
+      navigateToView('session');
+
+      // Load targeted session or instantiate new if empty
+      if (sessionId) {
+        await initializeSession(sessionId);
+      } else {
+        // Always create a new session when clicking a workspace from the dashboard
+        const customSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
+        await initializeSession(customSessionId);
+      }
+    }
+
+    // Settings configuration drawers builder
+    function toggleManagerSettings(panelType) {
+      const drawer = elements.managerSettingsDrawer;
+      const body = elements.settingsDrawerContent;
+
+      drawer.classList.remove('hidden');
+      drawer.classList.add('flex');
+      body.innerHTML = "";
+
+      // Ensure vignette stays visible when manager settings are open
+      const vignette = document.getElementById('vintage-vignette');
+      if (vignette) vignette.classList.remove('hidden');
+
+      if (panelType === 'keys') {
+        renderApiKeyRotationSettings(body);
+      } else if (panelType === 'instructions') {
+        renderAgentProfilesSettings(body);
+      }
+    }
+
+    function closeSettingsDrawer() {
+      elements.managerSettingsDrawer.classList.add('hidden');
+      elements.managerSettingsDrawer.classList.remove('flex');
+    }
+
+    // Render the interactive API rotation wizard
+    function renderApiKeyRotationSettings(targetEl) {
+      targetEl.innerHTML = `
+        <div class="border-b border-zinc-800 pb-3 flex items-center justify-between">
+          <div>
+            <h4 class="text-xs font-bold text-zinc-200">API Keys Auto-Rotation Deck</h4>
+            <p class="text-[10px] text-zinc-500 mt-0.5">Register keys to execute calls using standard token distribution metrics.</p>
+          </div>
+          <span class="bg-brand-accent/20 text-brand-accent text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold">Total Keys: ${state.apiKeys.length}</span>
+        </div>
+        
+        <form id="drawer-form-add-key" class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800">
+          <input type="text" id="add-key-name" placeholder="Label Name" class="bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
+          <input type="password" id="add-key-val" placeholder="Gemini Key (AIzaSy...)" class="bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
+          <button type="submit" class="bg-brand-accent/20 hover:bg-brand-accent hover:text-white text-brand-accent text-xs font-semibold py-2 px-3 rounded transition-all">Add key</button>
+        </form>
+
+        <div class="space-y-2 max-h-48 overflow-y-auto pt-2">
+          ${state.apiKeys.length === 0 
+            ? `<div class="text-[11px] text-zinc-600 italic text-center py-4">No custom API keys loaded. System defaults to default credentials.</div>`
+            : state.apiKeys.map(k => `
+                <div class="flex items-center justify-between p-2.5 bg-zinc-900 rounded-lg border border-zinc-800 text-xs font-mono">
+                  <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-key text-zinc-600"></i>
+                    <span class="text-zinc-200 font-sans font-medium">${k.name}</span>
+                    <span class="text-[9px] text-zinc-500">(${k.id})</span>
+                  </div>
+                  <div class="flex items-center space-x-3">
+                    <button onclick="toggleApiKeyActive('${k.id}', ${k.active !== 0 ? 0 : 1})" 
+                      class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${k.active !== 0 ? 'bg-brand-accent' : 'bg-zinc-700'}"
+                      title="${k.active !== 0 ? 'Deactivate Key' : 'Activate Key'}">
+                      <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${k.active !== 0 ? 'translate-x-4' : 'translate-x-0'}"></span>
+                    </button>
+                    <button onclick="deleteApiKeyRegistry('${k.id}')" class="text-[10px] text-red-500 hover:underline font-sans">Remove Key</button>
+                  </div>
+                </div>
+              `).join('')
+          }
+        </div>
+      `;
+
+      // Handle Key Submissions
+      document.getElementById('drawer-form-add-key').onsubmit = async function(e) {
+        e.preventDefault();
+        const name = document.getElementById('add-key-name').value;
+        const key = document.getElementById('add-key-val').value;
+
+        try {
+          const res = await fetch('/api/key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, key })
+          });
+          if (res.ok) {
+            showToast('Key Added', 'Secure credentials saved to database.', 'success');
+            await refreshSystemDatabase();
+            toggleManagerSettings('keys');
+          } else {
+            const data = await res.json();
+            if (res.status === 409 || data.error === 'Key already exists') {
+              showAlertModal('Key Already Exists', 'This API key has already been registered in the database.');
+            } else {
+              showToast('Database Error', data.error || 'Could not save configurations.', 'error');
+            }
+          }
+        } catch(e) {
+          showToast('Database Error', 'Could not save configurations.', 'error');
+        }
+      };
+    }
+
+    async function toggleApiKeyActive(id, active) {
+      try {
+        const res = await fetch(`/api/key/${id}/toggle`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active })
+        });
+        if (res.ok) {
+          showToast('Status Updated', 'API key status has been changed.', 'info');
+          await refreshSystemDatabase();
+          toggleManagerSettings('keys');
+        } else {
+          showToast('Error', 'Could not update API key status.', 'error');
+        }
+      } catch (err) {
+        showToast('Network Error', 'Connection failed.', 'error');
+      }
+    }
+
+    async function deleteApiKeyRegistry(id) {
+      showConfirmModal(
+        'Delete key credentials?',
+        'This API key will be permanently purged from the rotation database.',
+        async () => {
+          try {
+            await fetch(`/api/key/${id}`, { method: 'DELETE' });
+            showToast('Key Purged', 'Credential records removed.', 'info');
+            await refreshSystemDatabase();
+            toggleManagerSettings('keys');
+          } catch(e) {}
+        }
+      );
+    }
+
+    // Render interactive System Instructions / Profiles setup panel
+    function renderAgentProfilesSettings(targetEl) {
+      targetEl.innerHTML = `
+        <div class="border-b border-zinc-800 pb-3 flex items-center justify-between">
+          <div>
+            <h4 class="text-xs font-bold text-zinc-200">System Instruction Profiles</h4>
+            <p class="text-[10px] text-zinc-500 mt-0.5">Control dynamic developer personality constraints on the fly.</p>
+          </div>
+          <span class="bg-brand-accent/20 text-brand-accent text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold">Stored Profiles: ${state.instructions.length}</span>
+        </div>
+
+        <form id="drawer-form-add-profile" class="space-y-3 bg-zinc-900/40 p-3 rounded-lg border border-zinc-800">
+          <input type="text" id="add-prof-name" placeholder="Identifier (e.g., Python Expert)" class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
+          <textarea id="add-prof-text" rows="3" placeholder="You are a senior engineer..." class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white font-mono focus:outline-none focus:border-brand-accent" required></textarea>
+          <button type="submit" class="bg-brand-accent/20 hover:bg-brand-accent hover:text-white text-brand-accent text-xs font-semibold py-2 px-3 rounded w-full transition-all">Save System Instruction Profile</button>
+        </form>
+
+        <div class="space-y-2 max-h-48 overflow-y-auto pt-2">
+          ${state.instructions.length === 0 
+            ? `<div class="text-[11px] text-zinc-600 italic text-center py-4">No custom instruction sets saved. Defaults to general coder mode.</div>`
+            : state.instructions.map(i => `
+                <div class="p-3 bg-zinc-900 rounded-lg border border-zinc-800 text-xs space-y-1.5 font-mono">
+                  <div class="flex items-center justify-between">
+                    <strong class="text-zinc-200 font-sans font-semibold">${i.name}</strong>
+                    <button onclick="deleteAgentProfileRegistry('${i.id}')" class="text-[10px] text-red-500 hover:underline">Delete Profile</button>
+                  </div>
+                  <p class="text-[10px] text-zinc-500 leading-normal truncate font-sans">${i.text}</p>
+                </div>
+              `).join('')
+          }
+        </div>
+      `;
+
+      document.getElementById('drawer-form-add-profile').onsubmit = async function(e) {
+        e.preventDefault();
+        const name = document.getElementById('add-prof-name').value;
+        const text = document.getElementById('add-prof-text').value;
+
+        try {
+          const res = await fetch('/api/instruction', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, text })
+          });
+          if (res.ok) {
+            showToast('Profile Registered', 'Custom personality configurations saved.', 'success');
+            await refreshSystemDatabase();
+            toggleManagerSettings('instructions');
+          }
+        } catch(e) {
+          showToast('Database Error', 'Could not build profile text record.', 'error');
+        }
+      };
+    }
+
+    async function deleteAgentProfileRegistry(id) {
+      showConfirmModal(
+        'Delete dynamic profiles?',
+        'Workspaces mapped to this configuration profile will degrade gracefully to standard developer personality modes.',
+        async () => {
+          try {
+            await fetch(`/api/instruction/${id}`, { method: 'DELETE' });
+            showToast('Profile Erased', 'System directives removed from storage.', 'info');
+            await refreshSystemDatabase();
+            toggleManagerSettings('instructions');
+          } catch(e) {}
+        }
+      );
+    }
+
+    async function resolveExistingPathAndFilter(pathStr) {
+      let normalized = pathStr.replace(/\\/g, '/').replace(/\/+/g, '/');
+      if (normalized.endsWith('/') && normalized.length > 1) {
+        normalized = normalized.slice(0, -1);
+      }
+      
+      let current = normalized;
+      let filter = "";
+      
+      while (current.length > 0) {
+        try {
+          const res = await fetch(`/api/folder?path=${encodeURIComponent(current)}`);
+          if (res.ok) {
+            const items = await res.json();
+            return {
+              exists: true,
+              resolvedPath: current,
+              filter: filter,
+              items: items
+            };
+          }
+        } catch (e) {
+          // ignore
+        }
+        
+        const lastSlashIdx = current.lastIndexOf('/');
+        if (lastSlashIdx === -1) {
+          break;
+        }
+        
+        let parent = current.substring(0, lastSlashIdx);
+        if (parent === "") parent = "/";
+        
+        const part = current.substring(lastSlashIdx + 1);
+        filter = filter ? part + "/" + filter : part;
+        current = parent;
+        
+        if (current === "/" && parent === "/") {
+          try {
+            const res = await fetch(`/api/folder?path=${encodeURIComponent("/")}`);
+            if (res.ok) {
+              const items = await res.json();
+              return {
+                exists: true,
+                resolvedPath: "/",
+                filter: filter,
+                items: items
+              };
+            }
+          } catch (e) {}
+          break;
+        }
+      }
+      
+      return {
+        exists: false,
+        resolvedPath: "",
+        filter: pathStr,
+        items: []
+      };
+    }
+
+    function renderWorkspaceFoldersList() {
+      const listContainer = document.getElementById('ws-folders-list');
+      if (!listContainer) return;
+      listContainer.innerHTML = "";
+      
+      if (state.workspaceFoldersState.length === 0) {
+        listContainer.innerHTML = `<div class="text-zinc-500 text-[10px] italic p-2 bg-brand-black border border-zinc-800/40 rounded-lg">No directories added yet.</div>`;
+        return;
+      }
+      
+      state.workspaceFoldersState.forEach((folderPath, idx) => {
+        const row = document.createElement('div');
+        row.className = "flex items-center justify-between bg-brand-black border border-zinc-800 rounded-lg p-2 text-xs font-mono text-zinc-300";
+        row.innerHTML = `
+          <span class="truncate max-w-[85%]" title="${folderPath}"><i class="fa-solid fa-folder text-amber-500 mr-2"></i>${folderPath}</span>
+          <button type="button" onclick="removeWorkspaceFolderAt(${idx})" class="text-red-500 hover:text-red-400 font-semibold text-[10px] px-2 hover:underline">
+            Remove
+          </button>
+        `;
+        listContainer.appendChild(row);
+      });
+    }
+
+    window.removeWorkspaceFolderAt = function(idx) {
+      state.workspaceFoldersState.splice(idx, 1);
+      renderWorkspaceFoldersList();
+    };
+
+    function hideAutocompleteSuggestions() {
+      const suggestionsEl = document.getElementById('ws-folder-autocomplete-suggestions');
+      if (suggestionsEl) {
+        suggestionsEl.classList.add('hidden');
+      }
+    }
+
+    // Close autocomplete suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+      const suggestions = document.getElementById('ws-folder-autocomplete-suggestions');
+      const input = document.getElementById('ws-folder-autocomplete-input');
+      if (suggestions && input && !suggestions.contains(e.target) && e.target !== input) {
+        suggestions.classList.add('hidden');
+      }
+    });
+
+    // =========================================================================
+    // WORKSPACE CONSTRUCT / FILE MANAGER LOGIC
+    // =========================================================================
+    
+    let constructState = {
+      currentPath: '',
+      selectedFolders: [],
+      searchFilter: ''
+    };
+
+    // Global listener for "Quick Search" - allows typing anywhere to filter folders
+    window.addEventListener('keydown', (e) => {
+      if (state.view !== 'construct') return;
+      
+      const activeElement = document.activeElement;
+      const activeTag = activeElement.tagName;
+      const activeId = activeElement.id;
+
+      // Don't hijack typing if user is focusing on an input, UNLESS it's our search box
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag) && activeId !== 'explorer-search') return;
+      
+      // Ignore modifier keys
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      const searchInput = document.getElementById('explorer-search');
+      if (!searchInput) return;
+
+      // Handle character input
+      if (e.key.length === 1) {
+        if (activeId === 'explorer-search') return; // Let browser handle it if focused
+        e.preventDefault(); 
+        searchInput.value += e.key;
+        searchInput.dispatchEvent(new Event('input'));
+      } 
+      // Handle Backspace
+      else if (e.key === 'Backspace') {
+        if (searchInput.value === '') {
+          e.preventDefault();
+          document.getElementById('btn-explorer-up')?.click();
+        } else if (activeId !== 'explorer-search') {
+          e.preventDefault();
+          searchInput.value = searchInput.value.slice(0, -1);
+          searchInput.dispatchEvent(new Event('input'));
+        }
+        // If focused and not empty, let browser handle the deletion
+      } 
+      // Handle Escape to clear search
+      else if (e.key === 'Escape') {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input'));
+      }
+    });
+
+    async function initConstructWorkspace() {
+      // Populate Instructions dropdown
+      const select = document.getElementById('construct-ws-instruct');
+      select.innerHTML = '<option value="">Standard Default Personality Prompt</option>';
+      state.instructions.forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = i.id;
+        opt.innerText = i.name;
+        select.appendChild(opt);
+      });
+
+      // Event: Up Navigation
+      document.getElementById('btn-explorer-up').onclick = async () => {
+        if (constructState.currentPath === '/') return;
+        
+        const parts = constructState.currentPath.split('/').filter(Boolean);
+        parts.pop();
+        const parentPath = '/' + parts.join('/');
+        await navigateToFolder(parentPath === '' ? '/' : parentPath);
+      };
+
+      // Event: Search
+      document.getElementById('explorer-search').oninput = async (e) => {
+        constructState.searchFilter = e.target.value;
+        await renderConstructExplorer();
+      };
+
+      // Event: Activate Workspace
+      document.getElementById('btn-activate-ws').onclick = async () => {
+        const name = document.getElementById('construct-ws-name').value;
+        const instruction_id = document.getElementById('construct-ws-instruct').value;
+
+        if (!name) {
+          showToast('Missing Label', 'Please provide a label for your workspace.', 'error');
+          return;
+        }
+        if (constructState.selectedFolders.length === 0) {
+          showToast('No Folders', 'Please select at least one bounded directory.', 'error');
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/workspace', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              name, 
+              folders_path: constructState.selectedFolders, 
+              instruction_id: instruction_id || null 
+            })
+          });
+          if (res.ok) {
+            showToast('Workspace Activated', 'Indexes created successfully.', 'success');
+            navigateToView('manager');
+            refreshSystemDatabase();
+          } else {
+            const errData = await res.json();
+            showToast('Creation Failed', errData.error || 'Unknown server error', 'error');
+          }
+        } catch (e) {
+          showToast('System Error', 'Could not communicate with API.', 'error');
+        }
+      };
+
+      await renderConstructExplorer();
+    }
+
+    async function renderConstructExplorer() {
+      const grid = document.getElementById('explorer-items-grid');
+      const pathEl = document.getElementById('explorer-current-path');
+      
+      grid.innerHTML = '<div class="col-span-full text-center py-20 text-zinc-600 text-xs italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i> Scanning filesystem...</div>';
+
+      try {
+        const res = await fetch(`/api/folder?path=${encodeURIComponent(constructState.currentPath)}`);
+        if (!res.ok) throw new Error('Could not fetch directory content');
+        
+        const data = await res.json();
+        const items = data.items;
+        
+        // Sync current path from server (handles the default home dir logic)
+        constructState.currentPath = data.currentPath;
+        pathEl.innerText = constructState.currentPath;
+        
+        grid.innerHTML = '';
+
+        const filteredItems = items.filter(item => 
+          item.name.toLowerCase().includes(constructState.searchFilter.toLowerCase())
+        );
+
+        if (filteredItems.length === 0) {
+          grid.innerHTML = '<div class="col-span-full text-center py-20 text-zinc-600 text-xs italic">No items found matching filter.</div>';
+          return;
+        }
+
+        filteredItems.forEach(item => {
+          const isFolder = item.type === 'folder' || item.type === 'directory';
+          const isSelected = constructState.selectedFolders.includes(item.full_path);
+          
+          const card = document.createElement('div');
+          card.className = `group relative p-4 rounded-xl border transition-all cursor-pointer flex flex-col items-center justify-center text-center space-y-2 ${
+            isSelected 
+              ? 'bg-brand-accent/10 border-brand-accent shadow-lg shadow-brand-accent/10' 
+              : 'bg-brand-dark border-zinc-800 hover:border-zinc-600'
+          }`;
+
+          const icon = isFolder 
+            ? `<i class="fa-solid fa-folder text-amber-500 text-2xl"></i>` 
+            : `<i class="fa-solid fa-file text-zinc-500 text-2xl"></i>`;
+
+          card.innerHTML = `
+            ${icon}
+            <span class="text-[11px] font-mono text-zinc-300 truncate w-full">${item.name}</span>
+            ${isFolder ? `
+              <button class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-brand-black rounded border border-zinc-800 text-[9px] text-zinc-400 hover:text-white">
+                ${isSelected ? '<i class="fa-solid fa-check text-brand-accent"></i>' : '<i class="fa-solid fa-plus"></i>'}
+              </button>
+            ` : ''}
+          `;
+
+          if (isFolder) {
+            // Toggle selection
+            card.onclick = (e) => {
+              if (e.target.closest('button')) {
+                toggleConstructFolder(item.full_path);
+              } else {
+                navigateToFolder(item.full_path);
+              }
+            };
+          } else {
+            card.onclick = () => {
+              showToast('Files Only', 'Only directories can be bound as workspace roots.', 'info');
+            };
+          }
+          
+          grid.appendChild(card);
+        });
+
+      } catch (err) {
+        grid.innerHTML = `<div class="col-span-full text-center py-20 text-red-500/50 text-xs italic">Error accessing path: ${err.message}</div>`;
+      }
+    }
+
+    function toggleConstructFolder(path) {
+      const idx = constructState.selectedFolders.indexOf(path);
+      if (idx > -1) {
+        constructState.selectedFolders.splice(idx, 1);
+      } else {
+        constructState.selectedFolders.push(path);
+      }
+      
+      updateConstructFoldersList();
+      renderConstructExplorer();
+    }
+
+    function updateConstructFoldersList() {
+      const list = document.getElementById('construct-ws-folders-list');
+      const count = document.getElementById('construct-ws-folder-count');
+      
+      count.innerText = constructState.selectedFolders.length;
+      
+      if (constructState.selectedFolders.length === 0) {
+        list.innerHTML = '<span class="text-xs text-zinc-600 italic">No folders selected. Explore the file manager below to add paths.</span>';
+        return;
+      }
+
+      list.innerHTML = '';
+      constructState.selectedFolders.forEach((path, index) => {
+        const chip = document.createElement('div');
+        chip.className = "flex items-center space-x-2 bg-zinc-900 px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 font-mono group hover:border-brand-accent/50 transition-all";
+        chip.innerHTML = `
+          <span class="truncate max-w-[150px]">${path}</span>
+          <button onclick="removeConstructFolder(${index})" class="text-zinc-600 hover:text-red-400 transition-colors"><i class="fa-solid fa-xmark"></i></button>
+        `;
+        chip.appendChild(document.createTextNode('')); // prevent issues
+        list.appendChild(chip);
+      });
+    }
+
+    function removeConstructFolder(index) {
+      constructState.selectedFolders.splice(index, 1);
+      updateConstructFoldersList();
+      renderConstructExplorer();
+    }
+
+    async function navigateToFolder(path) {
+      constructState.currentPath = path;
+      constructState.searchFilter = '';
+      const searchInput = document.getElementById('explorer-search');
+      if (searchInput) searchInput.value = '';
+      await renderConstructExplorer();
+    }
+
+    function openCreateWorkspacePanel() {
+      const drawer = elements.managerSettingsDrawer;
+      const body = elements.settingsDrawerContent;
+
+      // Default to empty array
+      state.workspaceFoldersState = [];
+
+      drawer.classList.remove('hidden');
+      drawer.classList.add('flex');
+      
+      body.innerHTML = `
+        <div class="border-b border-zinc-800 pb-3">
+          <h4 class="text-xs font-bold text-zinc-200">Provision Workspace</h4>
+          <p class="text-[10px] text-zinc-500 mt-0.5 font-sans">Index absolute local paths on the system where the model has safe reading/writing bounds.</p>
+        </div>
+
+        <form id="drawer-form-create-ws" class="space-y-4">
+          <div>
+            <label class="block text-[9px] uppercase text-zinc-500 font-bold mb-1">Label</label>
+            <input type="text" id="ws-add-name" placeholder="e.g., Python Microservice App" class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
+          </div>
+          
+          <div>
+            <label class="block text-[9px] uppercase text-zinc-500 font-bold mb-1">Bounded Directories</label>
+            <div id="ws-folders-list" class="space-y-2 mb-3">
+              <!-- Dynamically populated list of added folder paths -->
+            </div>
+            
+            <div class="relative bg-zinc-900/60 p-3 rounded-lg border border-zinc-800/80 space-y-2">
+              <span class="text-[10px] text-zinc-400 font-semibold block">Add Folder:</span>
+              <div class="flex items-center space-x-2">
+                <input type="text" id="ws-folder-autocomplete-input" placeholder="Start typing path (e.g. /home/neuxbane/Projects)" class="flex-1 bg-brand-black border border-zinc-800 rounded p-2 text-xs font-mono text-white focus:outline-none focus:border-brand-accent">
+                <button type="button" id="btn-add-ws-folder" class="bg-brand-accent/20 hover:bg-brand-accent hover:text-white text-brand-accent border border-brand-accent/30 hover:border-brand-accent px-3 py-2 rounded text-xs font-semibold transition-all">
+                  Add Path
+                </button>
+              </div>
+              
+              <!-- Autocomplete suggestions container -->
+              <div id="ws-folder-autocomplete-suggestions" class="absolute left-3 right-3 bg-brand-black border border-zinc-800 rounded-lg max-h-40 overflow-y-auto hidden divide-y divide-zinc-800/60 z-50 shadow-2xl">
+                <!-- Suggestion rows listed here -->
+              </div>
+            </div>
+            <span class="text-[9px] text-zinc-500 block mt-1">Paths must match absolute syntax frameworks. System rejects commands reading files outside these directories.</span>
+          </div>
+
+          <div>
+            <label class="block text-[9px] uppercase text-zinc-500 font-bold mb-1">Bind Default Behavior Instruct Profile</label>
+            <select id="ws-add-instruct" class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent">
+              <option value="">Standard Default Personality Prompt</option>
+              ${state.instructions.map(i => `<option value="${i.id}">${i.name}</option>`).join('')}
+            </select>
+          </div>
+
+          <button type="submit" class="w-full bg-brand-accent text-white text-xs font-semibold py-2 rounded shadow-lg hover:bg-brand-accent/90 transition-all">Activate Workspace</button>
+        </form>
+      `;
+
+      // Render initial paths list
+      renderWorkspaceFoldersList();
+
+      const autocompleteInput = document.getElementById('ws-folder-autocomplete-input');
+      const addFolderBtn = document.getElementById('btn-add-ws-folder');
+      
+      let autocompleteTimeout = null;
+      
+      autocompleteInput.addEventListener('input', async (e) => {
+        const val = e.target.value;
+        if (!val) {
+          hideAutocompleteSuggestions();
+          return;
+        }
+        
+        clearTimeout(autocompleteTimeout);
+        autocompleteTimeout = setTimeout(async () => {
+          const result = await resolveExistingPathAndFilter(val);
+          const suggestionsEl = document.getElementById('ws-folder-autocomplete-suggestions');
+          if (!suggestionsEl) return;
+          
+          if (!result.exists) {
+            suggestionsEl.innerHTML = `<div class="p-2 text-[10px] text-zinc-500 italic select-none">Directory parent path not found.</div>`;
+            suggestionsEl.classList.remove('hidden');
+            return;
+          }
+          
+          const folders = result.items.filter(item => {
+            const isFolder = item.type === 'folder' || item.type === 'directory';
+            const matchesFilter = !result.filter || item.name.toLowerCase().includes(result.filter.toLowerCase());
+            return isFolder && matchesFilter;
+          });
+          
+          suggestionsEl.innerHTML = "";
+          
+          if (folders.length === 0) {
+            suggestionsEl.innerHTML = `<div class="p-2 text-[10px] text-zinc-500 italic select-none">No subfolders match "${result.filter}" in ${result.resolvedPath}</div>`;
+            suggestionsEl.classList.remove('hidden');
+            return;
+          }
+          
+          folders.forEach(folder => {
+            const row = document.createElement('div');
+            row.className = "flex items-center space-x-2 p-2 hover:bg-zinc-900 cursor-pointer text-[11px] font-mono text-zinc-300 transition-colors";
+            row.innerHTML = `<i class="fa-solid fa-folder text-amber-500 text-[10px]"></i><span class="truncate">${folder.name}</span>`;
+            
+            row.onclick = () => {
+              let nextPath = `${result.resolvedPath}/${folder.name}/`.replace(/\/\/+/g, '/');
+              autocompleteInput.value = nextPath;
+              autocompleteInput.focus();
+              
+              // Trigger input event again to list new path contents
+              const event = new Event('input', { bubbles: true });
+              autocompleteInput.dispatchEvent(event);
+            };
+            suggestionsEl.appendChild(row);
+          });
+          
+          suggestionsEl.classList.remove('hidden');
+        }, 150);
+      });
+
+      addFolderBtn.onclick = () => {
+        let val = autocompleteInput.value.trim();
+        if (!val) {
+          showToast('Invalid Path', 'Please enter or select a folder path.', 'error');
+          return;
+        }
+        
+        // Clean up path separators and trailing slash if not root
+        let normalized = val.replace(/\\/g, '/').replace(/\/+/g, '/');
+        if (normalized.endsWith('/') && normalized.length > 1) {
+          normalized = normalized.slice(0, -1);
+        }
+        
+        if (state.workspaceFoldersState.includes(normalized)) {
+          showToast('Duplicate Path', 'This path is already in the list.', 'info');
+          return;
+        }
+        
+        state.workspaceFoldersState.push(normalized);
+        renderWorkspaceFoldersList();
+        autocompleteInput.value = "";
+        hideAutocompleteSuggestions();
+        showToast('Path Added', `Added folder path: ${normalized}`, 'success');
+      };
+
+      document.getElementById('drawer-form-create-ws').onsubmit = async function(e) {
+        e.preventDefault();
+        const name = document.getElementById('ws-add-name').value;
+        const instruction_id = document.getElementById('ws-add-instruct').value;
+
+        try {
+          const res = await fetch('/api/workspace', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, folders_path: state.workspaceFoldersState, instruction_id: instruction_id || null })
+          });
+          if (res.ok) {
+            showToast('Created', 'Fresh secure indexes saved.', 'success');
+            closeSettingsDrawer();
+            refreshSystemDatabase();
+          }
+        } catch(e) {
+          showToast('Creation Failed', 'Could not save database configurations.', 'error');
+        }
+      };
+    }
+
+    // Renders custom instructions list inside Chat Prompt Input Dropdown Bar
+    function populateInstructionsDropdown() {
+      const select = elements.chatInstructionSelector;
+      select.innerHTML = '<option value="">Default AI Assistant Prompt</option>';
+      
+      state.instructions.forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = i.id;
+        opt.innerText = i.name;
+        select.appendChild(opt);
+      });
+
+      // If active workspace holds default instruct template profiles, auto select it
+      const wsObj = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+      if (wsObj && wsObj.instruction_id) {
+        select.value = wsObj.instruction_id;
+      }
+    }
+
+    // Setup and connect session-specific websockets
+    async function initializeSession(sessionId) {
+      if (state.wsConn) {
+        state.wsConn.onopen = null;
+        state.wsConn.onclose = null;
+        state.wsConn.onerror = null;
+        state.wsConn.onmessage = null;
+        state.wsConn.close();
+        state.wsConn = null;
+      }
+
+      state.activeSessionId = sessionId;
+      enableSessionChatInputControls(false); // Enable fields
+
+      try {
+        // Fetch session branches and pagination alternatives
+        try {
+          const branchesRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${sessionId}/branches`);
+          if (branchesRes.ok) {
+            state.sessionBranchData = await branchesRes.json();
+          } else {
+            state.sessionBranchData = null;
+          }
+        } catch (e) {
+          state.sessionBranchData = null;
+        }
+
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${sessionId}`);
+        const data = await res.json();
+        
+        state.activeWsURL = data.wsURL;
+        
+        // Update Turn history context descriptions
+        elements.sessionTurnCounter.innerText = `${data.sessionHistory.length} Turn context stack history`;
+
+        const lastMsg = data.sessionHistory[data.sessionHistory.length - 1];
+        if (state.shouldAutoRetryAfterRollback && lastMsg && lastMsg.role === 'user') {
+          state.pendingAutoRetry = true;
+        }
+        state.shouldAutoRetryAfterRollback = false;
+
+        // Load side configurations
+        await refreshSystemDatabase();
+        renderSidebarSessionsList();
+        renderActiveChatSessionHistory(data.sessionHistory);
+        connectSessionWebSocketGateway();
+
+        if (!document.getElementById('artifacts-container').classList.contains('hidden')) {
+          loadArtifactsList();
+        }
+        if (!document.getElementById('source-control-container').classList.contains('hidden')) {
+          loadScFiles(state.scCurrentPath);
+        }
+
+      } catch (err) {
+        showToast('Communication Error', 'Failed to handshake real-time server streams.', 'error');
+        console.error(err);
+      }
+    }
+
+    function enableSessionChatInputControls(isLocked) {
+      elements.chatPromptInput.disabled = isLocked;
+      elements.btnChatSubmit.disabled = isLocked;
+      if (isLocked) {
+        elements.chatPromptInput.placeholder = "Please select or start a Workspace log stream session first...";
+      } else {
+        elements.chatPromptInput.placeholder = "Ask anything, run background terminals, or coordinate tools...";
+      }
+    }
+
+    // Initialize standard WebSocket protocols
+    function connectSessionWebSocketGateway() {
+      if (!state.activeWsURL) return;
+
+      elements.connIndicator.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span>CONNECTING';
+      elements.connIndicator.className = "flex items-center px-2 py-1 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-mono";
+
+      state.wsConn = new WebSocket(state.activeWsURL);
+
+      state.wsConn.onopen = function() {
+        elements.connIndicator.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>LIVE INTERACTIVE';
+        elements.connIndicator.className = "flex items-center px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[10px] font-mono";
+        
+        if (state.pendingAutoRetry) {
+          state.pendingAutoRetry = false;
+          retryActiveSession();
+        }
+      };
+
+      state.wsConn.onclose = function() {
+        elements.connIndicator.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-zinc-600 mr-1.5"></span>SESSION CLOSED';
+        elements.connIndicator.className = "flex items-center px-2 py-1 rounded bg-zinc-900 text-zinc-500 border border-zinc-800 text-[10px] font-mono";
+      };
+
+      state.wsConn.onerror = function() {
+        showToast('WS Failure', 'Communication channel disconnect.', 'error');
+      };
+
+      state.wsConn.onmessage = function(event) {
+        const payload = JSON.parse(event.data);
+        
+        if (payload.type === 'SESSION_STATUS') {
+          setGeneratingState(payload.status === 'generating');
+          return;
+        }
+
+        processWebSocketGatewayPayload(payload);
+      };
+    }
+
+    // Handle streaming outputs and agent thinking
+    let currentResponseBubbleEl = null;
+    let rawResponseAccumulator = "";
+    let activeThinkingNode = null;
+    let currentThoughtBubble = null;
+    let rawThoughtAccumulator = "";
+    const chatInputContainer = document.getElementById('chat-input-container');
+    const btnStop = document.getElementById('btn-chat-stop');
+    const sendHint = document.getElementById('send-hint');
+
+    function setGeneratingState(isGenerating) {
+      state.isGenerating = isGenerating;
+      if (isGenerating) {
+        elements.btnChatSubmit.classList.add('hidden');
+        btnStop.classList.remove('hidden');
+        btnStop.classList.add('flex');
+        sendHint.classList.add('hidden');
+        chatInputContainer.classList.add('generating-ring');
+        elements.executingLoader.classList.remove('hidden');
+        elements.executingLoader.classList.add('flex');
+      } else {
+        elements.btnChatSubmit.classList.remove('hidden');
+        btnStop.classList.add('hidden');
+        btnStop.classList.remove('flex');
+        sendHint.classList.remove('hidden');
+        chatInputContainer.classList.remove('generating-ring');
+        elements.executingLoader.classList.add('hidden');
+        elements.executingLoader.classList.remove('flex');
+      }
+    }
+
+    function cancelActiveGeneration() {
+      if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+        state.wsConn.send(JSON.stringify({ type: 'CANCEL' }));
+      }
+      setGeneratingState(false);
+      // Reset all live stream state
+      currentResponseBubbleEl = null;
+      activeThinkingNode = null;
+      currentThoughtBubble = null;
+    }
+
+    function processWebSocketGatewayPayload(data) {
+      switch (data.type) {
+        case 'TOKEN_STREAM': {
+          removeRetryingCard();
+          setGeneratingState(true);
+          
+          // Close any open thought block — new response text means thoughts are done
+          currentThoughtBubble = null;
+          rawThoughtAccumulator = "";
+
+          if (!currentResponseBubbleEl) {
+            if (state.lastHistoryModelTextBubble) {
+              currentResponseBubbleEl = state.lastHistoryModelTextBubble;
+              rawResponseAccumulator = state.lastHistoryModelText;
+              state.lastHistoryModelTextBubble = null;
+              state.lastHistoryModelText = "";
+            } else {
+              currentResponseBubbleEl = createEmptyMessageBubble('model');
+              rawResponseAccumulator = "";
+            }
+          }
+          
+          rawResponseAccumulator += data.text;
+          
+          // Render chunk text safely updating Markdown Layouts
+          const formattedHtml = state.markdownParser.render(rawResponseAccumulator);
+          currentResponseBubbleEl.querySelector('.chat-body-content').innerHTML = formattedHtml;
+          scrollToChatBottom();
+          break;
+        }
+
+        case 'THOUGHT_STREAM': {
+          removeRetryingCard();
+          // Show live thought/reasoning in a collapsible block at current position in stream
+          setGeneratingState(true);
+          
+          // Close current response bubble if open — thought appears after response text
+          if (currentResponseBubbleEl) {
+            currentResponseBubbleEl = null;
+            rawResponseAccumulator = "";
+          }
+
+          if (!currentThoughtBubble) {
+            state.thoughtStickToBottom = true; // Stick by default for new thoughts
+            if (state.lastHistoryModelThoughtBubble) {
+              currentThoughtBubble = state.lastHistoryModelThoughtBubble;
+              rawThoughtAccumulator = state.lastHistoryModelThoughts;
+              state.lastHistoryModelThoughtBubble = null;
+              state.lastHistoryModelThoughts = "";
+            } else {
+              currentThoughtBubble = document.createElement('details');
+              currentThoughtBubble.open = true;
+              currentThoughtBubble.className = "max-w-4xl mx-auto border border-brand-accent/20 bg-brand-accent/5 rounded-xl overflow-hidden";
+              currentThoughtBubble.innerHTML = `
+                <summary class="flex items-center justify-between p-3 cursor-pointer hover:bg-brand-accent/10 transition-colors text-[10px] text-zinc-500 font-mono select-none">
+                  <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-brain text-brand-accent text-xs animate-pulse"></i>
+                    <span class="text-brand-accent font-semibold">Thought…</span>
+                  </div>
+                  <i class="fa-solid fa-chevron-up transition-transform text-zinc-600"></i>
+                </summary>
+                <div class="p-3 border-t border-brand-accent/10 text-[10px] font-mono text-zinc-400 whitespace-pre-wrap leading-relaxed thought-content max-h-64 overflow-y-auto"></div>
+              `;
+              elements.sessionChatContainer.appendChild(currentThoughtBubble);
+              rawThoughtAccumulator = "";
+            }
+
+            // Track scroll of the thought block itself
+            const thoughtContent = currentThoughtBubble.querySelector('.thought-content');
+            thoughtContent.addEventListener('scroll', () => {
+              const { scrollTop, scrollHeight, clientHeight } = thoughtContent;
+              const isAtBottom = scrollHeight - scrollTop <= clientHeight + 10;
+              state.thoughtStickToBottom = isAtBottom;
+            });
+          }
+          rawThoughtAccumulator += data.text;
+          const thoughtContentEl = currentThoughtBubble.querySelector('.thought-content');
+          thoughtContentEl.textContent = rawThoughtAccumulator;
+          
+          if (state.thoughtStickToBottom) {
+            thoughtContentEl.scrollTop = thoughtContentEl.scrollHeight;
+          }
+          scrollToChatBottom();
+          break;
+        }
+
+        case 'FUNCTION_CALL':
+          removeRetryingCard();
+          // A function call starts — close current thought bubble so next thought appears AFTER result
+          currentThoughtBubble = null;
+          rawThoughtAccumulator = "";
+          currentResponseBubbleEl = null;
+          rawResponseAccumulator = "";
+          // Also close active thinking node group so next tool gets its own block
+          activeThinkingNode = null;
+          appendInlineActionThoughtBlock(data.name, data.args, data.callId);
+          break;
+
+        case 'FUNCTION_RESPONSE':
+          removeRetryingCard();
+          // Complete and print returns logs — match by callId data attribute
+          finalizeInlineActionThoughtBlock(data.callId, data.response);
+          
+          // If the tool called was set_session_name, refresh the sidebar session list to show the new name
+          if (data.response?.result?.success && data.response?.result?.name) {
+            refreshSessionList();
+          }
+          
+          // Reset thinking node so next thought/call appears after this result
+          activeThinkingNode = null;
+          currentThoughtBubble = null;
+          break;
+
+        case 'DONE':
+          removeRetryingCard();
+          setGeneratingState(false);
+          if (data.modelMessageId) {
+            const bubbles = elements.sessionChatContainer.querySelectorAll('.flex.space-x-3.5');
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+              const b = bubbles[i];
+              const authorSpan = b.querySelector('span');
+              if (authorSpan && authorSpan.textContent.trim() === 'AI Agent') {
+                const headerRight = b.querySelector('.flex.items-center.space-x-2');
+                if (headerRight && !headerRight.querySelector('button[onclick*="confirmRedoRollback"]')) {
+                  const btn = document.createElement('button');
+                  btn.setAttribute('onclick', `confirmRedoRollback(${data.modelMessageId})`);
+                  btn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all";
+                  btn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Redo`;
+                  headerRight.appendChild(btn);
+                }
+                break;
+              }
+            }
+          }
+          currentResponseBubbleEl = null;
+          activeThinkingNode = null;
+          currentThoughtBubble = null;
+          refreshSessionList();
+          break;
+
+        case 'ERROR':
+          removeRetryingCard();
+          appendSystemErrorMessage(data.message);
+          setGeneratingState(false);
+          refreshSessionList();
+          break;
+
+        case 'RETRYING':
+          showRetryingCard(data.attempt, data.maxAttempts, data.delay, data.message);
+          break;
+      }
+    }
+
+    // Deliver message frames including multi-modal attachments
+    async function submitActivePrompt() {
+      const prompt = elements.chatPromptInput.value.trim();
+      const files = state.selectedAttachments;
+      
+      if (!prompt && files.length === 0) return;
+      if (state.isGenerating) return; // prevent double-send
+
+      appendUserMessageBubble(prompt, files);
+      elements.chatPromptInput.value = "";
+      
+      // Clear indicators
+      state.selectedAttachments = [];
+      elements.chatUploadIndicator.classList.add('hidden');
+      elements.chatUploadIndicator.innerHTML = "";
+
+      // Reset live stream state for a fresh response
+      currentResponseBubbleEl = null;
+      rawResponseAccumulator = "";
+      activeThinkingNode = null;
+      currentThoughtBubble = null;
+      rawThoughtAccumulator = "";
+
+      // Clear cached history references to ensure a new response gets its own bubbles
+      state.lastHistoryModelTextBubble = null;
+      state.lastHistoryModelThoughtBubble = null;
+      state.lastHistoryModelText = "";
+      state.lastHistoryModelThoughts = "";
+
+      const formData = new FormData();
+      if (prompt) formData.append('message', prompt);
+      files.forEach(f => formData.append('files', f.raw));
+
+      try {
+        await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`, {
+          method: 'POST',
+          body: formData
+        });
+
+        // Refresh session list to ensure new sessions appear in the sidebar after first message
+        await refreshSessionList();
+
+        // Push model activation prompts through WS pipeline
+        if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+          setGeneratingState(true);
+          state.wsConn.send(JSON.stringify({
+            type: 'USER_MESSAGE',
+            text: prompt,
+            apiKeyId: null // Auto selected key rotation deck on the backend
+          }));
+        }
+
+      } catch(e) {
+        setGeneratingState(false);
+        appendSystemErrorMessage(`Prompt Delivery Failure: ${e.message}`);
+      }
+    }
+
+    // Render session histories
+    function renderActiveChatSessionHistory(history) {
+      elements.sessionChatContainer.innerHTML = "";
+      activeThinkingNode = null;
+      currentThoughtBubble = null;
+      currentResponseBubbleEl = null;
+
+      state.lastHistoryModelTextBubble = null;
+      state.lastHistoryModelThoughtBubble = null;
+      state.lastHistoryModelText = "";
+      state.lastHistoryModelThoughts = "";
+
+      if (!history || history.length === 0) {
+        // Check for a branch point BEFORE the first message (afterMsgId === null)
+        if (state.sessionBranchData && state.sessionBranchData.branchPoints) {
+          const rootBp = state.sessionBranchData.branchPoints.find(bp => bp.afterMsgId === null);
+          if (rootBp) appendBranchDivider(rootBp);
+        }
+        return;
+      }
+
+      // Build a lookup map: afterMsgId -> branchPoint
+      const branchPointByMsgId = new Map();
+      if (state.sessionBranchData && state.sessionBranchData.branchPoints) {
+        for (const bp of state.sessionBranchData.branchPoints) {
+          branchPointByMsgId.set(bp.afterMsgId, bp);
+        }
+      }
+
+      // Insert root-level branch divider (before any message) if it exists
+      if (branchPointByMsgId.has(null)) {
+        appendBranchDivider(branchPointByMsgId.get(null));
+      }
+
+      // Find index of the last model message in history
+      let lastModelIdx = -1;
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role === 'model') {
+          lastModelIdx = i;
+          break;
+        }
+      }
+
+      history.forEach((item, idx) => {
+        if (item.role === 'system') {
+          let errMsg = "";
+          item.parts.forEach(p => {
+            if (p.text) errMsg += p.text;
+          });
+          appendSystemErrorMessage(errMsg);
+          // Insert branch divider after this system message if applicable
+          if (item.id && branchPointByMsgId.has(item.id)) {
+            appendBranchDivider(branchPointByMsgId.get(item.id));
+          }
+          return;
+        }
+        if (item.role === 'user') {
+          // Check if this is a tool response turn (contains functionResponse parts)
+          const hasToolResponse = item.parts.some(p => p.functionResponse);
+          if (hasToolResponse) {
+            // Render as collapsed tool result cards (matching live UI)
+            item.parts.forEach(part => {
+              if (part.functionResponse) {
+                finalizeInlineActionThoughtBlock(part.functionResponse.id, part.functionResponse.response);
+              }
+            });
+            // Reset active group after finishing responses
+            activeThinkingNode = null;
+            // Insert branch divider after tool-response turns too
+            if (item.id && branchPointByMsgId.has(item.id)) {
+              appendBranchDivider(branchPointByMsgId.get(item.id));
+            }
+            return;
+          }
+
+          let promptText = "";
+          const attachments = [];
+          
+          item.parts.forEach(part => {
+            if (part.text) promptText += part.text + "\n";
+            if (part.inlineData) {
+              attachments.push({
+                name: 'Uploaded File Attachment',
+                mime: part.inlineData.mimeType,
+                preview: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
+              });
+            } else if (part._localFilePath) {
+              const filename = part._localFilePath.split(/[/\\]/).pop();
+              const relativePath = `/workspaces/${state.activeWorkspaceId}/sessions/${state.activeSessionId}/${filename}`;
+              attachments.push({
+                name: filename,
+                mime: part.mimeType,
+                preview: relativePath
+              });
+            }
+          });
+
+          if (promptText.trim() || attachments.length > 0) {
+            appendUserMessageBubble(promptText.trim(), attachments, true, item.id);
+          }
+        } else if (item.role === 'model') {
+          // Separate text parts from functionCall parts and thought parts
+          let text = "";
+          let combinedThoughts = "";
+          const funcCalls = [];
+          item.parts.forEach(p => {
+            if (p.thought) {
+              combinedThoughts += (combinedThoughts ? "" : "") + p.text;
+            } else if (p.text) {
+              text += p.text;
+            } else if (p.functionCall) {
+              funcCalls.push(p.functionCall);
+            }
+          });
+
+          let thoughtBubbleEl = null;
+          if (combinedThoughts) {
+            thoughtBubbleEl = appendThoughtBlock(combinedThoughts);
+          }
+          
+          let responseBubbleEl = null;
+          if (text) {
+            responseBubbleEl = createEmptyMessageBubble('model', item.id);
+            responseBubbleEl.querySelector('.chat-body-content').innerHTML = state.markdownParser.render(text);
+          }
+          // Render function call cards from history (matching live UI)
+          funcCalls.forEach(fc => {
+            appendInlineActionThoughtBlock(fc.name, fc.args, fc.id);
+          });
+
+          // Cache references for live stream continuation if this is the last model message in history
+          if (idx === lastModelIdx && idx === history.length - 1 && funcCalls.length === 0) {
+            state.lastHistoryModelTextBubble = responseBubbleEl;
+            state.lastHistoryModelThoughtBubble = thoughtBubbleEl;
+            state.lastHistoryModelText = text;
+            state.lastHistoryModelThoughts = combinedThoughts;
+          }
+        }
+
+        // After rendering each message, check if a branch diverges here
+        if (item.id && branchPointByMsgId.has(item.id)) {
+          appendBranchDivider(branchPointByMsgId.get(item.id));
+        }
+      });
+      scrollToChatBottom();
+    }
+
+    function createEmptyMessageBubble(role, messageId = null) {
+      const bubble = document.createElement('div');
+      bubble.className = `flex space-x-3.5 max-w-4xl mx-auto p-4 rounded-xl border transition-all ${
+        role === 'user' 
+          ? 'bg-brand-dark border-zinc-800 ml-12' 
+          : 'bg-transparent border-transparent'
+      }`;
+
+      // Build pagination controls if this message has branching alternatives
+      let paginationHtml = '';
+
+      bubble.innerHTML = `
+        <div class="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center ${
+          role === 'user' ? 'bg-brand-accent/20 text-brand-accent border border-brand-accent/20' : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+        }">
+          <i class="${role === 'user' ? 'fa-solid fa-user-ninja' : 'fa-solid fa-brain'} text-xs"></i>
+        </div>
+        <div class="flex-1 space-y-1.5 min-w-0">
+          <div class="flex items-center justify-between text-[10px] text-zinc-500 font-semibold select-none">
+            <span>${role === 'user' ? 'Developer' : 'AI Agent'}</span>
+            <div class="flex items-center space-x-2">
+              <span>Just now</span>
+              ${paginationHtml}
+              ${messageId ? `<button onclick="confirmRedoRollback(${messageId})" class="text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all"><i class="fa-solid fa-rotate-left mr-1"></i>Redo</button>` : ''}
+            </div>
+          </div>
+          <div class="chat-body-content text-xs text-zinc-200 leading-relaxed space-y-2">
+            <!-- Loaded markdown frames -->
+          </div>
+        </div>
+      `;
+
+      elements.sessionChatContainer.appendChild(bubble);
+      scrollToChatBottom();
+      return bubble;
+    }
+
+    function appendThoughtBlock(text) {
+      const thoughtBubble = document.createElement('details');
+      thoughtBubble.open = true;
+      thoughtBubble.className = "max-w-4xl mx-auto border border-brand-accent/20 bg-brand-accent/5 rounded-xl overflow-hidden mb-4";
+      thoughtBubble.innerHTML = `
+        <summary class="flex items-center justify-between p-3 cursor-pointer hover:bg-brand-accent/10 transition-colors text-[10px] text-zinc-500 font-mono select-none">
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-brain text-brand-accent text-xs"></i>
+            <span class="text-brand-accent font-semibold">Thought</span>
+          </div>
+          <i class="fa-solid fa-chevron-up transition-transform text-zinc-600"></i>
+        </summary>
+        <div class="p-3 border-t border-brand-accent/10 text-[10px] font-mono text-zinc-400 whitespace-pre-wrap leading-relaxed thought-content max-h-64 overflow-y-auto"></div>
+      `;
+      thoughtBubble.querySelector('.thought-content').textContent = text;
+      elements.sessionChatContainer.appendChild(thoughtBubble);
+      return thoughtBubble;
+    }
+
+    // Renders an inline horizontal divider showing branch alternatives at a diverge point.
+    // bp = { afterMsgId, currentIndex, totalCount, alternatives: [{index, branchName, targetMsgId}] }
+    function appendBranchDivider(bp) {
+      if (!bp || bp.totalCount < 2) return;
+
+      const prevAlt = bp.currentIndex > 1 ? bp.alternatives[bp.currentIndex - 2] : null;
+      const nextAlt = bp.currentIndex < bp.totalCount ? bp.alternatives[bp.currentIndex] : null;
+
+      const divider = document.createElement('div');
+      divider.className = 'branch-divider flex items-center gap-3 max-w-4xl mx-auto px-4 py-3 select-none';
+      divider.dataset.afterMsgId = bp.afterMsgId ?? 'root';
+      divider.innerHTML = `
+        <div class="flex-1 h-px bg-gradient-to-r from-transparent via-zinc-700/60 to-zinc-700/60"></div>
+        <div class="flex items-center gap-1.5 bg-zinc-900/80 border border-zinc-700/80 rounded-full px-3 py-1 shadow-sm">
+          <i class="fa-solid fa-code-branch text-[9px] text-zinc-500"></i>
+          <span class="text-[10px] font-semibold text-zinc-400 font-mono">Branch</span>
+          <div class="flex items-center gap-0.5 ml-1">
+            <button
+              class="branch-nav-btn w-5 h-5 flex items-center justify-center rounded hover:bg-zinc-700 transition-colors text-zinc-500 hover:text-zinc-200 disabled:opacity-25 disabled:pointer-events-none"
+              ${!prevAlt ? 'disabled' : `onclick="switchSessionBranch('${prevAlt.branchName}')"`}
+              title="Previous branch"
+            ><i class="fa-solid fa-chevron-left text-[8px]"></i></button>
+            <span class="text-[10px] font-bold text-zinc-300 font-mono px-1 min-w-[28px] text-center">${bp.currentIndex}/${bp.totalCount}</span>
+            <button
+              class="branch-nav-btn w-5 h-5 flex items-center justify-center rounded hover:bg-zinc-700 transition-colors text-zinc-500 hover:text-zinc-200 disabled:opacity-25 disabled:pointer-events-none"
+              ${!nextAlt ? 'disabled' : `onclick="switchSessionBranch('${nextAlt.branchName}')"`}
+              title="Next branch"
+            ><i class="fa-solid fa-chevron-right text-[8px]"></i></button>
+          </div>
+        </div>
+        <div class="flex-1 h-px bg-gradient-to-l from-transparent via-zinc-700/60 to-zinc-700/60"></div>
+      `;
+      elements.sessionChatContainer.appendChild(divider);
+      return divider;
+    }
+
+    function appendUserMessageBubble(text, files, isPrefilled = false, messageId = null) {
+      const bubble = createEmptyMessageBubble('user', messageId);
+      const body = bubble.querySelector('.chat-body-content');
+      
+      let elementsHtml = `<div>${state.markdownParser.render(text)}</div>`;
+      
+      if (files && files.length > 0) {
+        elementsHtml += `<div class="flex flex-wrap gap-2 mt-2">`;
+        files.forEach(f => {
+          const isImage = f.mime && f.mime.startsWith('image/');
+          const filePreviewSrc = isPrefilled ? f.preview : URL.createObjectURL(f.raw);
+          
+          elementsHtml += `
+            <div class="flex items-center space-x-2 p-1.5 bg-brand-black/40 border border-zinc-800 rounded-lg text-[10px]">
+              ${isImage ? `<img src="${filePreviewSrc}" class="w-7 h-7 object-cover rounded">` : `<i class="fa-solid fa-file-code text-zinc-500"></i>`}
+              <span class="font-mono text-zinc-400 max-w-[120px] truncate">${f.name}</span>
+            </div>
+          `;
+        });
+        elementsHtml += `</div>`;
+      }
+      body.innerHTML = elementsHtml;
+    }
+
+    function appendSystemErrorMessage(msg) {
+      const errCard = document.createElement('div');
+      errCard.className = "exec-halt-card max-w-md mx-auto p-3.5 bg-red-950/25 border border-red-500/20 rounded-xl text-xs text-red-400 flex items-start space-x-2";
+      errCard.innerHTML = `
+        <i class="fa-solid fa-triangle-exclamation mt-0.5 shrink-0"></i>
+        <div class="flex-1">
+          <span class="font-bold">Exec Halt:</span>
+          <p class="mt-0.5 text-[10px] leading-normal font-mono text-red-300/80">${state.markdownParser.render(msg)}</p>
+          <div class="mt-2.5 flex justify-end">
+            <button onclick="retryActiveSession()" class="text-xs text-zinc-300 hover:text-white bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-1 rounded transition-all flex items-center space-x-1.5 shadow-sm">
+              <i class="fa-solid fa-rotate-right text-[10px]"></i>
+              <span>Retry Execution</span>
+            </button>
+          </div>
+        </div>
+      `;
+      elements.sessionChatContainer.appendChild(errCard);
+      scrollToChatBottom();
+    }
+
+    function removeRetryingCard() {
+      const existing = elements.sessionChatContainer.querySelector('.session-retrying-card');
+      if (existing) {
+        existing.remove();
+      }
+    }
+
+    function showRetryingCard(attempt, maxAttempts, delay, msg) {
+      removeRetryingCard();
+      const card = document.createElement('div');
+      card.className = "session-retrying-card max-w-md mx-auto p-3 bg-amber-950/25 border border-amber-500/20 rounded-xl text-xs text-amber-400 flex items-start space-x-2 my-2 select-none animate-pulse";
+      card.innerHTML = `
+        <i class="fa-solid fa-triangle-exclamation mt-0.5 shrink-0 text-amber-500"></i>
+        <div class="flex-1">
+          <span class="font-bold">Connection Issue:</span>
+          <p class="mt-0.5 text-[10px] leading-normal font-mono text-amber-300/80">${msg}</p>
+          <div class="mt-1 text-[10px] font-semibold text-amber-400/90">
+            Retrying attempt ${attempt}/${maxAttempts} in ${delay / 1000}s...
+          </div>
+        </div>
+      `;
+      elements.sessionChatContainer.appendChild(card);
+      scrollToChatBottom();
+    }
+
+    // Render dynamic tool calls inside threads
+    function appendInlineActionThoughtBlock(toolName, args, callId) {
+      if (!activeThinkingNode) {
+        activeThinkingNode = document.createElement('div');
+        activeThinkingNode.className = "max-w-4xl mx-auto pl-12 space-y-2 select-none";
+        elements.sessionChatContainer.appendChild(activeThinkingNode);
+      }
+
+      const stepDetails = document.createElement('details');
+      // Store callId as a data attribute for reliable lookup
+      stepDetails.dataset.callId = callId || '';
+      stepDetails.className = "group border border-zinc-800 bg-brand-dark/30 rounded-xl overflow-hidden";
+      
+      let stepIcon = "fa-solid fa-gear";
+      let stepVerb = "Initiated execution action";
+      let toolTargetDescription = args?.path || args?.command || args?.name || "Process";
+
+      if (toolName === 'list_dir') { stepIcon = "fa-solid fa-folder-tree text-amber-500"; stepVerb = "Explored folder"; }
+      else if (toolName === 'read_file') { stepIcon = "fa-solid fa-file-invoice text-sky-400"; stepVerb = "Read file"; }
+      else if (toolName === 'write_file') { 
+        stepIcon = "fa-solid fa-floppy-disk text-emerald-400"; 
+        stepVerb = "Created/overwrote file"; 
+        toolTargetDescription = args?.path || "File";
+        stepDetails.dataset.toolName = 'write_file';
+        stepDetails.dataset.content = args?.content || '';
+      }
+      else if (toolName === 'edit_file') { 
+        stepIcon = "fa-solid fa-code-compare text-teal-400"; 
+        stepVerb = "Patched file"; 
+        toolTargetDescription = args?.path || "File";
+        stepDetails.dataset.toolName = 'edit_file';
+        stepDetails.dataset.search = args?.search || '';
+        stepDetails.dataset.replace = args?.replace || '';
+      }
+      else if (toolName === 'execute_command') { stepIcon = "fa-solid fa-square-terminal text-purple-400"; stepVerb = "Launched process"; }
+      else if (toolName === 'send_terminal_input') { stepIcon = "fa-solid fa-keyboard text-amber-400"; stepVerb = "Sent terminal input"; toolTargetDescription = args?.terminal_id || "Terminal"; }
+      else if (toolName === 'set_session_name') { stepIcon = "fa-solid fa-tag text-zinc-400"; stepVerb = "Renamed session"; }
+      else if (toolName === 'parse_document') { 
+        stepIcon = "fa-solid fa-file-pdf text-red-400"; 
+        stepVerb = "Parsed document"; 
+        toolTargetDescription = args?.filepath || "Document"; 
+      }
+      else if (toolName === 'view_image') { 
+        stepIcon = "fa-solid fa-image text-cyan-400"; 
+        stepVerb = "Inspected image"; 
+        toolTargetDescription = args?.path || "Image"; 
+      }
+
+      stepDetails.innerHTML = `
+        <summary class="flex items-center justify-between p-3 cursor-pointer hover:bg-zinc-900/40 transition-colors text-[10px] text-zinc-400 font-mono">
+          <div class="flex items-center space-x-2">
+            <i class="${stepIcon} text-xs"></i>
+            <span>${stepVerb} <strong class="text-zinc-200 truncate max-w-[240px]">${toolTargetDescription}</strong></span>
+          </div>
+          <div class="flex items-center space-x-2 text-[10px] text-zinc-500">
+            <span class="status-marker flex items-center space-x-1"><i class="fa-solid fa-spinner animate-spin text-[9px]"></i> <span>Executing…</span></span>
+            <i class="fa-solid fa-chevron-down group-open:rotate-180 transition-transform"></i>
+          </div>
+        </summary>
+        <div class="p-3.5 border-t border-zinc-800/60 bg-brand-black/50 text-[10px] font-mono text-zinc-400 space-y-2 overflow-x-auto">
+          <div><strong class="text-zinc-300">Tool Parameters:</strong></div>
+          <pre class="bg-brand-dark/80 p-2.5 rounded-lg border border-zinc-800 text-[9px] leading-normal text-zinc-400">${JSON.stringify(args, null, 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')}</pre>
+          <div class="terminal-log-output mt-2.5 hidden">
+            <div><strong class="text-zinc-300">Result Output:</strong></div>
+            <div class="diff-editor-container hidden w-full h-[300px] border border-zinc-800 rounded-lg overflow-hidden mt-1"></div>
+            <pre class="bg-brand-black p-2.5 rounded border border-zinc-800 text-[9px] text-zinc-500 mt-1 max-h-48 overflow-y-auto leading-normal whitespace-pre-wrap"></pre>
+          </div>
+        </div>
+      `;
+
+      activeThinkingNode.appendChild(stepDetails);
+      scrollToChatBottom();
+    }
+
+    function finalizeInlineActionThoughtBlock(callId, response) {
+      // Find the details element by its data-call-id attribute for reliable matching
+      let stepEl = callId ? document.querySelector(`details[data-call-id="${callId}"]`) : null;
+      // Fallback: find last uncompleted block
+      if (!stepEl) {
+        const all = document.querySelectorAll('details[data-call-id]');
+        for (let i = all.length - 1; i >= 0; i--) {
+          const marker = all[i].querySelector('.status-marker');
+          if (marker && marker.querySelector('.fa-spinner')) { stepEl = all[i]; break; }
+        }
+      }
+      if (!stepEl) return;
+
+      const statusMarker = stepEl.querySelector('.status-marker');
+      if (statusMarker) {
+        statusMarker.innerHTML = '<span class="text-emerald-500 font-bold">Completed</span>';
+      }
+
+      const preWrapper = stepEl.querySelector('.terminal-log-output');
+      if (preWrapper) {
+        preWrapper.classList.remove('hidden');
+        
+        // Special handling for edit_file tool to show VS Code style diff
+        if (stepEl.dataset.toolName === 'edit_file') {
+          const diffContainer = preWrapper.querySelector('.diff-editor-container');
+          if (diffContainer) {
+            diffContainer.classList.remove('hidden');
+            // Hide the fallback pre for diffs
+            preWrapper.querySelector('pre').classList.add('hidden');
+            
+            const searchText = stepEl.dataset.search;
+            const replaceText = stepEl.dataset.replace;
+            
+            require(['vs/editor/editor.main'], function() {
+              const diffEditor = monaco.editor.createDiffEditor(diffContainer, {
+                automaticLayout: true,
+                theme: 'vs-dark',
+                readOnly: true,
+                renderSideBySide: true,
+                originalEditable: false
+              });
+
+              const originalModel = monaco.editor.createModel(searchText, 'javascript');
+              const modifiedModel = monaco.editor.createModel(replaceText, 'javascript');
+              
+              diffEditor.setModel({
+                original: originalModel,
+                modified: modifiedModel
+              });
+            });
+          }
+        } else if (stepEl.dataset.toolName === 'write_file') {
+          const diffContainer = preWrapper.querySelector('.diff-editor-container');
+          if (diffContainer) {
+            diffContainer.classList.remove('hidden');
+            preWrapper.querySelector('pre').classList.add('hidden');
+
+            const content = stepEl.dataset.content;
+
+            require(['vs/editor/editor.main'], function() {
+              const editor = monaco.editor.create(diffContainer, {
+                value: content,
+                language: 'javascript',
+                theme: 'vs-dark',
+                readOnly: true,
+                automaticLayout: true,
+                minimap: { enabled: false },
+                fontSize: 11,
+                lineNumbers: 'on',
+                glyphMargin: false,
+                folding: true,
+                scrollBeyondLastLine: false,
+              });
+            });
+          }
+        } else {
+          preWrapper.querySelector('pre').textContent = typeof response?.result === 'string'
+            ? response.result
+            : JSON.stringify(response?.result, null, 2);
+        }
+      }
+
+      // Auto-open details to show result
+      stepEl.open = true;
+      scrollToChatBottom();
+    }
+
+    // Toggle the mobile sidebar visibility
+    function toggleMobileSidebar(forceState = null) {
+      const sidebar = document.getElementById('session-sidebar');
+      const overlay = document.getElementById('sidebar-overlay');
+      
+      if (forceState !== null) {
+        if (forceState) {
+          sidebar.classList.remove('-translate-x-full');
+          overlay.classList.remove('hidden');
+        } else {
+          sidebar.classList.add('-translate-x-full');
+          overlay.classList.add('hidden');
+        }
+      } else {
+        const isOpen = !sidebar.classList.contains('-translate-x-full');
+        if (isOpen) {
+          sidebar.classList.add('-translate-x-full');
+          overlay.classList.add('hidden');
+        } else {
+          sidebar.classList.remove('-translate-x-full');
+          overlay.classList.remove('hidden');
+        }
+      }
+    }
+
+    // Render and handle the Sidebar Active Workspace Files browser
+
+    async function openWorkspaceFolderViewer() {
+      const wsObj = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+      if (!wsObj || !wsObj.folders_path[0]) {
+        showToast('Directory Error', 'No bounded workspace directory path available.', 'error');
+        return;
+      }
+
+      elements.sessionRightDrawer.classList.remove('hidden');
+      elements.rightDrawerTitle.innerText = "Directory Browser";
+      
+      const body = elements.rightDrawerBody;
+      body.innerHTML = `<div class="text-[11px] text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading directory structures...</div>`;
+
+      await browseDirectoryTarget(wsObj.folders_path[0]);
+    }
+
+    async function browseDirectoryTarget(pathStr) {
+      try {
+        const res = await fetch(`/api/folder?path=${encodeURIComponent(pathStr)}`);
+        if (!res.ok) throw new Error();
+        const items = await res.json();
+
+        const body = elements.rightDrawerBody;
+        body.innerHTML = "";
+
+        // Parent navigation index
+        const parentDir = pathStr.substring(0, pathStr.lastIndexOf('/'));
+        if (parentDir && parentDir !== pathStr) {
+          const back = document.createElement('div');
+          back.className = "flex items-center space-x-2 p-1.5 rounded hover:bg-zinc-900 cursor-pointer text-xs text-brand-accent font-semibold";
+          back.onclick = () => browseDirectoryTarget(parentDir);
+          back.innerHTML = `<i class="fa-solid fa-arrow-turn-up text-[10px]"></i><span>.. (Parent Directory)</span>`;
+          body.appendChild(back);
+        }
+
+        if (items.length === 0) {
+          body.innerHTML += `<div class="text-xs text-zinc-600 italic p-2 select-none">Folder empty</div>`;
+          return;
+        }
+
+        items.forEach(item => {
+          const itemRow = document.createElement('div');
+          itemRow.className = "flex items-center justify-between p-2 rounded hover:bg-zinc-900 text-xs font-mono cursor-pointer transition-colors";
+          const isFolder = item.type === 'folder' || item.type === 'directory';
+          const icon = isFolder ? "fa-solid fa-folder text-amber-500" : "fa-solid fa-file text-zinc-500";
+          const fullPath = `${pathStr}/${item.name}`.replace(/\/\/+/g, '/');
+
+          itemRow.onclick = () => {
+            if (isFolder) {
+              browseDirectoryTarget(fullPath);
+            } else {
+              // Populate prompt directly to command AI to view file
+              elements.chatPromptInput.value = `Read file safely: "${fullPath}"`;
+              showToast('Action Ready', 'Prompt input prefilled. Send message to start reading.', 'info');
+            }
+          };
+
+          itemRow.innerHTML = `
+            <div class="flex items-center space-x-2 truncate">
+              <i class="${icon}"></i>
+              <span class="truncate text-zinc-300 font-medium">${item.name}</span>
+            </div>
+          `;
+          body.appendChild(itemRow);
+        });
+
+      } catch(e) {
+        elements.rightDrawerBody.innerHTML = `<div class="text-[11px] text-red-400 p-2 border border-red-500/10 bg-red-950/10 rounded">Access Denied: Bounded limits restricted read query.</div>`;
+      }
+    }
+
+
+
+
+    function closeSessionRightDrawer() {
+      elements.sessionRightDrawer.classList.add('hidden');
+    }
+
+    // Process prompts and uploads
+    function handleChatFileUpload(event) {
+      const selected = Array.from(event.target.files);
+      selected.forEach(file => {
+        state.selectedAttachments.push({
+          name: file.name,
+          mime: file.type,
+          size: file.size,
+          raw: file
+        });
+      });
+      renderAttachmentChips();
+    }
+
+    function removeSelectedFile(index) {
+      state.selectedAttachments.splice(index, 1);
+      renderAttachmentChips();
+    }
+
+    // Build active workspaces sessions tree under Left navigation panel
+    function renderSidebarSessionsList() {
+      const sidebar = elements.sidebarSessionList;
+      sidebar.innerHTML = "";
+
+      if (state.sessions.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = "text-[10px] text-zinc-600 italic p-3 text-center";
+        emptyDiv.textContent = "No active run threads.";
+        sidebar.appendChild(emptyDiv);
+        return;
+      }
+
+      // Sort sessions by most recent first
+      const sortedSessions = [...state.sessions].sort((a, b) => {
+        return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
+      });
+
+      sortedSessions.forEach(s => {
+        const isCurrent = s.id === state.activeSessionId;
+        const isRunning = s.status === 'generating';
+        const row = document.createElement('div');
+        row.dataset.sessionId = s.id;
+        
+        // Dynamic styles based on current and running states
+        let rowClass = `p-2 rounded-lg flex items-center justify-between cursor-pointer group text-xs transition-all `;
+        if (isCurrent) {
+          rowClass += 'bg-brand-accent/20 border-l-2 border-brand-accent text-white font-semibold shadow';
+        } else {
+          rowClass += 'text-zinc-400 hover:bg-zinc-900/40 hover:text-zinc-200';
+        }
+
+        if (isRunning) {
+          rowClass += ' ring-1 ring-brand-accent/30 bg-brand-accent/10 text-brand-accent';
+        }
+
+        row.className = rowClass;
+
+        const sessionLink = document.createElement('div');
+        sessionLink.className = "flex items-center space-x-2 min-w-0 flex-1";
+        sessionLink.onclick = () => initializeSession(s.id);
+
+        const icon = document.createElement('i');
+        icon.className = `fa-solid ${isRunning ? 'fa-spinner fa-spin text-brand-accent' : 'fa-message text-zinc-600'} text-[9px] shrink-0`;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = `truncate font-mono ${isRunning ? 'text-brand-accent animate-pulse' : ''}`;
+        nameSpan.textContent = s.name || `Chat Session #${s.id.substring(5)}`;
+
+        sessionLink.appendChild(icon);
+        sessionLink.appendChild(nameSpan);
+
+        if (isRunning) {
+          const runningBadge = document.createElement('span');
+          runningBadge.className = "text-[9px] bg-brand-accent/20 px-1 rounded uppercase font-bold";
+          runningBadge.textContent = "Running";
+          sessionLink.appendChild(runningBadge);
+        }
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = "text-[10px] text-zinc-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity pl-1";
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteSessionFromSidebar(s.id);
+        };
+        
+        const deleteIcon = document.createElement('i');
+        deleteIcon.className = "fa-solid fa-xmark";
+        deleteBtn.appendChild(deleteIcon);
+
+        row.appendChild(sessionLink);
+        row.appendChild(deleteBtn);
+        sidebar.appendChild(row);
+      });
+    }
+
+    async function refreshSessionList() {
+      try {
+        const sRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session`);
+        state.sessions = await sRes.json();
+        renderSidebarSessionsList();
+      } catch (e) {
+        console.error("Failed to refresh session list", e);
+      }
+    }
+
+    async function deleteSessionFromSidebar(id) {
+      showConfirmModal(
+        'Delete thread history logs?',
+        'Purging this chat log thread is irreversible and deletes session data from SQLite storage.',
+        async () => {
+          try {
+            await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${id}`, { method: 'DELETE' });
+            showToast('Thread Deleted', 'Logs database cleared.', 'info');
+            
+            // Reload logs dynamic panels
+            const sRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session`);
+            state.sessions = await sRes.json();
+            
+            if (state.activeSessionId === id) {
+              if (state.sessions.length > 0) {
+                initializeSession(state.sessions[0].id);
+              } else {
+                elements.sessionChatContainer.innerHTML = "";
+                enableSessionChatInputControls(true);
+              }
+            } else {
+              renderSidebarSessionsList();
+            }
+          } catch(e) {}
+        }
+      );
+    }
+
+    function closeUndoModal() {
+      const backdrop = document.getElementById('undo-modal-backdrop');
+      if (backdrop) {
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+      }
+    }
+
+    function getFileTypeBadge(filename) {
+      const ext = filename.split('.').pop().toLowerCase();
+      if (ext === 'js' || ext === 'mjs') return `<span class="bg-amber-500/10 text-amber-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">JS</span>`;
+      if (ext === 'html') return `<span class="bg-orange-500/10 text-orange-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">HTML</span>`;
+      if (ext === 'css') return `<span class="bg-blue-500/10 text-blue-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">CSS</span>`;
+      if (ext === 'json') return `<span class="bg-emerald-500/10 text-emerald-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">JSON</span>`;
+      if (ext === 'py') return `<span class="bg-sky-500/10 text-sky-500 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">PY</span>`;
+      return `<span class="bg-zinc-800 text-zinc-400 text-[9px] font-bold px-1 py-0.5 rounded mr-1.5 uppercase font-sans">${ext}</span>`;
+    }
+
+    function showUndoConfirmModal(affectedFiles, onConfirm) {
+      const backdrop = document.getElementById('undo-modal-backdrop');
+      const filesContainer = document.getElementById('undo-modal-files');
+      const confirmBtn = document.getElementById('undo-modal-confirm-btn');
+
+      filesContainer.innerHTML = '';
+      if (!affectedFiles || affectedFiles.length === 0) {
+        filesContainer.innerHTML = '<div class="text-xs text-zinc-500 italic">No files on the filesystem will be modified.</div>';
+      } else {
+        affectedFiles.forEach(f => {
+          const filename = f.file.split('/').pop();
+          const badge = getFileTypeBadge(filename);
+          const row = document.createElement('div');
+          row.className = "flex items-center justify-between text-xs font-mono py-1 border-b border-zinc-800/40 last:border-b-0";
+          row.innerHTML = `
+            <div class="flex items-center overflow-hidden">
+              ${badge}
+              <span class="text-zinc-300 truncate" title="${f.file}">${f.file}</span>
+            </div>
+            <div class="flex items-center space-x-2 text-[10px] shrink-0 ml-4">
+              <span class="text-emerald-500 font-semibold">+${f.added}</span>
+              <span class="text-rose-500 font-semibold">-${f.deleted}</span>
+            </div>
+          `;
+          filesContainer.appendChild(row);
+        });
+      }
+
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+
+      confirmBtn.onclick = () => {
+        closeUndoModal();
+        onConfirm();
+      };
+    }
+
+    async function confirmRedoRollback(messageId) {
+      try {
+        const previewRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo-preview/${messageId}`);
+        if (!previewRes.ok) {
+          showToast('Preview Error', 'Failed to retrieve files affected by rollback.', 'error');
+          return;
+        }
+        
+        const previewData = await previewRes.json();
+        const targetMessageID = previewData.targetMessageID || messageId;
+        
+        showUndoConfirmModal(previewData.affectedFiles || [], async () => {
+          showToast('Rolling Back', 'Executing git history rewrite...', 'info');
+          
+          const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo/${targetMessageID}`, {
+            method: 'POST'
+          });
+          
+          const data = await res.json();
+          if (res.ok && data.success) {
+            showToast('Rollback Complete', 'History reverted successfully.', 'success');
+            state.shouldAutoRetryAfterRollback = true;
+            await initializeSession(state.activeSessionId);
+          } else {
+            showToast('Git Rollback Error', data.error || 'Failed to rewrite git history.', 'error');
+          }
+        });
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+    window.confirmRedoRollback = confirmRedoRollback;
+
+    function toggleSourceControlView(show) {
+      const chatWrapper = document.getElementById('chat-interface-wrapper');
+      const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
+      if (show) {
+        chatWrapper.classList.add('hidden');
+        artContainer.classList.add('hidden');
+        scContainer.classList.remove('hidden');
+        setScTab('files');
+      } else {
+        chatWrapper.classList.remove('hidden');
+        scContainer.classList.add('hidden');
+      }
+    }
+    window.toggleSourceControlView = toggleSourceControlView;
+
+    function toggleArtifactsView(show) {
+      const chatWrapper = document.getElementById('chat-interface-wrapper');
+      const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
+      if (show) {
+        chatWrapper.classList.add('hidden');
+        scContainer.classList.add('hidden');
+        artContainer.classList.remove('hidden');
+        loadArtifactsList();
+      } else {
+        artContainer.classList.add('hidden');
+        chatWrapper.classList.remove('hidden');
+      }
+    }
+    window.toggleArtifactsView = toggleArtifactsView;
+
+    async function loadArtifactsList() {
+      const listEl = document.getElementById('artifacts-list');
+      listEl.innerHTML = `<div class="text-[11px] text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading...</div>`;
+      
+      document.getElementById('artifacts-preview-content').classList.add('hidden');
+      document.getElementById('artifacts-preview-placeholder').classList.remove('hidden');
+      
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/artifacts`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          listEl.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error loading artifacts</div>`;
+          return;
+        }
+        
+        listEl.innerHTML = "";
+        
+        if (data.items.length === 0) {
+          listEl.innerHTML = `<div class="text-xs text-zinc-500 italic p-2">No artifacts in this session.</div>`;
+          return;
+        }
+        
+        data.items.sort((a, b) => a.name.localeCompare(b.name));
+        
+        data.items.forEach(item => {
+          const itemRow = document.createElement('div');
+          itemRow.className = "flex items-center space-x-2 p-2 rounded hover:bg-zinc-800 text-xs font-mono cursor-pointer transition-colors text-zinc-300 hover:text-zinc-100";
+          itemRow.onclick = () => previewArtifactFile(item.path, item.name, item.size);
+          
+          let icon = "fa-solid fa-file-code text-zinc-500";
+          const ext = item.name.split('.').pop().toLowerCase();
+          if (ext === 'md') icon = "fa-brands fa-markdown text-sky-400";
+          else if (ext === 'json') icon = "fa-solid fa-braces text-yellow-500";
+          else if (ext === 'pdf') icon = "fa-solid fa-file-pdf text-red-500";
+          else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'img'].includes(ext)) icon = "fa-solid fa-file-image text-emerald-500";
+          
+          itemRow.innerHTML = `
+            <i class="${icon} text-[13px] shrink-0"></i>
+            <span class="truncate" title="${item.name}">${item.name}</span>
+          `;
+          listEl.appendChild(itemRow);
+        });
+      } catch (err) {
+        listEl.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error loading artifacts</div>`;
+      }
+    }
+    window.loadArtifactsList = loadArtifactsList;
+
+    let monacoPreviewEditor = null;
+
+    async function previewArtifactFile(relPath, fileName, fileSize) {
+      const placeholder = document.getElementById('artifacts-preview-placeholder');
+      const contentPanel = document.getElementById('artifacts-preview-content');
+      const previewBody = document.getElementById('artifacts-preview-body');
+      const nameEl = document.getElementById('artifacts-preview-filename');
+      const sizeEl = document.getElementById('artifacts-preview-size');
+      
+      placeholder.classList.add('hidden');
+      contentPanel.classList.remove('hidden');
+      previewBody.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Fetching content...</div>`;
+      
+      nameEl.innerText = fileName;
+      sizeEl.innerText = formatBytes(fileSize);
+      
+      if (monacoPreviewEditor) {
+        monacoPreviewEditor.dispose();
+        monacoPreviewEditor = null;
+      }
+      
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/artifacts/read?path=${encodeURIComponent(relPath)}`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          previewBody.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error reading file: ${data.error}</div>`;
+          return;
+        }
+        
+        const ext = fileName.split('.').pop().toLowerCase();
+        
+        if (ext === 'md' || ext === 'typ') {
+          const html = state.markdownParser.render(data.content);
+          previewBody.innerHTML = `<div class="artifact-markdown-content max-w-none text-zinc-300">${html}</div>`;
+        } else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'pdf'].includes(ext)) {
+          previewBody.innerHTML = `
+            <div class="h-full flex flex-col items-center justify-center text-zinc-500 space-y-3">
+              <i class="fa-solid fa-file-zipper text-4xl text-zinc-600"></i>
+              <div class="text-center">
+                <p class="font-semibold text-zinc-400">Binary File Preview Unsupported</p>
+                <p class="text-[11px] text-zinc-500">File size: ${formatBytes(fileSize)}</p>
+              </div>
+            </div>
+          `;
+        } else {
+          previewBody.innerHTML = `<div id="monaco-preview-container" class="h-full w-full border border-zinc-800 rounded-lg" style="min-height: 400px;"></div>`;
+          
+          let language = 'plaintext';
+          if (ext === 'js' || ext === 'jsx') language = 'javascript';
+          else if (ext === 'ts' || ext === 'tsx') language = 'typescript';
+          else if (ext === 'json') language = 'json';
+          else if (ext === 'html') language = 'html';
+          else if (ext === 'css') language = 'css';
+          else if (ext === 'py') language = 'python';
+          else if (ext === 'sh' || ext === 'bash') language = 'shell';
+          else if (ext === 'sql') language = 'sql';
+          else if (ext === 'yml' || ext === 'yaml') language = 'yaml';
+          
+          if (typeof monaco !== 'undefined') {
+            monacoPreviewEditor = monaco.editor.create(document.getElementById('monaco-preview-container'), {
+              value: data.content,
+              language: language,
+              theme: 'vs-dark',
+              readOnly: true,
+              automaticLayout: true,
+              minimap: { enabled: false },
+              fontSize: 12
+            });
+          } else {
+            previewBody.innerHTML = `<pre class="bg-zinc-950 p-4 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-300 overflow-auto max-h-full whitespace-pre-wrap">${escapeHtml(data.content)}</pre>`;
+          }
+        }
+      } catch (err) {
+        previewBody.innerHTML = `<div class="text-xs text-red-400 p-2 border border-red-500/20 bg-red-500/5 rounded">Error loading preview: ${err.message}</div>`;
+      }
+    }
+    window.previewArtifactFile = previewArtifactFile;
+
+    function escapeHtml(text) {
+      return (text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    state.scActiveTab = 'files';
+    state.scCurrentPath = '';
+    state.scTimelineOffset = 0;
+    state.scTimelineLimit = 15;
+    state.scTimelineData = [];
+
+    function setScTab(tab) {
+      state.scActiveTab = tab;
+      const btnFiles = document.getElementById('btn-sc-files');
+      const btnTimeline = document.getElementById('btn-sc-timeline');
+      
+      if (tab === 'files') {
+        btnFiles.className = "text-xs font-semibold px-3 py-1.5 rounded transition-all text-brand-accent bg-brand-accent/10 border border-brand-accent/20";
+        btnTimeline.className = "text-xs font-semibold px-3 py-1.5 rounded transition-all text-zinc-400 hover:text-zinc-200";
+        loadScFiles(state.scCurrentPath);
+      } else {
+        btnTimeline.className = "text-xs font-semibold px-3 py-1.5 rounded transition-all text-brand-accent bg-brand-accent/10 border border-brand-accent/20";
+        btnFiles.className = "text-xs font-semibold px-3 py-1.5 rounded transition-all text-zinc-400 hover:text-zinc-200";
+        state.scTimelineOffset = 0;
+        state.scTimelineData = [];
+        loadScTimeline();
+      }
+    }
+    window.setScTab = setScTab;
+
+    async function loadScFiles(pathPrefix) {
+      state.scCurrentPath = pathPrefix;
+      const body = document.getElementById('source-control-content');
+      body.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Traversing Git history files...</div>`;
+
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/source-control/files?path=${encodeURIComponent(pathPrefix)}`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Error loading files: ${data.error}</div>`;
+          return;
+        }
+
+        let breadcrumbsHtml = `<span onclick="loadScFiles('')" class="cursor-pointer hover:text-brand-accent text-zinc-400">root</span>`;
+        if (pathPrefix) {
+          const parts = pathPrefix.split('/').filter(Boolean);
+          let accumulated = '';
+          parts.forEach((p, idx) => {
+            accumulated += p + '/';
+            breadcrumbsHtml += ` <span class="text-zinc-600">/</span> <span onclick="loadScFiles('${accumulated}')" class="cursor-pointer hover:text-brand-accent text-zinc-400">${p}</span>`;
+          });
+        }
+
+        let tableHtml = `
+          <div class="space-y-3">
+            <div class="flex items-center justify-between text-[11px] text-zinc-500 bg-zinc-950 p-2.5 rounded-lg border border-zinc-800/50">
+              <div class="flex items-center space-x-1.5">
+                <i class="fa-solid fa-folder-open text-zinc-500"></i>
+                <span class="font-mono">${breadcrumbsHtml}</span>
+              </div>
+              <div class="text-[10px] text-zinc-600 italic">Showing historical tracked paths</div>
+            </div>
+            
+            <div class="overflow-x-auto rounded-lg border border-zinc-800 bg-brand-black">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr class="border-b border-zinc-800 text-[10px] text-zinc-500 font-bold uppercase select-none">
+                    <th class="py-3 px-4 w-10"></th>
+                    <th class="py-3 px-4">Name</th>
+                    <th class="py-3 px-4 text-center">Commits</th>
+                    <th class="py-3 px-4">Last Update</th>
+                    <th class="py-3 px-4 text-right">Size</th>
+                    <th class="py-3 px-4 text-right">Git Size</th>
+                    <th class="py-3 px-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-900">
+        `;
+
+        if (data.items.length === 0) {
+          tableHtml += `
+            <tr>
+              <td colspan="7" class="py-8 text-center text-zinc-600 italic">No files ever tracked in this directory.</td>
+            </tr>
+          `;
+        } else {
+          data.items.sort((a, b) => {
+            if (a.type !== b.type) {
+              return a.type === 'directory' ? -1 : 1;
+            }
+            return a.name.localeCompare(b.name);
+          });
+
+          data.items.forEach(item => {
+            const isDeleted = item.isDeleted;
+            const opacityClass = isDeleted ? 'opacity-40 hover:opacity-75 transition-opacity' : '';
+            const icon = item.type === 'directory' 
+              ? '<i class="fa-solid fa-folder text-amber-500/80"></i>' 
+              : '<i class="fa-solid fa-file-code text-zinc-400"></i>';
+            
+            const onClickAttr = item.type === 'directory'
+              ? `onclick="loadScFiles('${item.path}')"`
+              : ``;
+            
+            const formattedSize = item.type === 'directory' ? '-' : formatBytes(item.size);
+            const formattedGitSize = formatBytes(item.historySize);
+            
+            tableHtml += `
+              <tr class="hover:bg-zinc-900/40 transition-colors ${opacityClass}">
+                <td class="py-3 px-4 text-center select-none">${icon}</td>
+                <td class="py-3 px-4 font-medium ${item.type === 'directory' ? 'cursor-pointer text-brand-accent hover:underline' : 'text-zinc-200'}" ${onClickAttr}>
+                  ${item.name} ${isDeleted ? '<span class="text-[9px] bg-red-950 text-red-400 border border-red-900/50 px-1 py-0.2 rounded ml-1.5 uppercase tracking-wide">Deleted</span>' : ''}
+                </td>
+                <td class="py-3 px-4 text-center font-mono text-[10px] text-zinc-400">${item.historyCount}</td>
+                <td class="py-3 px-4 text-[10px] text-zinc-400 truncate max-w-[200px]" title="${item.lastUpdate}">${item.lastUpdate}</td>
+                <td class="py-3 px-4 text-right font-mono text-[10px] text-zinc-400">${formattedSize}</td>
+                <td class="py-3 px-4 text-right font-mono text-[10px] text-brand-accent/80">${formattedGitSize}</td>
+                <td class="py-3 px-4 text-center">
+                  <button onclick="ignoreScPath('${item.path}', '${item.repoHash}')" class="text-[9px] font-semibold border border-zinc-800 hover:border-red-900/50 hover:bg-red-950/20 text-zinc-500 hover:text-red-400 px-2 py-0.5 rounded transition-all">
+                    <i class="fa-solid fa-eye-slash mr-1"></i>Ignore
+                  </button>
+                </td>
+              </tr>
+            `;
+          });
+        }
+
+        tableHtml += `
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        body.innerHTML = tableHtml;
+      } catch (e) {
+        body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Failed to load files tree: ${e.message}</div>`;
+      }
+    }
+    window.loadScFiles = loadScFiles;
+
+    function formatBytes(bytes, decimals = 1) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    async function loadScTimeline() {
+      const body = document.getElementById('source-control-content');
+      if (state.scTimelineOffset === 0) {
+        body.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading Git timeline...</div>`;
+      }
+
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/source-control/timeline?limit=${state.scTimelineLimit}&offset=${state.scTimelineOffset}`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Error loading timeline: ${data.error}</div>`;
+          return;
+        }
+
+        state.scTimelineData.push(...data.timeline);
+        
+        let listHtml = `
+          <div class="space-y-4">
+            <p class="text-[10px] text-zinc-500">Commits side-by-side with database messages. Click a message card to jump to that context position in the chat.</p>
+            <div class="space-y-3.5 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-zinc-800">
+        `;
+
+        state.scTimelineData.forEach(item => {
+          let msgCardHtml = `<div class="text-[10px] text-zinc-600 italic">No associated DB message found.</div>`;
+          let onClickAttr = "";
+          let clickableClass = "";
+
+          if (item.message) {
+            const roleBadge = item.message.role === 'user' ? 'Developer' : 'AI Agent';
+            const badgeColor = item.message.role === 'user' ? 'text-brand-accent bg-brand-accent/10 border-brand-accent/20' : 'text-purple-400 bg-purple-500/10 border-purple-500/20';
+            
+            let textPreview = "";
+            try {
+              const txtParts = item.message.parts.filter(p => p.text);
+              textPreview = txtParts.map(p => p.text).join('\n').substring(0, 140);
+              if (textPreview.length >= 140) textPreview += "...";
+            } catch {}
+
+            if (!textPreview) {
+              textPreview = "[Tool Action Payload]";
+            }
+
+            msgCardHtml = `
+              <div class="flex items-center justify-between">
+                <span class="text-[9px] border px-1 py-0.5 rounded font-mono ${badgeColor}">${roleBadge}</span>
+                <span class="text-[8px] text-zinc-600 font-mono">${new Date(item.message.createdAt).toLocaleTimeString()}</span>
+              </div>
+              <p class="text-[11px] text-zinc-300 line-clamp-2 mt-1.5 leading-relaxed">${textPreview}</p>
+            `;
+
+            onClickAttr = `onclick="jumpToChatMessage(${item.message.id}, '${item.message.sessionId}')"`;
+            clickableClass = "cursor-pointer hover:border-brand-accent/60 hover:bg-zinc-950/40 transition-all";
+          }
+
+          listHtml += `
+            <div class="flex items-start space-x-4 pl-[5px] relative">
+              <div class="w-3.5 h-3.5 rounded-full bg-brand-dark border-2 border-zinc-700 shrink-0 flex items-center justify-center z-10 mt-1 select-none">
+                <div class="w-1.5 h-1.5 rounded-full bg-zinc-500"></div>
+              </div>
+              
+              <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-brand-black border border-zinc-800/80 rounded-xl p-3 flex flex-col justify-between space-y-2">
+                  <div>
+                    <div class="flex items-center justify-between">
+                      <span class="text-[10px] text-zinc-500 font-mono flex items-center"><i class="fa-solid fa-hashtag mr-1"></i>${item.hash.substring(0, 7)}</span>
+                      <span class="text-[9px] text-zinc-600 font-mono"><i class="fa-solid fa-clock mr-1"></i>${item.date}</span>
+                    </div>
+                    <h5 class="text-xs font-semibold text-zinc-200 mt-1.5 font-mono truncate" title="${item.subject}">${item.subject}</h5>
+                    ${item.branches && item.branches.length > 0 ? `
+                      <div class="flex flex-wrap gap-1 mt-1.5">
+                        ${item.branches.map(b => `<span class="text-[8px] bg-zinc-850 text-zinc-400 border border-zinc-700/60 px-1 py-0.5 rounded font-mono truncate max-w-[120px] select-all" title="${b}"><i class="fa-solid fa-code-branch mr-0.5 text-[7px] text-zinc-500"></i>${b}</span>`).join('')}
+                      </div>
+                    ` : ''}
+                  </div>
+                </div>
+                
+                <div ${onClickAttr} class="bg-brand-black border border-zinc-800/80 rounded-xl p-3 flex flex-col justify-between ${clickableClass}">
+                  ${msgCardHtml}
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        listHtml += `
+            </div>
+        `;
+
+        if (data.hasMore) {
+          listHtml += `
+            <div class="text-center pt-4">
+              <button onclick="loadMoreScTimeline()" class="text-xs font-semibold px-4 py-2 border border-zinc-800 hover:border-zinc-700 bg-brand-black text-zinc-400 hover:text-zinc-200 rounded-lg transition-all">
+                <i class="fa-solid fa-angles-down mr-1.5"></i>Load More Timeline
+              </button>
+            </div>
+          `;
+        }
+
+        listHtml += `</div>`;
+
+        body.innerHTML = listHtml;
+      } catch (e) {
+        body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Failed to load timeline: ${e.message}</div>`;
+      }
+    }
+    window.loadScTimeline = loadScTimeline;
+
+    function loadMoreScTimeline() {
+      state.scTimelineOffset += state.scTimelineLimit;
+      loadScTimeline();
+    }
+    window.loadMoreScTimeline = loadMoreScTimeline;
+
+    async function jumpToChatMessage(messageId, sessionId) {
+      try {
+        toggleSourceControlView(false);
+        toggleArtifactsView(false);
+        if (state.activeSessionId !== sessionId) {
+          await initializeSession(sessionId);
+        }
+        
+        setTimeout(() => {
+          const bubbles = elements.sessionChatContainer.querySelectorAll('.flex.space-x-3.5');
+          let targetBubble = null;
+          for (const b of bubbles) {
+            const redoBtn = b.querySelector(`button[onclick*="confirmRedoRollback(${messageId})"]`);
+            if (redoBtn) {
+              targetBubble = b;
+              break;
+            }
+          }
+          if (targetBubble) {
+            targetBubble.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            targetBubble.classList.add('ring-2', 'ring-brand-accent/50', 'ring-offset-2', 'ring-offset-black');
+            setTimeout(() => {
+              targetBubble.classList.remove('ring-2', 'ring-brand-accent/50', 'ring-offset-2', 'ring-offset-black');
+            }, 3000);
+          } else {
+            showToast('Navigation', 'Chat position loaded, but bubble was not found in scroll container.', 'info');
+          }
+        }, 300);
+      } catch (e) {
+        showToast('Error', 'Failed to jump to message: ' + e.message, 'error');
+      }
+    }
+    window.jumpToChatMessage = jumpToChatMessage;
+
+    async function ignoreScPath(itemPath, repoHash) {
+      const ok = confirm(`WARNING: Ignoring "${itemPath}" will rewrite your git history and permanently delete all history tracking for it.\n\nAre you sure you want to proceed? This action cannot be undone.`);
+      if (!ok) return;
+
+      const body = document.getElementById('source-control-content');
+      body.innerHTML = `
+        <div class="p-6 border border-zinc-800 bg-brand-black rounded-xl space-y-4 text-center">
+          <div class="text-sm font-semibold text-amber-500 animate-pulse"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Rewriting Git history and deleting references...</div>
+          <p class="text-xs text-zinc-400">Please wait. This runs a filter-branch command to purge "${itemPath}" and clean backup refs.</p>
+          <div class="text-[11px] text-zinc-600 italic">This may take up to a minute depending on history size.</div>
+        </div>
+      `;
+
+      try {
+        const res = await fetch(`/api/workspace/\${state.activeWorkspaceId}/source-control/ignore`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ path: itemPath, repoHash })
+        });
+        const data = await res.json();
+        
+        if (res.ok && data.success) {
+          showToast('Git Ignore Complete', `Purged history for "\${itemPath}" successfully.`, 'success');
+          loadScFiles(state.scCurrentPath);
+        } else {
+          showToast('Error', data.error || 'Failed to rewrite git history.', 'error');
+          loadScFiles(state.scCurrentPath);
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+        loadScFiles(state.scCurrentPath);
+      }
+    }
+    window.ignoreScPath = ignoreScPath;
+
+    window.confirmRedoRollback = confirmRedoRollback;
+
+    async function switchSessionBranch(branchName) {
+      if (!branchName) return;
+      showToast('Switching Timeline', `Checking out branch ${branchName}...`, 'info');
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/checkout-branch/${branchName}`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('Timeline Switched', `Checked out branch ${branchName} successfully.`, 'success');
+          await initializeSession(state.activeSessionId);
+        } else {
+          showToast('Checkout Error', data.error || 'Failed to switch timeline branch.', 'error');
+        }
+      } catch (err) {
+        showToast('Checkout Error', err.message, 'error');
+      }
+    }
+    window.switchSessionBranch = switchSessionBranch;
+
+    function retryActiveSession() {
+      if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+        currentResponseBubbleEl = null;
+        rawResponseAccumulator = "";
+        activeThinkingNode = null;
+        currentThoughtBubble = null;
+        rawThoughtAccumulator = "";
+        state.lastHistoryModelTextBubble = null;
+        state.lastHistoryModelThoughtBubble = null;
+        state.lastHistoryModelText = "";
+        state.lastHistoryModelThoughts = "";
+
+        // Remove the error card from the DOM if it exists
+        const errCards = elements.sessionChatContainer.querySelectorAll('.exec-halt-card');
+        errCards.forEach(card => card.remove());
+
+        setGeneratingState(true);
+        state.wsConn.send(JSON.stringify({
+          type: 'RETRY'
+        }));
+      } else {
+        showToast('Connection Error', 'WebSocket connection is not active.', 'error');
+      }
+    }
+    window.retryActiveSession = retryActiveSession;
+
+    // Scroll to bottom of Chat container
+    function scrollToChatBottom() {
+      if (!state.stickToBottom) return;
+      setTimeout(() => {
+        elements.sessionChatContainer.scrollTop = elements.sessionChatContainer.scrollHeight;
+      }, 50);
+    }
+  </script>
+  <script>
+    (function() {
+      const canvas = document.getElementById('bg-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const chars = ' .:-=+*#%@';
+      const fontSize = 10;
+      
+      let width, height, cols, rows;
+      let time = 0;
+      const noiseScale = 0.005; // "Zoom" level - smaller is more zoomed in
+      const timeSpeed = 0.05;  // Speed of animation
+
+      // Simple Perlin-like Noise implementation for map-gen feel
+      const Noise = {
+        p: new Uint8Array(512),
+        init() {
+          const permutation = new Uint8Array(256).map(() => Math.floor(Math.random() * 256));
+          for (let i = 0; i < 512; i++) this.p[i] = permutation[i & 255];
+        },
+        fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); },
+        lerp(t, a, b) { return a + t * (b - a); },
+        grad(hash, x, y, z) {
+          const h = hash & 15;
+          const u = h < 8 ? x : y;
+          const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+          return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        },
+        perlin(x, y, z) {
+          const X = Math.floor(x) & 255;
+          const Y = Math.floor(y) & 255;
+          const Z = Math.floor(z) & 255;
+          x -= Math.floor(x);
+          y -= Math.floor(y);
+          z -= Math.floor(z);
+          const u = this.fade(x);
+          const v = this.fade(y);
+          const w = this.fade(z);
+          const A = this.p[X] + Y, AA = this.p[A] + Z, AB = this.p[A + 1] + Z;
+          const B = this.p[X + 1] + Y, BA = this.p[B] + Z, BB = this.p[B + 1] + Z;
+
+          return this.lerp(w, this.lerp(v, this.lerp(u, this.grad(this.p[AA], x, y, z),
+            this.grad(this.p[BA], x - 1, y, z)),
+            this.lerp(u, this.grad(this.p[AB], x, y - 1, z),
+            this.grad(this.p[BB], x - 1, y - 1, z))),
+            this.lerp(v, this.lerp(u, this.grad(this.p[AA + 1], x, y, z - 1),
+            this.grad(this.p[BA + 1], x - 1, y, z - 1)),
+            this.lerp(u, this.grad(this.p[AB + 1], x, y - 1, z - 1),
+            this.grad(this.p[BB + 1], x - 1, y - 1, z - 1))));
+        }
+      };
+
+      Noise.init();
+
+      function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+        cols = Math.ceil(width / fontSize);
+        rows = Math.ceil(height / fontSize);
+      }
+
+      function animate() {
+        ctx.clearRect(0, 0, width, height);
+
+        if (typeof state !== 'undefined' && state.view !== 'manager') {
+          setTimeout(() => {
+            requestAnimationFrame(animate);
+          }, 1000);
+          return;
+        }
+
+        ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        time += timeSpeed;
+
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            const px = x * fontSize + fontSize / 2;
+            const py = y * fontSize + fontSize / 2;
+            
+            const val = Noise.perlin(px * noiseScale, py * noiseScale, time);
+            const normalized = (val + 1) / 2;
+            const index = Math.floor(normalized * chars.length);
+            const char = chars[Math.max(0, Math.min(chars.length - 1, index))];
+            
+            if (char !== ' ') {
+              const opacity = Math.min(0.8, 0.1 + normalized * 0.7);
+              ctx.fillStyle = `rgba(139, 92, 246, ${opacity})`; 
+              ctx.fillText(char, px, py);
+            }
+          }
+        }
+        setTimeout(() => {
+          requestAnimationFrame(animate);
+        }, 1000 / 12);
+      }
+
+      window.addEventListener('resize', resize);
+      resize();
+      animate();
+    })();
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('Service Worker registered successfully', reg))
+          .catch(err => console.error('Service Worker registration failed', err));
+      });
+    }
+  </script>
+</body>
+</html>
