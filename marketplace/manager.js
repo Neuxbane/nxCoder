@@ -6,6 +6,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { GeminiProvider } from "./builtin/providers/gemini.js";
 import { OllamaProvider } from "./builtin/providers/ollama.js";
 import { OpenAIProvider } from "./builtin/providers/openai.js";
+import { GeminiLiveProvider } from "./builtin/providers/gemini-live.js";
 import { createBuiltinMcpServer } from "./builtin/mcp/filesystem.js";
 
 // BridgeTransport for connecting built-in client and server in-memory
@@ -53,6 +54,7 @@ export class MarketplaceManager {
     this.registerProvider(GeminiProvider);
     this.registerProvider(OllamaProvider);
     this.registerProvider(OpenAIProvider);
+    this.registerProvider(GeminiLiveProvider);
   }
 
   registerProvider(providerClass) {
@@ -202,7 +204,7 @@ export class MarketplaceManager {
   }
 
   async isProviderInstalled(providerId) {
-    if (providerId === 'gemini' || providerId === 'ollama' || providerId === 'openai') {
+    if (providerId === 'gemini' || providerId === 'ollama' || providerId === 'openai' || providerId === 'gemini-live') {
       return true;
     }
     const dirPath = path.resolve('marketplace/downloaded/provider', providerId);

@@ -2255,7 +2255,9 @@
       items.forEach(item => {
         let iconHtml = `<i class="fa-solid fa-plug text-lg"></i>`;
         if (item.type === 'provider' || item.type === 'provider_config') {
-          if (item.slug.includes('gemini')) {
+          if (item.slug === 'gemini-live' || item.slug.includes('gemini-live')) {
+            iconHtml = `<i class="fa-solid fa-tower-broadcast text-pink-400 text-lg"></i>`;
+          } else if (item.slug.includes('gemini')) {
             iconHtml = `<i class="fa-solid fa-brain text-purple-400 text-lg"></i>`;
           } else if (item.slug.includes('ollama')) {
             iconHtml = `<i class="fa-solid fa-server text-teal-400 text-lg"></i>`;

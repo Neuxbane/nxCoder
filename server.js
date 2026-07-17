@@ -3500,6 +3500,43 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                   await updateModelMessageInDb();
                   activeFunctionCall = null;
                 }
+              },
+              onToolCall: async (name, args, callId) => {
+                let toolResult;
+                try {
+                  const enrichedArgs = { ...args, workspaceId, sessionId };
+                  toolResult = await marketplaceManager.executeMcpTool(name, enrichedArgs);
+                } catch (err) {
+                  toolResult = { error: `MCP Tool execution failed: ${err.message}` };
+                }
+
+                // Remove from pendingCalls since it's handled inline
+                const callIdx = pendingCalls.findIndex(c => c.id === callId);
+                if (callIdx !== -1) pendingCalls.splice(callIdx, 1);
+
+                // Send to UI
+                sendToSession(sessionId, {
+                  type: 'FUNCTION_RESPONSE',
+                  callId: callId,
+                  response: { result: toolResult }
+                });
+
+                // Update DB history
+                const currentMessages = await loadSessionMessages(wsDir, sessionId);
+                const toolOutputMsgId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+                currentMessages.push({
+                  id: toolOutputMsgId,
+                  role: 'user',
+                  parts: [{ functionResponse: { id: callId, name, response: { result: toolResult } } }],
+                  createdAt: new Date().toISOString()
+                });
+                await saveSessionMessages(wsDir, sessionId, currentMessages);
+
+                // Update in-memory contentStack
+                contentStack.push({ role: 'model', parts: [{ functionCall: { id: callId, name, args } }] });
+                contentStack.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { result: toolResult } } }] });
+
+                return toolResult;
               }
             });
           } finally {
