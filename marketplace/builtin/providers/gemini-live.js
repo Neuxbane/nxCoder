@@ -87,15 +87,15 @@ export class GeminiLiveProvider extends BaseProvider {
         }
       }
 
-      let finalSystemInstruction = systemInstruction || '';
-      if (historyString) {
-        finalSystemInstruction += historyString;
-      }
-
       // 3. Pre-build liveTurns using ONLY the currentMessage
       const liveTurns = [];
       if (currentMessage) {
         const partsStr = [];
+        // Prepend history to the user's current prompt
+        if (historyString) {
+          partsStr.push(historyString + '\n\n=== CURRENT PROMPT ===\n');
+        }
+        
         for (const part of currentMessage.parts) {
           if (part.text) {
             partsStr.push(part.text);
@@ -124,9 +124,9 @@ export class GeminiLiveProvider extends BaseProvider {
           }
         };
 
-        if (finalSystemInstruction) {
+        if (systemInstruction) {
           setupMsg.setup.systemInstruction = {
-            parts: [{ text: finalSystemInstruction }]
+            parts: [{ text: systemInstruction }]
           };
         }
 
