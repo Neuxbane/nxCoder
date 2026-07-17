@@ -3647,40 +3647,40 @@
             appendUserMessageBubble(promptText.trim(), attachments, true, item.id);
           }
         } else if (item.role === 'model') {
-          // Separate text parts from functionCall parts and thought parts
-          let text = "";
-          let combinedThoughts = "";
-          const funcCalls = [];
+          // Render parts in chronological order so tool cards appear before the text response
+          let combinedThoughts = '';
+          let responseBubbleEl = null;
+          let thoughtBubbleEl = null;
+          let hasAnyText = false;
+
           item.parts.forEach(p => {
             if (p.thought) {
-              combinedThoughts += (combinedThoughts ? "" : "") + p.text;
+              combinedThoughts += p.text;
             } else if (p.text) {
-              text += p.text;
+              hasAnyText = true;
+              if (!responseBubbleEl) {
+                responseBubbleEl = createEmptyMessageBubble('model', item.id);
+              }
+              // Append incrementally — accumulate and re-render markdown
+              const existingText = responseBubbleEl._rawText || '';
+              responseBubbleEl._rawText = existingText + p.text;
+              responseBubbleEl.querySelector('.chat-body-content').innerHTML = state.markdownParser.render(responseBubbleEl._rawText);
             } else if (p.functionCall) {
-              funcCalls.push(p.functionCall);
+              // Tool card renders at the point it appears — before or after text
+              appendInlineActionThoughtBlock(p.functionCall.name, p.functionCall.args, p.functionCall.id);
             }
           });
 
-          let thoughtBubbleEl = null;
+          // Render thought block after scanning all parts (collapsed for history)
           if (combinedThoughts) {
             thoughtBubbleEl = appendThoughtBlock(combinedThoughts);
           }
-          
-          let responseBubbleEl = null;
-          if (text) {
-            responseBubbleEl = createEmptyMessageBubble('model', item.id);
-            responseBubbleEl.querySelector('.chat-body-content').innerHTML = state.markdownParser.render(text);
-          }
-          // Render function call cards from history (matching live UI)
-          funcCalls.forEach(fc => {
-            appendInlineActionThoughtBlock(fc.name, fc.args, fc.id);
-          });
 
           // Cache references for live stream continuation if this is the last model message in history
-          if (idx === lastModelIdx && idx === history.length - 1 && funcCalls.length === 0) {
+          if (idx === lastModelIdx && idx === history.length - 1 && !item.parts.some(p => p.functionCall)) {
             state.lastHistoryModelTextBubble = responseBubbleEl;
             state.lastHistoryModelThoughtBubble = thoughtBubbleEl;
-            state.lastHistoryModelText = text;
+            state.lastHistoryModelText = responseBubbleEl?._rawText || '';
             state.lastHistoryModelThoughts = combinedThoughts;
           }
         }

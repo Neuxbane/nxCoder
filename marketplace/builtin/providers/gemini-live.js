@@ -26,7 +26,11 @@ export class GeminiLiveProvider extends BaseProvider {
           id: 'model',
           label: 'Live Model Name',
           type: 'options',
-          options: ['gemini-3.1-flash-live-preview', 'gemini-2.5-flash-native-audio-preview-09-2025', 'gemini-2.5-flash-native-audio-preview-12-2025'],
+          options: [
+            'gemini-3.1-flash-live-preview',
+            'gemini-2.5-flash-native-audio-preview-09-2025',
+            'gemini-2.5-flash-native-audio-preview-12-2025'
+          ],
           default: 'gemini-3.1-flash-live-preview',
           required: true
         }
@@ -49,15 +53,15 @@ export class GeminiLiveProvider extends BaseProvider {
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
-    //console.log(`[Gemini Live] Connecting to: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
-    //console.log(`[Gemini Live] Targeted model formatted parameter: ${model}`);
+    console.log(`[Gemini Live] Connecting to: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
+    console.log(`[Gemini Live] Targeted model formatted parameter: ${model}`);
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
 
       if (signal) {
         signal.addEventListener('abort', () => {
-          //console.log('[Gemini Live] Abort signal received, closing socket.');
+          console.log('[Gemini Live] Abort signal received, closing socket.');
           ws.close();
           reject(new Error('Operation aborted'));
         });
@@ -67,7 +71,7 @@ export class GeminiLiveProvider extends BaseProvider {
       const historyMessages = messages.slice(0, -1);
       const currentMessage = messages[messages.length - 1];
 
-      // 2. Format history into a string
+      // 2. Format history into a compact string (no blobs in history)
       let historyString = '';
       if (historyMessages.length > 0) {
         historyString += '\n\n=========================================\n=== CONVERSATION HISTORY ===\n=========================================\n';
@@ -77,49 +81,68 @@ export class GeminiLiveProvider extends BaseProvider {
           for (const part of msg.parts) {
             if (part.text) {
               msgText += part.text;
+            } else if (part.thought) {
+              // skip internal thinking from history
             } else if (part.functionCall) {
               msgText += `\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]\n`;
             } else if (part.functionResponse) {
               msgText += `\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`;
+            } else if (part.inlineData) {
+              msgText += `\n[Inline ${part.inlineData.mimeType || 'media'} data provided]\n`;
             }
           }
           historyString += `${role}: ${msgText}\n`;
         }
       }
 
-      // 3. Pre-build liveTurns using ONLY the currentMessage
+      // 3. Pre-build liveTurns using ONLY the currentMessage, supporting multimodal parts
       const liveTurns = [];
       if (currentMessage) {
-        const partsStr = [];
-        // Prepend history to the user's current prompt
+        const parts = [];
+
+        // Prepend history as text context in the first text part
+        const textParts = [];
         if (historyString) {
-          partsStr.push(historyString + '\n\n=== CURRENT PROMPT ===\n');
+          textParts.push(historyString + '\n\n=== CURRENT PROMPT ===\n');
         }
-        
+
         for (const part of currentMessage.parts) {
           if (part.text) {
-            partsStr.push(part.text);
+            textParts.push(part.text);
           } else if (part.functionCall) {
-            partsStr.push(`\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]\n`);
+            textParts.push(`\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]\n`);
           } else if (part.functionResponse) {
-            partsStr.push(`\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`);
+            textParts.push(`\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`);
+          } else if (part.inlineData) {
+            // Multimodal: image, video, or audio — pass through as native inlineData part
+            parts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } });
           }
         }
-        if (partsStr.length > 0) {
+
+        if (textParts.length > 0) {
+          parts.unshift({ text: textParts.join('') });
+        }
+
+        if (parts.length > 0) {
           const role = currentMessage.role === 'model' ? 'model' : 'user';
-          liveTurns.push({ role, parts: [{ text: partsStr.join('') }] });
+          liveTurns.push({ role, parts });
         }
       }
 
       ws.on('open', () => {
-        //console.log('[Gemini Live] Connection opened successfully.');
+        console.log('[Gemini Live] Connection opened successfully.');
 
-        // Send Setup frame only — clientContent MUST wait for setupComplete from server
+        // Setup with AUDIO modality + thinking enabled
         const setupMsg = {
           setup: {
             model,
             generationConfig: {
-              responseModalities: ["AUDIO"]
+              responseModalities: ['AUDIO'],
+              // Enable thinking with dynamic budget (-1 = model decides)
+              thinkingConfig: {
+                includeThoughts: true,
+                thinkingBudget: -1
+              }
             }
           }
         };
@@ -140,14 +163,14 @@ export class GeminiLiveProvider extends BaseProvider {
           }];
         }
 
-        //console.log('[Gemini Live] Outgoing setup frame:', JSON.stringify(setupMsg));
+        console.log('[Gemini Live] Outgoing setup frame:', JSON.stringify(setupMsg));
         ws.send(JSON.stringify(setupMsg));
       });
 
       ws.on('message', (data) => {
         try {
           const parsed = JSON.parse(data.toString());
-          //console.log('[Gemini Live] Incoming frame payload:', JSON.stringify(parsed));
+          console.log('[Gemini Live] Incoming frame payload:', JSON.stringify(parsed));
 
           // Send history turns only AFTER server confirms setup is complete
           if (parsed.setupComplete !== undefined) {
@@ -158,29 +181,31 @@ export class GeminiLiveProvider extends BaseProvider {
                   turnComplete: true
                 }
               };
-              //console.log('[Gemini Live] Outgoing clientContent turns frame:', JSON.stringify(clientContentMsg));
+              console.log('[Gemini Live] Outgoing clientContent turns frame:', JSON.stringify(clientContentMsg));
               ws.send(JSON.stringify(clientContentMsg));
             }
             return;
           }
 
-          // Handle server content text parts (if any)
+          // Handle thinking parts
           if (parsed.serverContent?.modelTurn?.parts) {
             for (const part of parsed.serverContent.modelTurn.parts) {
-              if (part.text) {
+              if (part.thought && part.text) {
+                callbacks.onThoughtChunk?.(part.text);
+              } else if (part.text) {
                 callbacks.onTextChunk?.(part.text);
               }
             }
           }
 
-          // Handle output transcriptions when response modality is AUDIO
+          // Handle output transcriptions (AUDIO modality text output)
           if (parsed.serverContent?.outputTranscription?.text) {
             callbacks.onTextChunk?.(parsed.serverContent.outputTranscription.text);
           }
 
-          // Handle tool call events (Top-level toolCall payload)
+          // Handle tool call events (top-level toolCall payload)
           if (parsed.toolCall?.functionCalls) {
-            //console.log('[Gemini Live] Server function call request detected:', JSON.stringify(parsed.toolCall.functionCalls));
+            console.log('[Gemini Live] Server function call request detected:', JSON.stringify(parsed.toolCall.functionCalls));
             (async () => {
               try {
                 const functionResponses = [];
@@ -196,12 +221,19 @@ export class GeminiLiveProvider extends BaseProvider {
 
                   let toolResult = {};
                   if (callbacks.onToolCall) {
+                    // onToolCall returns the raw result; Gemini Live sends it via toolResponse
                     toolResult = await callbacks.onToolCall(call.name, call.args, callId);
                   }
+
+                  // Strip inlineImage blobs from toolResponse — model doesn't need the raw bytes here
+                  const responseForModel = toolResult && toolResult.inlineImage
+                    ? { ...toolResult, inlineImage: { mimeType: toolResult.inlineImage.mimeType, data: '[binary stripped]' } }
+                    : toolResult;
+
                   functionResponses.push({
                     id: callId,
                     name: call.name,
-                    response: { result: toolResult }
+                    response: { result: responseForModel }
                   });
                 }
 
@@ -210,7 +242,7 @@ export class GeminiLiveProvider extends BaseProvider {
                     functionResponses
                   }
                 };
-                //console.log('[Gemini Live] Outgoing toolResponse frame:', JSON.stringify(toolResponseMsg));
+                console.log('[Gemini Live] Outgoing toolResponse frame:', JSON.stringify(toolResponseMsg));
                 ws.send(JSON.stringify(toolResponseMsg));
               } catch (err) {
                 console.error('[Gemini Live] Tool execution error:', err);
@@ -222,7 +254,7 @@ export class GeminiLiveProvider extends BaseProvider {
           }
 
           if (parsed.serverContent?.turnComplete) {
-            //console.log('[Gemini Live] Server turnComplete flag received.');
+            console.log('[Gemini Live] Server turnComplete flag received.');
             ws.close();
             resolve();
           }
@@ -239,9 +271,55 @@ export class GeminiLiveProvider extends BaseProvider {
       });
 
       ws.on('close', (code, reason) => {
-        //console.log(`[Gemini Live] WebSocket closed (Code: ${code}, Reason: ${reason || 'none'}).`);
+        console.log(`[Gemini Live] WebSocket closed (Code: ${code}, Reason: ${reason || 'none'}).`);
         resolve();
       });
     });
+  }
+
+  /**
+   * Send real-time audio input (raw PCM, 16kHz) via an active session.
+   * Call this after executeStream opens a connection.
+   */
+  sendAudio(ws, pcmBuffer) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      realtimeInput: {
+        audio: {
+          data: pcmBuffer.toString('base64'),
+          mimeType: 'audio/pcm;rate=16000'
+        }
+      }
+    }));
+  }
+
+  /**
+   * Send a JPEG video frame via an active session.
+   */
+  sendVideoFrame(ws, jpegBuffer) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      realtimeInput: {
+        video: {
+          data: jpegBuffer.toString('base64'),
+          mimeType: 'image/jpeg'
+        }
+      }
+    }));
+  }
+
+  /**
+   * Send an image inline to be included as context.
+   */
+  sendImage(ws, imageBuffer, mimeType = 'image/png') {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      realtimeInput: {
+        video: {
+          data: imageBuffer.toString('base64'),
+          mimeType
+        }
+      }
+    }));
   }
 }

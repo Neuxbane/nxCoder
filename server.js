@@ -199,6 +199,42 @@ async function initSessionGit(wsDir, sessionId) {
   }
 }
 
+/**
+ * Sanitize tool results before passing them back to the model.
+ * - Strips binary base64 blobs (inlineImage, inlineData) and replaces with a short acknowledgement.
+ * - Truncates excessively long string fields to avoid polluting the context window.
+ */
+function sanitizeToolResult(result, maxStringLength = 12000) {
+  if (result === null || result === undefined) return result;
+
+  if (typeof result === 'string') {
+    if (result.length > maxStringLength) {
+      return result.slice(0, maxStringLength) + `\n... [truncated ${result.length - maxStringLength} chars]`;
+    }
+    return result;
+  }
+
+  if (Array.isArray(result)) {
+    return result.map(item => sanitizeToolResult(item, maxStringLength));
+  }
+
+  if (typeof result === 'object') {
+    const sanitized = {};
+    for (const [key, value] of Object.entries(result)) {
+      // Strip binary blobs — the image is already sent as a separate inlineData multimodal part
+      if (key === 'inlineImage' || key === 'inlineData') {
+        sanitized[key] = { mimeType: value?.mimeType || 'image/png', data: '[binary blob stripped — already injected into context]' };
+        continue;
+      }
+      // Recursively sanitize nested objects / arrays
+      sanitized[key] = sanitizeToolResult(value, maxStringLength);
+    }
+    return sanitized;
+  }
+
+  return result;
+}
+
 async function commitSessionMessage(wsDir, sessionId, messageId, role) {
   const sessionDir = path.join(wsDir, 'sessions', sessionId);
   const commitMsg = `msg_${role === 'user' ? 'user_' : ''}${messageId}`;
@@ -3404,24 +3440,12 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
             break;
           }
 
-          let assistantResponseParts = [];
+          let streamedParts = [];
           let pendingCalls = [];
           let activeFunctionCall = null;
-          let mergedParts = [];
+          let inlineToolCallsHandled = 0; // tracks Gemini Live inline tool calls
 
           const updateModelMessageInDb = async () => {
-            mergedParts = [];
-            for (const p of assistantResponseParts) {
-              if (p.thought) {
-                mergedParts.push({ thought: true, text: p.text });
-              } else if (p.text) {
-                mergedParts.push({ text: p.text });
-              }
-            }
-            for (const fc of pendingCalls) {
-              mergedParts.push({ functionCall: { id: fc.id, name: fc.name, args: fc.args } });
-            }
-
             const currentMessages = await loadSessionMessages(wsDir, sessionId);
             if (!modelMessageId) {
               modelMessageId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
@@ -3429,13 +3453,13 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               currentMessages.push({
                 id: modelMessageId,
                 role: 'model',
-                parts: mergedParts,
+                parts: streamedParts,
                 createdAt: new Date().toISOString()
               });
             } else {
               const idx = currentMessages.findIndex(m => m.id === modelMessageId);
               if (idx !== -1) {
-                currentMessages[idx].parts = mergedParts;
+                currentMessages[idx].parts = streamedParts;
               }
               lastModelMessageId = modelMessageId;
             }
@@ -3458,12 +3482,12 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               signal: controller.signal
             }, {
               onTextChunk: async (text) => {
-                assistantResponseParts.push({ text });
+                streamedParts.push({ text });
                 sendToSession(sessionId, { type: 'TOKEN_STREAM', text });
                 await updateModelMessageInDb();
               },
               onThoughtChunk: async (text) => {
-                assistantResponseParts.push({ thought: true, text });
+                streamedParts.push({ thought: true, text });
                 sendToSession(sessionId, { type: 'THOUGHT_STREAM', text });
                 await updateModelMessageInDb();
               },
@@ -3491,6 +3515,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                     args
                   };
                   pendingCalls.push(finalCall);
+                  streamedParts.push({ functionCall: finalCall });
                   sendToSession(sessionId, {
                     type: 'FUNCTION_CALL',
                     name: finalCall.name,
@@ -3502,6 +3527,8 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 }
               },
               onToolCall: async (name, args, callId) => {
+                inlineToolCallsHandled++;
+                streamedParts.push({ functionCall: { id: callId, name, args } });
                 let toolResult;
                 try {
                   const enrichedArgs = { ...args, workspaceId, sessionId };
@@ -3510,33 +3537,70 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                   toolResult = { error: `MCP Tool execution failed: ${err.message}` };
                 }
 
+                // Sanitize before sending to model — strip blobs, truncate long strings
+                const sanitizedToolResult = sanitizeToolResult(toolResult);
+
                 // Remove from pendingCalls since it's handled inline
                 const callIdx = pendingCalls.findIndex(c => c.id === callId);
                 if (callIdx !== -1) pendingCalls.splice(callIdx, 1);
 
-                // Send to UI
+                // --- Persist model's functionCall to DB and commit ---
+                const msgsBeforeResponse = await loadSessionMessages(wsDir, sessionId);
+                const modelFcMsgId = msgsBeforeResponse.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+
+                if (modelMessageId) {
+                  // Append functionCall to existing model message
+                  const modelMsgIdx = msgsBeforeResponse.findIndex(m => m.id === modelMessageId);
+                  if (modelMsgIdx !== -1) {
+                    const existingParts = msgsBeforeResponse[modelMsgIdx].parts || [];
+                    const alreadyHasCall = existingParts.some(p => p.functionCall?.id === callId);
+                    if (!alreadyHasCall) {
+                      existingParts.push({ functionCall: { id: callId, name, args } });
+                      msgsBeforeResponse[modelMsgIdx].parts = existingParts;
+                    }
+                    await saveSessionMessages(wsDir, sessionId, msgsBeforeResponse);
+                    // Commit so git history stays linear (no phantom branch points)
+                    await commitSessionMessage(wsDir, sessionId, modelMessageId, 'model');
+                  }
+                } else {
+                  // No model message yet — create one
+                  msgsBeforeResponse.push({
+                    id: modelFcMsgId,
+                    role: 'model',
+                    parts: [{ functionCall: { id: callId, name, args } }],
+                    createdAt: new Date().toISOString()
+                  });
+                  modelMessageId = modelFcMsgId;
+                  lastModelMessageId = modelFcMsgId;
+                  await saveSessionMessages(wsDir, sessionId, msgsBeforeResponse);
+                  await commitSessionMessage(wsDir, sessionId, modelFcMsgId, 'model');
+                }
+
+                // Send tool response to UI
                 sendToSession(sessionId, {
                   type: 'FUNCTION_RESPONSE',
                   callId: callId,
                   response: { result: toolResult }
                 });
 
-                // Update DB history
-                const currentMessages = await loadSessionMessages(wsDir, sessionId);
-                const toolOutputMsgId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
-                currentMessages.push({
+                // --- Persist functionResponse to DB and commit ---
+                const msgsForResponse = await loadSessionMessages(wsDir, sessionId);
+                const toolOutputMsgId = msgsForResponse.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+                msgsForResponse.push({
                   id: toolOutputMsgId,
                   role: 'user',
-                  parts: [{ functionResponse: { id: callId, name, response: { result: toolResult } } }],
+                  parts: [{ functionResponse: { id: callId, name, response: { result: sanitizedToolResult } } }],
                   createdAt: new Date().toISOString()
                 });
-                await saveSessionMessages(wsDir, sessionId, currentMessages);
+                await saveSessionMessages(wsDir, sessionId, msgsForResponse);
+                // Commit so next iteration's user message doesn't diverge
+                await commitSessionMessage(wsDir, sessionId, toolOutputMsgId, 'user');
 
-                // Update in-memory contentStack
+                // Update in-memory contentStack for next loop iteration
                 contentStack.push({ role: 'model', parts: [{ functionCall: { id: callId, name, args } }] });
-                contentStack.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { result: toolResult } } }] });
+                contentStack.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { result: sanitizedToolResult } } }] });
 
-                return toolResult;
+                return toolResult; // Return raw result to Gemini Live toolResponse frame
               }
             });
           } finally {
@@ -3544,6 +3608,8 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
           }
 
           if (pendingCalls.length > 0) {
+            // Note: inlineToolCallsHandled (Gemini Live) does NOT need to re-run the loop.
+            // The provider handles tool call + follow-up text in a single WebSocket connection.
             const toolResponseParts = [];
             const collectedInlineImages = [];
             let toolOutputMsgId = null;
@@ -3571,17 +3637,20 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 delete toolResult.inlineImage;
               }
 
+              // Sanitize before sending to model — strip blobs, truncate long strings
+              const sanitizedResult = sanitizeToolResult(toolResult);
+
               sendToSession(sessionId, {
                 type: 'FUNCTION_RESPONSE',
                 callId: call.id,
-                response: { result: toolResult }
+                response: { result: toolResult }  // UI gets the full result
               });
 
               toolResponseParts.push({
                 functionResponse: {
                   id: call.id,
                   name: call.name,
-                  response: { result: toolResult }
+                  response: { result: sanitizedResult }  // Model gets the sanitized result
                 }
               });
 
