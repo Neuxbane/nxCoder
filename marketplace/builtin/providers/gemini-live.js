@@ -63,29 +63,51 @@ export class GeminiLiveProvider extends BaseProvider {
         });
       }
 
-      // Pre-build liveTurns so they are ready when setupComplete arrives
-      const liveTurns = [];
-      for (const msg of messages) {
-        const role = msg.role === 'model' ? 'model' : 'user';
-        const partsStr = [];
+      // 1. Separate history from the current turn
+      const historyMessages = messages.slice(0, -1);
+      const currentMessage = messages[messages.length - 1];
 
-        for (const part of msg.parts) {
+      // 2. Format history into a string
+      let historyString = '';
+      if (historyMessages.length > 0) {
+        historyString += '\n\n=========================================\n=== CONVERSATION HISTORY ===\n=========================================\n';
+        for (const msg of historyMessages) {
+          const role = msg.role === 'model' ? 'Assistant' : 'User';
+          let msgText = '';
+          for (const part of msg.parts) {
+            if (part.text) {
+              msgText += part.text;
+            } else if (part.functionCall) {
+              msgText += `\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]\n`;
+            } else if (part.functionResponse) {
+              msgText += `\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`;
+            }
+          }
+          historyString += `${role}: ${msgText}\n`;
+        }
+      }
+
+      let finalSystemInstruction = systemInstruction || '';
+      if (historyString) {
+        finalSystemInstruction += historyString;
+      }
+
+      // 3. Pre-build liveTurns using ONLY the currentMessage
+      const liveTurns = [];
+      if (currentMessage) {
+        const partsStr = [];
+        for (const part of currentMessage.parts) {
           if (part.text) {
             partsStr.push(part.text);
           } else if (part.functionCall) {
-            partsStr.push(`[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]`);
+            partsStr.push(`\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]\n`);
           } else if (part.functionResponse) {
-            partsStr.push(`[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]`);
+            partsStr.push(`\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`);
           }
         }
-
         if (partsStr.length > 0) {
-          const combinedText = partsStr.join('');
-          if (liveTurns.length > 0 && liveTurns[liveTurns.length - 1].role === role) {
-            liveTurns[liveTurns.length - 1].parts[0].text += '\n' + combinedText;
-          } else {
-            liveTurns.push({ role, parts: [{ text: combinedText }] });
-          }
+          const role = currentMessage.role === 'model' ? 'model' : 'user';
+          liveTurns.push({ role, parts: [{ text: partsStr.join('') }] });
         }
       }
 
@@ -102,9 +124,9 @@ export class GeminiLiveProvider extends BaseProvider {
           }
         };
 
-        if (systemInstruction) {
+        if (finalSystemInstruction) {
           setupMsg.setup.systemInstruction = {
-            parts: [{ text: systemInstruction }]
+            parts: [{ text: finalSystemInstruction }]
           };
         }
 
