@@ -3647,17 +3647,24 @@
             appendUserMessageBubble(promptText.trim(), attachments, true, item.id);
           }
         } else if (item.role === 'model') {
-          // Render parts in chronological order so tool cards appear before the text response
-          let combinedThoughts = '';
+          let currentThreadThoughtEl = null;
+          let currentThoughtText = "";
           let responseBubbleEl = null;
-          let thoughtBubbleEl = null;
-          let hasAnyText = false;
+          let lastThoughtBubbleEl = null;
 
           item.parts.forEach(p => {
             if (p.thought) {
-              combinedThoughts += p.text;
+              activeThinkingNode = null;
+              if (!currentThreadThoughtEl) {
+                currentThoughtText = "";
+                currentThreadThoughtEl = appendThoughtBlock("");
+                lastThoughtBubbleEl = currentThreadThoughtEl;
+              }
+              currentThoughtText += p.text;
+              currentThreadThoughtEl.querySelector('.thought-content').textContent = currentThoughtText;
             } else if (p.text) {
-              hasAnyText = true;
+              currentThreadThoughtEl = null;
+              activeThinkingNode = null;
               if (!responseBubbleEl) {
                 responseBubbleEl = createEmptyMessageBubble('model', item.id);
               }
@@ -3666,22 +3673,22 @@
               responseBubbleEl._rawText = existingText + p.text;
               responseBubbleEl.querySelector('.chat-body-content').innerHTML = state.markdownParser.render(responseBubbleEl._rawText);
             } else if (p.functionCall) {
+              currentThreadThoughtEl = null;
               // Tool card renders at the point it appears — before or after text
               appendInlineActionThoughtBlock(p.functionCall.name, p.functionCall.args, p.functionCall.id);
             }
           });
 
-          // Render thought block after scanning all parts (collapsed for history)
-          if (combinedThoughts) {
-            thoughtBubbleEl = appendThoughtBlock(combinedThoughts);
-          }
-
           // Cache references for live stream continuation if this is the last model message in history
           if (idx === lastModelIdx && idx === history.length - 1 && !item.parts.some(p => p.functionCall)) {
             state.lastHistoryModelTextBubble = responseBubbleEl;
-            state.lastHistoryModelThoughtBubble = thoughtBubbleEl;
+            state.lastHistoryModelThoughtBubble = lastThoughtBubbleEl;
             state.lastHistoryModelText = responseBubbleEl?._rawText || '';
-            state.lastHistoryModelThoughts = combinedThoughts;
+            let accumulatedThoughts = "";
+            item.parts.forEach(p => {
+              if (p.thought) accumulatedThoughts += p.text;
+            });
+            state.lastHistoryModelThoughts = accumulatedThoughts;
           }
         }
 

@@ -2661,6 +2661,10 @@ app.get('/api/workspace/:id/session/:sessionID/branches', async (req, res) => {
       const hasDivergence = bp.alternatives.some(alt => alt.targetMsgId !== nextMsgId);
       if (!hasDivergence) continue;
 
+      // Only count as a branch point if the alternatives diverge into at least two different branch names
+      const distinctBranches = new Set(bp.alternatives.map(alt => alt.branchName));
+      if (distinctBranches.size < 2) continue;
+
       // Find the currently active alternative index. 
       // If the current branch ends at the parent (no next message), index is 0.
       let currentIndex = 0;
@@ -3682,13 +3686,13 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
             const currentMessages = liveMessages;
             const idx = currentMessages.findIndex(m => m.id === modelMessageId);
             if (idx !== -1) {
-              currentMessages[idx].parts = mergedParts;
+              currentMessages[idx].parts = streamedParts;
             }
             await saveSessionMessages(wsDir, sessionId, currentMessages);
 
 
             const modelContentParts = [];
-            for (const p of assistantResponseParts) {
+            for (const p of streamedParts) {
               if (!p.thought && p.text) {
                 modelContentParts.push({ text: p.text });
               }
