@@ -3313,6 +3313,16 @@ Group files by component. Use markdown links with relative paths and detail exac
         state.wsConn = null;
       }
 
+      // Hide other specialized panels and return to chat view
+      const chatWrapper = document.getElementById('chat-interface-wrapper');
+      const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
+      const profilesContainer = document.getElementById('agent-profiles-container');
+      if (chatWrapper) chatWrapper.classList.remove('hidden');
+      if (scContainer) scContainer.classList.add('hidden');
+      if (artContainer) artContainer.classList.add('hidden');
+      if (profilesContainer) profilesContainer.classList.add('hidden');
+
       state.activeSessionId = sessionId;
       enableSessionChatInputControls(false); // Enable fields
 
