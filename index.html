@@ -1045,6 +1045,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       await refreshSystemDatabase();
       setupMainActions();
       setupPageFormAddProfile();
+      setupInstructionSelectorHandler();
       navigateToView('manager');
     };
 
@@ -4747,6 +4748,46 @@ Group files by component. Use markdown links with relative paths and detail exac
       }
     }
     window.setupPageFormAddProfile = setupPageFormAddProfile;
+
+    function setupInstructionSelectorHandler() {
+      const select = elements.chatInstructionSelector;
+      if (select) {
+        select.addEventListener('change', async () => {
+          if (!state.activeWorkspaceId) return;
+          const wsObj = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+          if (!wsObj) return;
+
+          const newInstructionId = select.value || null;
+
+          try {
+            const res = await fetch(`/api/workspace/${state.activeWorkspaceId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: wsObj.name,
+                folders_path: wsObj.folders_path,
+                instruction_id: newInstructionId
+              })
+            });
+
+            if (res.ok) {
+              wsObj.instruction_id = newInstructionId;
+              showToast('Agent Profile Applied', 'Active instruction profile updated.', 'success');
+            } else {
+              const err = await res.json();
+              showToast('Update Failed', err.error || 'Could not persist active profile choice.', 'error');
+              // Revert selection
+              select.value = wsObj.instruction_id || "";
+            }
+          } catch (e) {
+            showToast('Error', e.message, 'error');
+            // Revert selection
+            select.value = wsObj.instruction_id || "";
+          }
+        });
+      }
+    }
+    window.setupInstructionSelectorHandler = setupInstructionSelectorHandler;
 
     async function loadArtifactsList() {
       const listEl = document.getElementById('artifacts-list');
