@@ -402,7 +402,7 @@
             <i class="fa-solid fa-key text-zinc-500 text-[11px]"></i>
             <span>API Key Rotation</span>
           </button>
-          <button onclick="toggleManagerSettings('instructions')" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
+          <button onclick="toggleAgentProfilesView(true)" class="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-3.5 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-colors flex items-center space-x-2">
             <i class="fa-solid fa-sliders text-zinc-500 text-[11px]"></i>
             <span>Agent Profiles</span>
           </button>
@@ -682,6 +682,11 @@
             <span class="flex items-center"><i class="fa-solid fa-cube mr-2 text-zinc-500"></i> Artifacts</span>
             <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
           </button>
+
+          <button onclick="toggleAgentProfilesView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
+            <span class="flex items-center"><i class="fa-solid fa-user-gear mr-2 text-zinc-500"></i> Agent Profiles</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
+          </button>
         </div>
       </aside>
 
@@ -823,6 +828,50 @@
             </div>
           </div>
         </div>
+
+        <!-- Agent Profiles Interface Container -->
+        <div id="agent-profiles-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
+          <!-- Header -->
+          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-user-gear text-brand-accent"></i>
+              <span class="text-xs font-semibold text-zinc-200">System Instruction Profiles</span>
+            </div>
+            <!-- Close button to go back to chat -->
+            <button onclick="toggleAgentProfilesView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
+              <i class="fa-solid fa-xmark mr-1"></i> Close
+            </button>
+          </div>
+          
+          <!-- Content Area -->
+          <div class="flex-1 flex overflow-hidden">
+            <!-- Left Side: Add Profile Form -->
+            <div class="w-80 border-r border-brand-gray/30 overflow-y-auto p-5 space-y-4 bg-brand-dark/40 shrink-0">
+              <h4 class="text-xs font-bold text-zinc-200 uppercase tracking-wider">Create Profile</h4>
+              <form id="page-form-add-profile" class="space-y-4">
+                <div>
+                  <label class="block text-[9px] uppercase text-zinc-500 font-bold mb-1">Profile Name</label>
+                  <input type="text" id="page-prof-name" placeholder="e.g. Python Expert" class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent" required>
+                </div>
+                <div>
+                  <label class="block text-[9px] uppercase text-zinc-500 font-bold mb-1">System Instructions</label>
+                  <textarea id="page-prof-text" rows="12" placeholder="Write custom instructions here..." class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white font-mono focus:outline-none focus:border-brand-accent" required></textarea>
+                </div>
+                <button type="submit" class="bg-brand-accent/20 hover:bg-brand-accent hover:text-white text-brand-accent text-xs font-semibold py-2 px-3 rounded w-full transition-all">Save Profile</button>
+              </form>
+            </div>
+            <!-- Right Side: Stored Profiles Grid/List -->
+            <div class="flex-1 overflow-y-auto p-5 bg-brand-darker">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs font-semibold text-zinc-400">Saved Profiles</span>
+                <span id="profiles-count-badge" class="bg-brand-accent/20 text-brand-accent text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold">Stored Profiles: 0</span>
+              </div>
+              <div id="page-profiles-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Dynamically loaded profiles -->
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- SLIDEOUT CONTEXT DRAWER (Tasks & browser details) -->
@@ -846,6 +895,75 @@
 
   <!-- CORE JAVASCRIPT STATE CONTROLLERS -->
   <script>
+    const DEFAULT_ANTIGRAVITY_PROMPT = `You are Antigravity, a professional systems integration developer and coding agent. Perform tasks step by step and keep responses technical.
+
+Workflow Guidance:
+== Plan Stage (Read Only)
+ - Gather information first: Thoroughly research the codebase across all layers (e.g. check both frontend/UI and backend files) to identify all files and components that will be affected by the requested feature. Do not make assumptions about code boundaries.
+ - Check for existing plan: Check if an \`artifact/implementation_plan.md\` file already exists. If it does, read its contents first.
+ - Create or Modify Plan: For non-trivial requests, write a detailed implementation plan into \`artifact/implementation_plan.md\`. If the plan already exists, modify/update it with your new findings rather than overwriting it completely.
+ - Ask the user explicitly if the proposed plan is OK or not. Stop and wait for the user's explicit approval before proceeding. Do NOT execute any modifying commands or write project files until approved.
+== Execute Stage (Allowed after user approved the plan)
+ - Create a task checklist file named \`task.md\` inside the \`artifact/\` folder (i.e. \`artifact/task.md\`) to track progress. Mark items as completed as you implement the plan.
+ - Implement the plan step-by-step, using the appropriate tool calls.
+== Verify & Walkthrough Stage
+ - Verify the results of each step, ensuring that the output matches expectations.
+ - Create any scripts used for testing and verification inside the \`scratchpad/\` folder (e.g. \`scratchpad/test.js\`).
+ - If verification fails, analyze the cause, adjust the plan/tasks, and re-execute as necessary.
+ - Once implementation and verification are complete, create a file named \`walkthrough.md\` inside the \`artifact/\` folder (i.e. \`artifact/walkthrough.md\`) to summarize the changes made and the verification results.
+
+Required Artifact Formats:
+---
+#### \`artifact/implementation_plan.md\` Format:
+\`\`\`markdown
+# [Goal Description]
+Brief description of the problem and proposed solution.
+
+## User Review Required
+Highlight critical items (breaking changes, design decisions).
+
+## Open Questions
+Clarifying questions impacting the plan.
+
+## Proposed Changes
+Group files by component. Use markdown links with relative paths and detail exactly which sections, functions, or lines are changing:
+
+### [Component Name]
+#### [MODIFY] [file_basename](workspace_mirror/my_project/path/to/file)
+- **Target Section/Function:** e.g. \`functionName()\` or specific code block
+- **Changes:** Description of what is changing and why
+- **Lines/Location:** Target lines or context
+
+#### [NEW] [file_basename](workspace_mirror/my_project/path/to/file)
+- **Purpose:** What this new file does
+- **Exports:** Functions or classes defined
+
+## Verification Plan
+### Automated Tests
+- Commands to run.
+### Manual Verification
+- Manual testing details.
+\`\`\`
+
+---
+#### \`artifact/task.md\` Format:
+\`\`\`markdown
+- [ ] uncompleted tasks
+- [/] in-progress tasks
+- [x] completed tasks
+- Use indented lists for sub-items
+\`\`\`
+
+---
+#### \`artifact/walkthrough.md\` Format:
+\`\`\`markdown
+# Walkthrough
+## Changes Made
+- List of changes.
+## Verification & Testing
+- Test results and verification logs.
+\`\`\``;
+
     // State Variables
     let state = {
       view: 'manager', // 'manager' | 'session'
@@ -926,6 +1044,7 @@
     window.onload = async function() {
       await refreshSystemDatabase();
       setupMainActions();
+      setupPageFormAddProfile();
       navigateToView('manager');
     };
 
@@ -2808,7 +2927,7 @@
     async function initConstructWorkspace() {
       // Populate Instructions dropdown
       const select = document.getElementById('construct-ws-instruct');
-      select.innerHTML = '<option value="">Standard Default Personality Prompt</option>';
+      select.innerHTML = '<option value="">Antigravity</option>';
       state.instructions.forEach(i => {
         const opt = document.createElement('option');
         opt.value = i.id;
@@ -3046,7 +3165,7 @@
           <div>
             <label class="block text-[9px] uppercase text-zinc-500 font-bold mb-1">Bind Default Behavior Instruct Profile</label>
             <select id="ws-add-instruct" class="w-full bg-brand-black border border-zinc-800 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-accent">
-              <option value="">Standard Default Personality Prompt</option>
+              <option value="">Antigravity</option>
               ${state.instructions.map(i => `<option value="${i.id}">${i.name}</option>`).join('')}
             </select>
           </div>
@@ -3167,7 +3286,7 @@
     // Renders custom instructions list inside Chat Prompt Input Dropdown Bar
     function populateInstructionsDropdown() {
       const select = elements.chatInstructionSelector;
-      select.innerHTML = '<option value="">Default AI Assistant Prompt</option>';
+      select.innerHTML = '<option value="">Antigravity</option>';
       
       state.instructions.forEach(i => {
         const opt = document.createElement('option');
@@ -4460,6 +4579,164 @@
       }
     }
     window.toggleArtifactsView = toggleArtifactsView;
+
+    function toggleAgentProfilesView(show) {
+      const chatWrapper = document.getElementById('chat-interface-wrapper');
+      const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
+      const profilesContainer = document.getElementById('agent-profiles-container');
+      
+      if (show) {
+        if (state.view === 'manager') {
+          state.originView = 'manager';
+          navigateToView('session');
+        } else {
+          state.originView = 'session';
+        }
+        chatWrapper.classList.add('hidden');
+        scContainer.classList.add('hidden');
+        artContainer.classList.add('hidden');
+        profilesContainer.classList.remove('hidden');
+        loadAgentProfilesPage();
+      } else {
+        profilesContainer.classList.add('hidden');
+        if (state.originView === 'manager') {
+          navigateToView('manager');
+        } else {
+          chatWrapper.classList.remove('hidden');
+        }
+      }
+    }
+    window.toggleAgentProfilesView = toggleAgentProfilesView;
+
+    async function loadAgentProfilesPage() {
+      const listEl = document.getElementById('page-profiles-list');
+      const countBadge = document.getElementById('profiles-count-badge');
+      
+      listEl.innerHTML = `<div class="col-span-full text-center py-8 text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading profiles...</div>`;
+      
+      try {
+        const instRes = await fetch('/api/instruction');
+        if (instRes.ok) {
+          state.instructions = await instRes.json();
+        }
+      } catch (e) {
+        console.error("Failed to load custom profiles:", e);
+      }
+
+      countBadge.innerText = `Stored Profiles: ${state.instructions.length + 1}`; // +1 for built-in Antigravity
+
+      let listHtml = `
+        <!-- Built-in Default Profile Card -->
+        <div class="p-4 bg-brand-dark rounded-lg border border-brand-accent/30 text-xs space-y-3 font-mono relative flex flex-col justify-between shadow-md">
+          <div>
+            <div class="flex items-center justify-between">
+              <strong class="text-brand-accent font-sans font-semibold text-sm">Antigravity</strong>
+              <span class="bg-brand-accent/20 text-brand-accent text-[9px] font-sans px-2 py-0.5 rounded-full font-bold select-none">System Default</span>
+            </div>
+            <p class="text-[10px] text-zinc-400 leading-relaxed font-sans mt-2 whitespace-pre-wrap max-h-48 overflow-y-auto pr-1 select-text border border-zinc-800/40 p-2 rounded bg-zinc-950/20">${DEFAULT_ANTIGRAVITY_PROMPT}</p>
+          </div>
+          <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/60 mt-auto shrink-0 select-none">
+            <button onclick="copyProfileToFormById('default')" class="bg-zinc-850 hover:bg-zinc-800 border border-zinc-800 px-2.5 py-1 rounded text-[10px] text-zinc-300 hover:text-white transition-all flex items-center space-x-1">
+              <i class="fa-solid fa-copy text-[9px]"></i><span>Use as Template</span>
+            </button>
+            <span class="text-[9px] text-zinc-600 italic">Protected (Built-in)</span>
+          </div>
+        </div>
+      `;
+
+      state.instructions.forEach(i => {
+        listHtml += `
+          <div class="p-4 bg-zinc-900 rounded-lg border border-zinc-800 text-xs space-y-3 font-mono relative flex flex-col justify-between shadow-md hover:border-zinc-700 transition-colors">
+            <div>
+              <div class="flex items-center justify-between">
+                <strong class="text-zinc-200 font-sans font-semibold text-sm">${i.name}</strong>
+                <span class="bg-zinc-800 text-zinc-500 text-[9px] font-sans px-2 py-0.5 rounded-full font-bold select-none">Custom Profile</span>
+              </div>
+              <p class="text-[10px] text-zinc-400 leading-relaxed font-sans mt-2 whitespace-pre-wrap max-h-48 overflow-y-auto pr-1 select-text border border-zinc-800/40 p-2 rounded bg-zinc-950/20">${i.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-zinc-855 mt-auto shrink-0 select-none">
+              <button onclick="copyProfileToFormById('${i.id}')" class="bg-zinc-850 hover:bg-zinc-800 border border-zinc-800 px-2.5 py-1 rounded text-[10px] text-zinc-300 hover:text-white transition-all flex items-center space-x-1">
+                <i class="fa-solid fa-edit text-[9px]"></i><span>Edit</span>
+              </button>
+              <button onclick="deleteAgentProfileFromPage('${i.id}')" class="text-[10px] text-rose-500 hover:text-rose-400 hover:underline">
+                <i class="fa-solid fa-trash-can mr-1"></i>Delete Profile
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      listEl.innerHTML = listHtml;
+    }
+    window.loadAgentProfilesPage = loadAgentProfilesPage;
+
+    function copyProfileToFormById(id) {
+      if (id === 'default') {
+        document.getElementById('page-prof-name').value = "Custom Antigravity Fork";
+        document.getElementById('page-prof-text').value = DEFAULT_ANTIGRAVITY_PROMPT;
+        document.getElementById('page-prof-name').focus();
+      } else {
+        const profile = state.instructions.find(ins => ins.id === id);
+        if (profile) {
+          document.getElementById('page-prof-name').value = profile.name;
+          document.getElementById('page-prof-text').value = profile.text;
+          document.getElementById('page-prof-text').focus();
+        }
+      }
+    }
+    window.copyProfileToFormById = copyProfileToFormById;
+
+    async function deleteAgentProfileFromPage(id) {
+      const ok = confirm("Are you sure you want to permanently delete this system instruction profile?");
+      if (!ok) return;
+      try {
+        const res = await fetch(`/api/instruction/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Profile Deleted', 'Agent profile removed successfully.', 'success');
+          await loadAgentProfilesPage();
+          populateInstructionsDropdown();
+        } else {
+          showToast('Delete Error', 'Failed to delete profile.', 'error');
+        }
+      } catch (e) {
+        showToast('Error', e.message, 'error');
+      }
+    }
+    window.deleteAgentProfileFromPage = deleteAgentProfileFromPage;
+
+    function setupPageFormAddProfile() {
+      const form = document.getElementById('page-form-add-profile');
+      if (form) {
+        form.onsubmit = async function(e) {
+          e.preventDefault();
+          const name = document.getElementById('page-prof-name').value;
+          const text = document.getElementById('page-prof-text').value;
+
+          try {
+            const res = await fetch('/api/instruction', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, text })
+            });
+
+            if (res.ok) {
+              showToast('Profile Saved', 'New system instruction profile added.', 'success');
+              document.getElementById('page-prof-name').value = "";
+              document.getElementById('page-prof-text').value = "";
+              await loadAgentProfilesPage();
+              populateInstructionsDropdown();
+            } else {
+              const err = await res.json();
+              showToast('Error', err.error || 'Failed to save profile.', 'error');
+            }
+          } catch(e) {
+            showToast('Save Error', e.message, 'error');
+          }
+        };
+      }
+    }
+    window.setupPageFormAddProfile = setupPageFormAddProfile;
 
     async function loadArtifactsList() {
       const listEl = document.getElementById('artifacts-list');
