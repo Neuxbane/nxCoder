@@ -3436,7 +3436,7 @@
         case 'FUNCTION_RESPONSE':
           removeRetryingCard();
           // Complete and print returns logs — match by callId data attribute
-          finalizeInlineActionThoughtBlock(data.callId, data.response);
+          finalizeInlineActionThoughtBlock(data.callId, data.response, data.messageId);
           
           // If the tool called was set_session_name, refresh the sidebar session list to show the new name
           if (data.response?.result?.success && data.response?.result?.name) {
@@ -3448,24 +3448,53 @@
           currentThoughtBubble = null;
           break;
 
+        case 'MEDIA_STREAM': {
+          removeRetryingCard();
+          setGeneratingState(true);
+          
+          currentThoughtBubble = null;
+          rawThoughtAccumulator = "";
+
+          if (!currentResponseBubbleEl) {
+            currentResponseBubbleEl = createEmptyMessageBubble('model');
+            rawResponseAccumulator = "";
+          }
+
+          const chatBodyContent = currentResponseBubbleEl.querySelector('.chat-body-content');
+          const mediaDiv = document.createElement('div');
+          mediaDiv.className = "mt-2.5";
+          const mime = data.mimeType || 'application/octet-stream';
+          
+          if (mime.startsWith('image/')) {
+            mediaDiv.innerHTML = `<img src="/${data.localPath}" class="max-w-md max-h-[300px] object-contain rounded-lg border border-zinc-800 shadow-lg">`;
+          } else if (mime.startsWith('video/')) {
+            mediaDiv.innerHTML = `<video src="/${data.localPath}" controls class="max-w-md max-h-[300px] rounded-lg border border-zinc-800 shadow-lg"></video>`;
+          } else if (mime.startsWith('audio/')) {
+            mediaDiv.innerHTML = `<audio src="/${data.localPath}" controls class="w-full max-w-sm"></audio>`;
+          } else {
+            const filename = data.localPath.split('/').pop();
+            mediaDiv.innerHTML = `<a href="/${data.localPath}" download class="inline-flex items-center space-x-1.5 text-[11px] font-mono bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"><i class="fa-solid fa-download"></i><span>Download ${filename}</span></a>`;
+          }
+          chatBodyContent.appendChild(mediaDiv);
+          scrollToChatBottom();
+          break;
+        }
+
         case 'DONE':
           removeRetryingCard();
           setGeneratingState(false);
           if (data.modelMessageId) {
-            const bubbles = elements.sessionChatContainer.querySelectorAll('.flex.space-x-3.5');
-            for (let i = bubbles.length - 1; i >= 0; i--) {
-              const b = bubbles[i];
-              const authorSpan = b.querySelector('span');
-              if (authorSpan && authorSpan.textContent.trim() === 'AI Agent') {
-                const headerRight = b.querySelector('.flex.items-center.space-x-2');
-                if (headerRight && !headerRight.querySelector('button[onclick*="confirmRedoRollback"]')) {
-                  const btn = document.createElement('button');
-                  btn.setAttribute('onclick', `confirmRedoRollback(${data.modelMessageId})`);
-                  btn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all";
-                  btn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Redo`;
-                  headerRight.appendChild(btn);
-                }
-                break;
+            const modelBubbles = elements.sessionChatContainer.querySelectorAll('div[data-role="model"]');
+            if (modelBubbles.length > 0) {
+              const b = modelBubbles[modelBubbles.length - 1];
+              b.dataset.messageId = data.modelMessageId;
+              const headerRight = b.querySelector('.flex.items-center.space-x-2');
+              if (headerRight && !headerRight.querySelector('button[onclick*="confirmRollback"]')) {
+                const btn = document.createElement('button');
+                btn.setAttribute('onclick', `confirmRollback(${data.modelMessageId})`);
+                btn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all";
+                btn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Rollback`;
+                headerRight.appendChild(btn);
               }
             }
           }
@@ -3496,7 +3525,7 @@
       if (!prompt && files.length === 0) return;
       if (state.isGenerating) return; // prevent double-send
 
-      appendUserMessageBubble(prompt, files);
+      const userBubble = appendUserMessageBubble(prompt, files);
       elements.chatPromptInput.value = "";
       
       // Clear indicators
@@ -3522,10 +3551,25 @@
       files.forEach(f => formData.append('files', f.raw));
 
       try {
-        await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`, {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`, {
           method: 'POST',
           body: formData
         });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messageId && userBubble) {
+            userBubble.dataset.messageId = data.messageId;
+            const headerRight = userBubble.querySelector('.flex.items-center.space-x-2');
+            if (headerRight && !headerRight.querySelector('button[onclick*="confirmRollback"]')) {
+              const btn = document.createElement('button');
+              btn.setAttribute('onclick', `confirmRollback(${data.messageId})`);
+              btn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all";
+              btn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Rollback`;
+              headerRight.appendChild(btn);
+            }
+          }
+        }
 
         // Refresh session list to ensure new sessions appear in the sidebar after first message
         await refreshSessionList();
@@ -3609,7 +3653,7 @@
             // Render as collapsed tool result cards (matching live UI)
             item.parts.forEach(part => {
               if (part.functionResponse) {
-                finalizeInlineActionThoughtBlock(part.functionResponse.id, part.functionResponse.response);
+                finalizeInlineActionThoughtBlock(part.functionResponse.id, part.functionResponse.response, item.id);
               }
             });
             // Reset active group after finishing responses
@@ -3672,6 +3716,28 @@
               const existingText = responseBubbleEl._rawText || '';
               responseBubbleEl._rawText = existingText + p.text;
               responseBubbleEl.querySelector('.chat-body-content').innerHTML = state.markdownParser.render(responseBubbleEl._rawText);
+            } else if (p._localFilePath) {
+              currentThreadThoughtEl = null;
+              activeThinkingNode = null;
+              if (!responseBubbleEl) {
+                responseBubbleEl = createEmptyMessageBubble('model', item.id);
+              }
+              const chatBodyContent = responseBubbleEl.querySelector('.chat-body-content');
+              const mediaDiv = document.createElement('div');
+              mediaDiv.className = "mt-2.5";
+              const mime = p.mimeType || 'application/octet-stream';
+              
+              if (mime.startsWith('image/')) {
+                mediaDiv.innerHTML = `<img src="/${p._localFilePath}" class="max-w-md max-h-[300px] object-contain rounded-lg border border-zinc-800 shadow-lg">`;
+              } else if (mime.startsWith('video/')) {
+                mediaDiv.innerHTML = `<video src="/${p._localFilePath}" controls class="max-w-md max-h-[300px] rounded-lg border border-zinc-800 shadow-lg"></video>`;
+              } else if (mime.startsWith('audio/')) {
+                mediaDiv.innerHTML = `<audio src="/${p._localFilePath}" controls class="w-full max-w-sm"></audio>`;
+              } else {
+                const filename = p._localFilePath.split('/').pop();
+                mediaDiv.innerHTML = `<a href="/${p._localFilePath}" download class="inline-flex items-center space-x-1.5 text-[11px] font-mono bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"><i class="fa-solid fa-download"></i><span>Download ${filename}</span></a>`;
+              }
+              chatBodyContent.appendChild(mediaDiv);
             } else if (p.functionCall) {
               currentThreadThoughtEl = null;
               // Tool card renders at the point it appears — before or after text
@@ -3702,6 +3768,10 @@
 
     function createEmptyMessageBubble(role, messageId = null) {
       const bubble = document.createElement('div');
+      bubble.dataset.role = role;
+      if (messageId) {
+        bubble.dataset.messageId = messageId;
+      }
       bubble.className = `flex space-x-3.5 max-w-4xl mx-auto p-4 rounded-xl border transition-all ${
         role === 'user' 
           ? 'bg-brand-dark border-zinc-800 ml-12' 
@@ -3723,7 +3793,7 @@
             <div class="flex items-center space-x-2">
               <span>Just now</span>
               ${paginationHtml}
-              ${messageId ? `<button onclick="confirmRedoRollback(${messageId})" class="text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all"><i class="fa-solid fa-rotate-left mr-1"></i>Redo</button>` : ''}
+              ${messageId ? `<button onclick="confirmRollback(${messageId})" class="text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all"><i class="fa-solid fa-rotate-left mr-1"></i>Rollback</button>` : ''}
             </div>
           </div>
           <div class="chat-body-content text-xs text-zinc-200 leading-relaxed space-y-2">
@@ -3935,7 +4005,7 @@
       scrollToChatBottom();
     }
 
-    function finalizeInlineActionThoughtBlock(callId, response) {
+    function finalizeInlineActionThoughtBlock(callId, response, messageId = null) {
       // Find the details element by its data-call-id attribute for reliable matching
       let stepEl = callId ? document.querySelector(`details[data-call-id="${callId}"]`) : null;
       // Fallback: find last uncompleted block
@@ -3948,9 +4018,20 @@
       }
       if (!stepEl) return;
 
+      if (messageId) {
+        stepEl.dataset.messageId = messageId;
+      }
+
       const statusMarker = stepEl.querySelector('.status-marker');
       if (statusMarker) {
         statusMarker.innerHTML = '<span class="text-emerald-500 font-bold">Completed</span>';
+        if (messageId) {
+          const rollbackBtn = document.createElement('button');
+          rollbackBtn.setAttribute('onclick', `confirmRollback(${messageId}); event.stopPropagation();`);
+          rollbackBtn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all ml-2";
+          rollbackBtn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Rollback`;
+          statusMarker.appendChild(rollbackBtn);
+        }
       }
 
       const preWrapper = stepEl.querySelector('.terminal-log-output');
@@ -4315,9 +4396,9 @@
       };
     }
 
-    async function confirmRedoRollback(messageId) {
+    async function confirmRollback(messageId) {
       try {
-        const previewRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo-preview/${messageId}`);
+        const previewRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/rollback-preview/${messageId}`);
         if (!previewRes.ok) {
           showToast('Preview Error', 'Failed to retrieve files affected by rollback.', 'error');
           return;
@@ -4329,7 +4410,7 @@
         showUndoConfirmModal(previewData.affectedFiles || [], async () => {
           showToast('Rolling Back', 'Executing git history rewrite...', 'info');
           
-          const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/redo/${targetMessageID}`, {
+          const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/rollback/${targetMessageID}`, {
             method: 'POST'
           });
           
@@ -4346,7 +4427,7 @@
         showToast('Error', err.message, 'error');
       }
     }
-    window.confirmRedoRollback = confirmRedoRollback;
+    window.confirmRollback = confirmRollback;
 
     function toggleSourceControlView(show) {
       const chatWrapper = document.getElementById('chat-interface-wrapper');
@@ -4787,8 +4868,8 @@
           const bubbles = elements.sessionChatContainer.querySelectorAll('.flex.space-x-3.5');
           let targetBubble = null;
           for (const b of bubbles) {
-            const redoBtn = b.querySelector(`button[onclick*="confirmRedoRollback(${messageId})"]`);
-            if (redoBtn) {
+            const rollbackBtn = b.querySelector(`button[onclick*="confirmRollback(${messageId})"]`);
+            if (rollbackBtn) {
               targetBubble = b;
               break;
             }
@@ -4846,7 +4927,7 @@
     }
     window.ignoreScPath = ignoreScPath;
 
-    window.confirmRedoRollback = confirmRedoRollback;
+    window.confirmRollback = confirmRollback;
 
     async function switchSessionBranch(branchName) {
       if (!branchName) return;

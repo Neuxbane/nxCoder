@@ -1,5 +1,25 @@
 import { BaseProvider } from './base.js';
 import WebSocket from 'ws';
+import { promises as fs } from 'fs';
+import path from 'path';
+
+function writeWavHeader(buf, sampleRate, numChannels, bitsPerSample) {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(buf.length + 36, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * numChannels * bitsPerSample / 8, 28);
+  header.writeUInt16LE(numChannels * bitsPerSample / 8, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(buf.length, 40);
+  return Buffer.concat([header, buf]);
+}
 
 export class GeminiLiveProvider extends BaseProvider {
   static get id() {
@@ -39,7 +59,7 @@ export class GeminiLiveProvider extends BaseProvider {
   }
 
   async executeStream(params, callbacks) {
-    const { messages, systemInstruction, tools, signal } = params;
+    const { messages, systemInstruction, tools, signal, workspaceId, sessionId } = params;
     const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
     let model = this.config.model || 'gemini-3.1-flash-live-preview';
 
@@ -58,6 +78,63 @@ export class GeminiLiveProvider extends BaseProvider {
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
+      const audioChunks = [];
+      let audioMimeType = null;
+      let isWavSaved = false;
+
+      async function saveAccumulatedAudio() {
+        if (audioChunks.length === 0 || isWavSaved) return;
+        isWavSaved = true;
+        const rawPcm = Buffer.concat(audioChunks);
+        audioChunks.length = 0;
+
+        let sampleRate = 24000;
+        if (audioMimeType) {
+          const match = audioMimeType.match(/rate=(\d+)/);
+          if (match) {
+            sampleRate = parseInt(match[1], 10);
+          }
+        }
+
+        const wavBuffer = writeWavHeader(rawPcm, sampleRate, 1, 16);
+
+        const sessionGeneratedDir = path.join(process.cwd(), 'workspaces', workspaceId, 'sessions', sessionId, 'generated');
+        await fs.mkdir(sessionGeneratedDir, { recursive: true });
+
+        const fileName = `audio_${Date.now()}_${Math.floor(Math.random() * 1000)}.wav`;
+        const filePath = path.join(sessionGeneratedDir, fileName);
+        await fs.writeFile(filePath, wavBuffer);
+
+        const relPath = `workspaces/${workspaceId}/sessions/${sessionId}/generated/${fileName}`;
+        await callbacks.onMediaPart?.({
+          _localFilePath: relPath,
+          mimeType: 'audio/wav'
+        });
+      }
+
+      async function saveGeneratedMediaImmediately(inlineData) {
+        const dataBuffer = Buffer.from(inlineData.data, 'base64');
+        const mimeType = inlineData.mimeType || 'application/octet-stream';
+        
+        let ext = 'bin';
+        if (mimeType.startsWith('image/')) ext = mimeType.split('/')[1] || 'png';
+        else if (mimeType.startsWith('video/')) ext = mimeType.split('/')[1] || 'mp4';
+        else if (mimeType.startsWith('audio/')) ext = mimeType.split('/')[1] || 'wav';
+
+        const sessionGeneratedDir = path.join(process.cwd(), 'workspaces', workspaceId, 'sessions', sessionId, 'generated');
+        await fs.mkdir(sessionGeneratedDir, { recursive: true });
+
+        const typePrefix = mimeType.split('/')[0] || 'media';
+        const fileName = `${typePrefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
+        const filePath = path.join(sessionGeneratedDir, fileName);
+        await fs.writeFile(filePath, dataBuffer);
+
+        const relPath = `workspaces/${workspaceId}/sessions/${sessionId}/generated/${fileName}`;
+        await callbacks.onMediaPart?.({
+          _localFilePath: relPath,
+          mimeType: mimeType
+        });
+      }
 
       if (signal) {
         signal.addEventListener('abort', () => {
@@ -187,13 +264,22 @@ export class GeminiLiveProvider extends BaseProvider {
             return;
           }
 
-          // Handle thinking parts
+          // Handle thinking and content parts
           if (parsed.serverContent?.modelTurn?.parts) {
             for (const part of parsed.serverContent.modelTurn.parts) {
               if (part.thought && part.text) {
                 callbacks.onThoughtChunk?.(part.text);
               } else if (part.text) {
                 callbacks.onTextChunk?.(part.text);
+              } else if (part.inlineData) {
+                if (part.inlineData.mimeType && part.inlineData.mimeType.startsWith('audio/pcm')) {
+                  audioChunks.push(Buffer.from(part.inlineData.data, 'base64'));
+                  audioMimeType = part.inlineData.mimeType;
+                } else {
+                  saveGeneratedMediaImmediately(part.inlineData).catch(e => {
+                    console.error('[Gemini Live] Error saving media immediately:', e);
+                  });
+                }
               }
             }
           }
@@ -255,8 +341,10 @@ export class GeminiLiveProvider extends BaseProvider {
 
           if (parsed.serverContent?.turnComplete) {
             console.log('[Gemini Live] Server turnComplete flag received.');
-            ws.close();
-            resolve();
+            saveAccumulatedAudio().then(() => {
+              ws.close();
+              resolve();
+            }).catch(reject);
           }
         } catch (err) {
           console.error('[Gemini Live] Error parsing incoming socket frame:', err);
@@ -272,7 +360,9 @@ export class GeminiLiveProvider extends BaseProvider {
 
       ws.on('close', (code, reason) => {
         console.log(`[Gemini Live] WebSocket closed (Code: ${code}, Reason: ${reason || 'none'}).`);
-        resolve();
+        saveAccumulatedAudio().then(() => {
+          resolve();
+        }).catch(reject);
       });
     });
   }

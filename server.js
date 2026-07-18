@@ -2045,7 +2045,7 @@ app.delete('/api/workspace/:id/session/:sessionID', async (req, res) => {
   }
 });
 
-async function getRedoTargetMessageID(workspaceId, sessionID, messageID) {
+async function getRollbackTargetMessageID(workspaceId, sessionID, messageID) {
   const { wsDir } = getWorkspacePaths(workspaceId);
   const allMessages = await loadSessionMessages(wsDir, sessionID);
   let targetID = parseInt(messageID, 10);
@@ -2110,13 +2110,13 @@ async function findSessionCommitHashForMessage(sessionDir, messageId) {
   }
 }
 
-app.get('/api/workspace/:id/session/:sessionID/redo-preview/:messageID', async (req, res) => {
+app.get('/api/workspace/:id/session/:sessionID/rollback-preview/:messageID', async (req, res) => {
   try {
     const { id: workspaceId, sessionID, messageID } = req.params;
     const repos = await getGitReposForWorkspace(workspaceId);
 
     // Validate and resolve target message ID to include function calls/responses and maintain user turn constraints
-    const targetMessageID = await getRedoTargetMessageID(workspaceId, sessionID, messageID);
+    const targetMessageID = await getRollbackTargetMessageID(workspaceId, sessionID, messageID);
 
     // Find the message immediately preceding targetMessageID
     const { wsDir } = getWorkspacePaths(workspaceId);
@@ -2169,14 +2169,14 @@ app.get('/api/workspace/:id/session/:sessionID/redo-preview/:messageID', async (
   }
 });
 
-app.post('/api/workspace/:id/session/:sessionID/redo/:messageID', async (req, res) => {
+app.post('/api/workspace/:id/session/:sessionID/rollback/:messageID', async (req, res) => {
   try {
     const { id: workspaceId, sessionID, messageID } = req.params;
     const { wsDir } = getWorkspacePaths(workspaceId, sessionID);
     const repos = await getGitReposForWorkspace(workspaceId);
 
     // Validate and resolve target message ID to include function calls/responses and maintain user turn constraints
-    const targetMessageID = await getRedoTargetMessageID(workspaceId, sessionID, messageID);
+    const targetMessageID = await getRollbackTargetMessageID(workspaceId, sessionID, messageID);
 
     const allMessages = await loadSessionMessages(wsDir, sessionID);
     const targetIdx = allMessages.findIndex(m => m.id === targetMessageID);
@@ -2896,7 +2896,7 @@ app.post('/api/workspace/:id/session/:sessionID', upload.array('files'), async (
     await saveSessionMessages(wsDir, sessionID, messages);
     await commitSessionMessage(wsDir, sessionID, newMsgId, 'user');
 
-    res.json({ message: 'Message metadata recorded successfully inside SQLite context stack.' });
+    res.json({ message: 'Message metadata recorded successfully inside SQLite context stack.', messageId: newMsgId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3482,7 +3482,9 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               messages: contentStack,
               systemInstruction: dynamicInstruction,
               tools,
-              signal: controller.signal
+              signal: controller.signal,
+              workspaceId,
+              sessionId
             }, {
               onTextChunk: async (text) => {
                 streamedParts.push({ text });
@@ -3492,6 +3494,15 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               onThoughtChunk: async (text) => {
                 streamedParts.push({ thought: true, text });
                 sendToSession(sessionId, { type: 'THOUGHT_STREAM', text });
+                await updateModelMessageInDb();
+              },
+              onMediaPart: async (mediaPart) => {
+                streamedParts.push(mediaPart);
+                sendToSession(sessionId, {
+                  type: 'MEDIA_STREAM',
+                  mimeType: mediaPart.mimeType,
+                  localPath: mediaPart._localFilePath
+                });
                 await updateModelMessageInDb();
               },
               onStepStart: ({ id, name }) => {
@@ -3579,16 +3590,18 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                   await commitSessionMessage(wsDir, sessionId, modelFcMsgId, 'model');
                 }
 
+                // --- Persist functionResponse to DB and commit ---
+                const msgsForResponse = liveMessages;
+                const toolOutputMsgId = msgsForResponse.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+
                 // Send tool response to UI
                 sendToSession(sessionId, {
                   type: 'FUNCTION_RESPONSE',
                   callId: callId,
-                  response: { result: toolResult }
+                  response: { result: toolResult },
+                  messageId: toolOutputMsgId
                 });
 
-                // --- Persist functionResponse to DB and commit ---
-                const msgsForResponse = liveMessages;
-                const toolOutputMsgId = msgsForResponse.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
                 msgsForResponse.push({
                   id: toolOutputMsgId,
                   role: 'user',
@@ -3643,10 +3656,16 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               // Sanitize before sending to model — strip blobs, truncate long strings
               const sanitizedResult = sanitizeToolResult(toolResult);
 
+              const currentMessages = liveMessages;
+              if (!toolOutputMsgId) {
+                toolOutputMsgId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+              }
+
               sendToSession(sessionId, {
                 type: 'FUNCTION_RESPONSE',
                 callId: call.id,
-                response: { result: toolResult }  // UI gets the full result
+                response: { result: toolResult },  // UI gets the full result
+                messageId: toolOutputMsgId
               });
 
               toolResponseParts.push({
@@ -3661,9 +3680,8 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 return;
               }
 
-              const currentMessages = liveMessages;
-              if (!toolOutputMsgId) {
-                toolOutputMsgId = currentMessages.reduce((max, m) => m.id > max ? m.id : max, 0) + 1;
+              const alreadyHasMsg = currentMessages.some(m => m.id === toolOutputMsgId);
+              if (!alreadyHasMsg) {
                 currentMessages.push({
                   id: toolOutputMsgId,
                   role: 'user',
