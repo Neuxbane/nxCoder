@@ -975,6 +975,8 @@ Group files by component. Use markdown links with relative paths and detail exac
       
       activeWorkspaceId: null,
       activeSessionId: null,
+      activeSubSessionId: null,
+      expandedSessions: new Set(),
       activeWsURL: null,
       selectedAttachments: [],
       isGenerating: false,
@@ -3325,6 +3327,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       if (profilesContainer) profilesContainer.classList.add('hidden');
 
       state.activeSessionId = sessionId;
+      state.activeSubSessionId = null;
       enableSessionChatInputControls(false); // Enable fields
 
       try {
@@ -3372,6 +3375,65 @@ Group files by component. Use markdown links with relative paths and detail exac
         console.error(err);
       }
     }
+
+    async function initializeSubSession(sessionId, subSessionId) {
+      if (state.wsConn) {
+        state.wsConn.onopen = null;
+        state.wsConn.onclose = null;
+        state.wsConn.onerror = null;
+        state.wsConn.onmessage = null;
+        state.wsConn.close();
+        state.wsConn = null;
+      }
+
+      const chatWrapper = document.getElementById('chat-interface-wrapper');
+      const scContainer = document.getElementById('source-control-container');
+      const artContainer = document.getElementById('artifacts-container');
+      const profilesContainer = document.getElementById('agent-profiles-container');
+      if (chatWrapper) chatWrapper.classList.remove('hidden');
+      if (scContainer) scContainer.classList.add('hidden');
+      if (artContainer) artContainer.classList.add('hidden');
+      if (profilesContainer) profilesContainer.classList.add('hidden');
+
+      state.activeSessionId = sessionId;
+      state.activeSubSessionId = subSessionId;
+      
+      elements.chatPromptInput.disabled = true;
+      elements.btnChatSubmit.disabled = true;
+      elements.chatPromptInput.placeholder = "Viewing Sub-Agent Session (Read-Only)";
+
+      elements.sessionChatContainer.innerHTML = '';
+      
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${sessionId}/sub-session/${subSessionId}`);
+        if (res.ok) {
+          const data = await res.json();
+          renderActiveChatSessionHistory(data.history || []);
+          
+          const banner = document.createElement('div');
+          banner.className = "m-4 p-3 bg-brand-accent/10 border border-brand-accent/30 rounded-lg text-xs text-brand-accent flex items-center justify-between shrink-0";
+          banner.innerHTML = `
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-robot animate-pulse"></i>
+              <span>Viewing sub-agent transcript <strong>"${data.name || subSessionId}"</strong>. Status: <strong class="uppercase" id="sub-sess-status-badge">${data.status}</strong>.</span>
+            </div>
+            <button onclick="initializeSession('${sessionId}')" class="bg-brand-accent/20 hover:bg-brand-accent hover:text-white px-2 py-1 rounded text-[10px] transition-all font-semibold">Back to Parent Chat</button>
+          `;
+          elements.sessionChatContainer.prepend(banner);
+
+          // Build websocket URL and connect
+          const host = window.location.host;
+          const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+          state.activeWsURL = `${protocol}://${host}/stream/workspace/${state.activeWorkspaceId}/session/${sessionId}/sub-session/${subSessionId}`;
+          connectSessionWebSocketGateway();
+        } else {
+          showToast('Load Error', 'Failed to retrieve sub-session transcript.', 'error');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+    window.initializeSubSession = initializeSubSession;
 
     function enableSessionChatInputControls(isLocked) {
       elements.chatPromptInput.disabled = isLocked;
@@ -3621,12 +3683,16 @@ Group files by component. Use markdown links with relative paths and detail exac
               const headerRight = b.querySelector('.flex.items-center.space-x-2');
               if (headerRight && !headerRight.querySelector('button[onclick*="confirmRollback"]')) {
                 const btn = document.createElement('button');
-                btn.setAttribute('onclick', `confirmRollback(${data.modelMessageId})`);
+                btn.setAttribute('onclick', `confirmRollback(${data.modelMessageId});`);
                 btn.className = "text-zinc-500 hover:text-red-400 font-mono text-[9px] border border-zinc-800 hover:border-red-900/50 bg-zinc-950 px-1.5 py-0.5 rounded transition-all";
                 btn.innerHTML = `<i class="fa-solid fa-rotate-left mr-1"></i>Rollback`;
                 headerRight.appendChild(btn);
               }
             }
+          }
+          if (state.activeSubSessionId) {
+            const badge = document.getElementById('sub-sess-status-badge');
+            if (badge) badge.textContent = 'COMPLETED';
           }
           currentResponseBubbleEl = null;
           activeThinkingNode = null;
@@ -3634,10 +3700,20 @@ Group files by component. Use markdown links with relative paths and detail exac
           refreshSessionList();
           break;
 
+        case 'SUB_SESSION_CREATED':
+        case 'SUB_SESSION_COMPLETED':
+        case 'SUB_SESSION_FAILED':
+          refreshSessionList();
+          break;
+
         case 'ERROR':
           removeRetryingCard();
           appendSystemErrorMessage(data.message);
           setGeneratingState(false);
+          if (state.activeSubSessionId) {
+            const badge = document.getElementById('sub-sess-status-badge');
+            if (badge) badge.textContent = 'FAILED';
+          }
           refreshSessionList();
           break;
 
@@ -4393,11 +4469,29 @@ Group files by component. Use markdown links with relative paths and detail exac
           rowClass += ' ring-1 ring-brand-accent/30 bg-brand-accent/10 text-brand-accent';
         }
 
+        const hasSubSessions = s.subSessions && s.subSessions.length > 0;
+        const isExpanded = state.expandedSessions.has(s.id) || (s.id === state.activeSessionId);
+
         row.className = rowClass;
 
         const sessionLink = document.createElement('div');
         sessionLink.className = "flex items-center space-x-2 min-w-0 flex-1";
         sessionLink.onclick = () => initializeSession(s.id);
+
+        if (hasSubSessions) {
+          const chevron = document.createElement('i');
+          chevron.className = `fa-solid fa-chevron-right text-[8px] text-zinc-500 mr-1.5 transition-all transform duration-200 ${isExpanded ? 'rotate-90' : ''}`;
+          chevron.onclick = (e) => {
+            e.stopPropagation();
+            if (state.expandedSessions.has(s.id)) {
+              state.expandedSessions.delete(s.id);
+            } else {
+              state.expandedSessions.add(s.id);
+            }
+            renderSidebarSessionsList();
+          };
+          sessionLink.appendChild(chevron);
+        }
 
         const icon = document.createElement('i');
         icon.className = `fa-solid ${isRunning ? 'fa-spinner fa-spin text-brand-accent' : 'fa-message text-zinc-600'} text-[9px] shrink-0`;
@@ -4430,6 +4524,47 @@ Group files by component. Use markdown links with relative paths and detail exac
         row.appendChild(sessionLink);
         row.appendChild(deleteBtn);
         sidebar.appendChild(row);
+
+        if (hasSubSessions && isExpanded) {
+          const subSessionsContainer = document.createElement('div');
+          subSessionsContainer.className = "pl-4 pr-1 py-1 space-y-1 bg-zinc-950/15 border-l border-zinc-800/40 ml-4 mt-0.5 mb-1.5 rounded-r-lg select-none";
+          
+          s.subSessions.forEach(sub => {
+            const subItem = document.createElement('div');
+            const isSubCurrent = state.activeSubSessionId === sub.id;
+            let subClass = `p-1.5 rounded flex items-center justify-between cursor-pointer text-[10.5px] transition-all font-mono `;
+            if (isSubCurrent) {
+              subClass += 'bg-brand-accent/15 border-l border-brand-accent text-white font-semibold shadow';
+            } else {
+              subClass += 'text-zinc-500 hover:bg-zinc-900/20 hover:text-zinc-300';
+            }
+            subItem.className = subClass;
+            
+            const subLink = document.createElement('div');
+            subLink.className = "flex items-center space-x-1.5 min-w-0 flex-1";
+            subLink.onclick = () => initializeSubSession(s.id, sub.id);
+            
+            let subStatusIcon = 'fa-robot';
+            let subStatusClass = 'text-zinc-600';
+            if (sub.status === 'running') {
+              subStatusIcon = 'fa-circle-notch fa-spin';
+              subStatusClass = 'text-amber-500';
+            } else if (sub.status === 'completed') {
+              subStatusClass = 'text-emerald-500';
+            } else if (sub.status === 'failed') {
+              subStatusClass = 'text-rose-500';
+            }
+            
+            subLink.innerHTML = `
+              <i class="fa-solid ${subStatusIcon} ${subStatusClass} text-[9px] shrink-0"></i>
+              <span class="truncate" title="${sub.name || sub.id}">${sub.name || sub.id}</span>
+            `;
+            
+            subItem.appendChild(subLink);
+            subSessionsContainer.appendChild(subItem);
+          });
+          sidebar.appendChild(subSessionsContainer);
+        }
       });
     }
 

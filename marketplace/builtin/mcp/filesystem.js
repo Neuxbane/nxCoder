@@ -177,6 +177,42 @@ export function createBuiltinMcpServer(deps) {
           }
         },
         {
+          name: 'spawn_sub_agent',
+          description: 'Spawns a new sub-AI agent asynchronously in the background. It will execute the given prompt using the specified instruction profile name (optional) without inheriting the parent prompt history.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'A short descriptive name for the sub-agent task.' },
+              prompt: { type: 'string', description: 'The prompt/task description for the sub-agent to solve.' },
+              instruction_profile_id: { type: 'string', description: 'Optional instruction profile ID. Defaults to standard Antigravity instructions if omitted.' }
+            },
+            required: ['name', 'prompt']
+          }
+        },
+        {
+          name: 'get_sub_agent_status',
+          description: 'Checks the current execution status, recent chat history, and final output result of a previously spawned sub-agent.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sub_agent_id: { type: 'string', description: 'The unique ID returned by spawn_sub_agent.' },
+              max_recent_chars: { type: 'integer', description: 'Optional limit on returned history text size. Default is 4000.' }
+            },
+            required: ['sub_agent_id']
+          }
+        },
+        {
+          name: 'wait_sub_agent',
+          description: 'Blocks and waits until the target sub-agent completes its execution. Returns the final status and output result.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sub_agent_id: { type: 'string', description: 'The unique ID returned by spawn_sub_agent.' }
+            },
+            required: ['sub_agent_id']
+          }
+        },
+        {
           name: 'list_devices',
           description: 'Lists all available virtual or physical devices (e.g., adb android devices, local desktop environment, active browsers).',
           inputSchema: {
@@ -299,6 +335,12 @@ export function createBuiltinMcpServer(deps) {
         toolResult = await deps.parseDocumentTool(workspaceId, sessionId, args.filepath, args.outputName);
       } else if (name === 'view_image') {
         toolResult = await deps.viewImageTool(workspaceId, sessionId, args.path);
+      } else if (name === 'spawn_sub_agent') {
+        toolResult = await deps.spawnSubAgentTool(workspaceId, sessionId, args.name, args.prompt, args.instruction_profile_id);
+      } else if (name === 'get_sub_agent_status') {
+        toolResult = await deps.getSubAgentStatusTool(workspaceId, sessionId, args.sub_agent_id, args.max_recent_chars);
+      } else if (name === 'wait_sub_agent') {
+        toolResult = await deps.waitSubAgentTool(workspaceId, sessionId, args.sub_agent_id);
       } else if (name === 'list_devices') {
         toolResult = await deps.deviceManager.listDevices();
       } else if (name === 'get_device_visuals') {

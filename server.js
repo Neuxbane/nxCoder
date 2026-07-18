@@ -724,6 +724,9 @@ const builtinToolsDeps = {
   get setSessionNameTool() { return setSessionNameTool; },
   get parseDocumentTool() { return parseDocumentTool; },
   get viewImageTool() { return viewImageTool; },
+  get spawnSubAgentTool() { return spawnSubAgentTool; },
+  get getSubAgentStatusTool() { return getSubAgentStatusTool; },
+  get waitSubAgentTool() { return waitSubAgentTool; },
   deviceManager,
   createVisualGrid
 };
@@ -1559,6 +1562,372 @@ async function viewImageTool(workspaceId, sessionId, filepath) {
   }
 }
 
+async function runSubAgentTask(workspaceId, sessionId, subAgentId, prompt, instructionProfileId, initialData) {
+  const { wsDir } = getWorkspacePaths(workspaceId);
+  const subSessionsDir = path.join(wsDir, 'sessions', sessionId, 'sub_sessions');
+  const filePath = path.join(subSessionsDir, `${subAgentId}.json`);
+
+  const saveSubSession = async (data) => {
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  };
+
+  const subSessionData = initialData;
+
+  // Resolve the instruction prompt
+  let instructionPrompt = DEFAULT_ANTIGRAVITY_PROMPT;
+  if (instructionProfileId) {
+    try {
+      const record = await dbGet("SELECT text FROM instructions WHERE id = ?", [instructionProfileId]);
+      if (record && record.text) {
+        instructionPrompt = record.text;
+      }
+    } catch (e) {
+      console.error(`Failed to load instruction profile ${instructionProfileId} for sub-agent:`, e.message);
+    }
+  }
+
+  // Compile full system context (sandbox layout, safety rails, etc.)
+  const ws = await dbGet("SELECT folders_path FROM workspaces WHERE id = ?", [workspaceId]);
+  const folders = JSON.parse(ws ? ws.folders_path : '[]');
+  const projectFolderNames = folders.map(f => path.basename(f));
+  
+  const generatedSystemContext = `
+=========================================
+=== SYSTEM CONTEXT (DO NOT OVERWRITE) ===
+=========================================
+You are an AI coding sub-agent operating inside an overlay session.
+You have NO knowledge of the real filesystem paths on the host system.
+
+Your working directory is the ROOT of your session workspace.
+All paths you use in tool calls MUST be RELATIVE paths from this root.
+NEVER use absolute paths (starting with / or ~). They are FORBIDDEN and will cause an error.
+
+Your session workspace layout:
+- Project files (mirrored for editing): ${projectFolderNames.map(n => `workspace_mirror/${n}/`).join(', ')}
+- Uploaded user files: uploads/
+- Terminal log files: terminals/
+- Artifacts directory (for plans, tasks, walkthroughs): artifact/
+- Scratchpad directory (for temporary scripts, test verification code, temporary data): scratchpad/
+
+To access a project file, use a path like: "workspace_mirror/${projectFolderNames[0] || 'my_project'}/src/index.js"
+To read an uploaded file, use a path like: "uploads/abc_myfile.pdf"
+To read terminal output, use a path like: "terminals/term_12345678.log"
+To write plans, task lists, or walkthroughs: use files inside "artifact/" (e.g. "artifact/implementation_plan.md")
+To run verification/testing scripts: use files inside "scratchpad/" (e.g. "scratchpad/verify.js")
+
+Safety Guardrails:
+- You may ONLY operate on paths within your session workspace (relative paths listed above).
+- Absolute paths, paths starting with "../", or paths referencing any external location are FORBIDDEN.
+- The system will reject any access attempt outside your sandbox with an Access Denied error.
+=========================================
+`;
+
+  const finalInstruction = `${instructionPrompt}\n\n${generatedSystemContext}`;
+
+  // Get active provider
+  let provider = await marketplaceManager.getActiveProvider();
+  if (!provider) {
+    const currentKey = await getNextApiKey(null);
+    provider = new GeminiProvider({ apiKey: currentKey, defaultModel: 'gemini-2.5-flash' });
+  }
+
+  // Get MCP tools, BUT exclude sub-agent tools so the sub-agent cannot spawn more sub-agents!
+  const rawTools = await marketplaceManager.connectMcpClients(builtinToolsDeps);
+  const subAgentTools = rawTools.filter(t => t.name !== 'spawn_sub_agent' && t.name !== 'get_sub_agent_status' && t.name !== 'wait_sub_agent');
+
+  // Asynchronously execute model loop in the background!
+  (async () => {
+    try {
+      let keepRunning = true;
+
+      while (keepRunning) {
+        const historySteps = subSessionData.history.map(row => ({
+          role: row.role,
+          parts: row.parts
+        }));
+
+        let streamedParts = [];
+        let activeFunctionCall = null;
+        let pendingCalls = [];
+        let hadToolCalls = false;
+
+        await provider.executeStream({
+          messages: historySteps,
+          systemInstruction: finalInstruction,
+          tools: subAgentTools,
+          workspaceId,
+          sessionId
+        }, {
+          onTextChunk: async (text) => {
+            streamedParts.push({ text });
+            sendToSession(subAgentId, { type: 'TOKEN_STREAM', text });
+          },
+          onThoughtChunk: async (text) => {
+            streamedParts.push({ thought: true, text });
+            sendToSession(subAgentId, { type: 'THOUGHT_STREAM', text });
+          },
+          onMediaPart: async (mediaPart) => {
+            streamedParts.push(mediaPart);
+            sendToSession(subAgentId, {
+              type: 'MEDIA_STREAM',
+              mimeType: mediaPart.mimeType,
+              localPath: mediaPart._localFilePath
+            });
+          },
+          onStepStart: ({ id, name }) => {
+            activeFunctionCall = { id, name, argumentsString: "" };
+          },
+          onStepDelta: (delta) => {
+            if (activeFunctionCall) {
+              activeFunctionCall.argumentsString += delta;
+            }
+          },
+          onStepStop: async () => {
+            if (activeFunctionCall) {
+              let args = {};
+              try {
+                if (activeFunctionCall.argumentsString) {
+                  args = JSON.parse(activeFunctionCall.argumentsString);
+                }
+              } catch (e) {
+                console.error("Sub-agent JSON parse error:", e);
+              }
+              const finalCall = { id: activeFunctionCall.id, name: activeFunctionCall.name, args };
+              pendingCalls.push(finalCall);
+              streamedParts.push({ functionCall: finalCall });
+              sendToSession(subAgentId, {
+                type: 'FUNCTION_CALL',
+                name: finalCall.name,
+                callId: finalCall.id,
+                args: finalCall.args
+              });
+              activeFunctionCall = null;
+            }
+          },
+          onToolCall: async (name, args, callId) => {
+            hadToolCalls = true;
+            streamedParts.push({ functionCall: { id: callId, name, args } });
+            sendToSession(subAgentId, {
+              type: 'FUNCTION_CALL',
+              name,
+              callId,
+              args
+            });
+            let toolResult;
+            try {
+              const enrichedArgs = { ...args, workspaceId, sessionId };
+              toolResult = await marketplaceManager.executeMcpTool(name, enrichedArgs);
+            } catch (err) {
+              toolResult = { error: `MCP Tool execution failed: ${err.message}` };
+            }
+            const callIdx = pendingCalls.findIndex(c => c.id === callId);
+            if (callIdx !== -1) pendingCalls.splice(callIdx, 1);
+
+            subSessionData.history.push({
+              id: subSessionData.history.length + 1,
+              role: 'model',
+              parts: [{ functionCall: { id: callId, name, args } }],
+              createdAt: new Date().toISOString()
+            });
+            subSessionData.history.push({
+              id: subSessionData.history.length + 1,
+              role: 'user',
+              parts: [{ functionResponse: { id: callId, name, response: { result: toolResult } } }],
+              createdAt: new Date().toISOString()
+            });
+            subSessionData.updated_at = new Date().toISOString();
+            await saveSubSession(subSessionData);
+
+            sendToSession(subAgentId, {
+              type: 'FUNCTION_RESPONSE',
+              callId,
+              response: { result: toolResult }
+            });
+          }
+        });
+
+        if (pendingCalls.length > 0) {
+          hadToolCalls = true;
+          for (const call of pendingCalls) {
+            let toolResult;
+            try {
+              const enrichedArgs = { ...call.args, workspaceId, sessionId };
+              toolResult = await marketplaceManager.executeMcpTool(call.name, enrichedArgs);
+            } catch (err) {
+              toolResult = { error: `Tool execution failed: ${err.message}` };
+            }
+            subSessionData.history.push({
+              id: subSessionData.history.length + 1,
+              role: 'model',
+              parts: [{ functionCall: { id: call.id, name: call.name, args: call.args } }],
+              createdAt: new Date().toISOString()
+            });
+            subSessionData.history.push({
+              id: subSessionData.history.length + 1,
+              role: 'user',
+              parts: [{ functionResponse: { id: call.id, name: call.name, response: { result: toolResult } } }],
+              createdAt: new Date().toISOString()
+            });
+
+            sendToSession(subAgentId, {
+              type: 'FUNCTION_RESPONSE',
+              callId: call.id,
+              response: { result: toolResult }
+            });
+          }
+          subSessionData.updated_at = new Date().toISOString();
+          await saveSubSession(subSessionData);
+        }
+
+        if (hadToolCalls) {
+          keepRunning = true;
+        } else {
+          keepRunning = false;
+          if (streamedParts.length > 0) {
+            subSessionData.history.push({
+              id: subSessionData.history.length + 1,
+              role: 'model',
+              parts: streamedParts,
+              createdAt: new Date().toISOString()
+            });
+          }
+          
+          subSessionData.status = 'completed';
+          subSessionData.result = subSessionData.history
+            .filter(h => h.role === 'model')
+            .flatMap(h => h.parts || [])
+            .filter(p => p.text)
+            .map(p => p.text)
+            .join('\n');
+          subSessionData.updated_at = new Date().toISOString();
+          await saveSubSession(subSessionData);
+
+          // Emit ws notification to trigger UI reload
+          sendToSession(sessionId, { type: 'SUB_SESSION_COMPLETED', subAgentId, result: subSessionData.result });
+          sendToSession(subAgentId, { type: 'DONE' });
+        }
+      }
+    } catch (err) {
+      console.error(`Sub-agent ${subAgentId} failed:`, err);
+      subSessionData.status = 'failed';
+      subSessionData.result = `Error: ${err.message}`;
+      subSessionData.updated_at = new Date().toISOString();
+      await saveSubSession(subSessionData);
+      sendToSession(sessionId, { type: 'SUB_SESSION_FAILED', subAgentId, error: err.message });
+      sendToSession(subAgentId, { type: 'ERROR', message: err.message });
+    }
+  })();
+}
+
+async function spawnSubAgentTool(workspaceId, sessionId, name, prompt, instructionProfileId) {
+  const { wsDir } = getWorkspacePaths(workspaceId);
+  const subSessionsDir = path.join(wsDir, 'sessions', sessionId, 'sub_sessions');
+  await fs.mkdir(subSessionsDir, { recursive: true });
+
+  const subAgentId = `sub_sess_${crypto.randomBytes(4).toString('hex')}`;
+  
+  const saveSubSession = async (data) => {
+    const filePath = path.join(subSessionsDir, `${subAgentId}.json`);
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  };
+
+  const initialData = {
+    id: subAgentId,
+    name: name,
+    prompt: prompt,
+    instruction_id: instructionProfileId || 'default',
+    status: 'running',
+    result: '',
+    history: [
+      {
+        id: 1,
+        role: 'user',
+        parts: [{ text: prompt }],
+        createdAt: new Date().toISOString()
+      }
+    ],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  await saveSubSession(initialData);
+
+  // Trigger execution in the background asynchronously
+  runSubAgentTask(workspaceId, sessionId, subAgentId, prompt, instructionProfileId, initialData);
+
+  // Notify clients about the new sub-session
+  sendToSession(sessionId, { type: 'SUB_SESSION_CREATED', subAgentId, name });
+
+  return {
+    sub_agent_id: subAgentId,
+    status: 'running',
+    message: 'Sub-agent spawned successfully.'
+  };
+}
+
+async function getSubAgentStatusTool(workspaceId, sessionId, subAgentId, maxRecentChars = 4000) {
+  const { wsDir } = getWorkspacePaths(workspaceId);
+  const filePath = path.join(wsDir, 'sessions', sessionId, 'sub_sessions', `${subAgentId}.json`);
+  
+  try {
+    const data = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+    
+    let historyText = '';
+    for (const msg of data.history) {
+      if (msg.parts) {
+        for (const part of msg.parts) {
+          if (part.text) {
+            historyText += `[${msg.role.toUpperCase()}]: ${part.text}\n`;
+          } else if (part.functionCall) {
+            historyText += `[TOOL CALL]: ${part.functionCall.name}(${JSON.stringify(part.functionCall.args)})\n`;
+          } else if (part.functionResponse) {
+            historyText += `[TOOL RESPONSE]: ${JSON.stringify(part.functionResponse.response)}\n`;
+          }
+        }
+      }
+    }
+    
+    if (historyText.length > maxRecentChars) {
+      historyText = '...' + historyText.slice(-maxRecentChars);
+    }
+
+    return {
+      sub_agent_id: subAgentId,
+      status: data.status,
+      result: data.result,
+      recent_history: historyText,
+      updated_at: data.updated_at
+    };
+  } catch (err) {
+    return { error: `Sub-agent ID ${subAgentId} not found or inaccessible: ${err.message}` };
+  }
+}
+
+async function waitSubAgentTool(workspaceId, sessionId, subAgentId) {
+  const startTime = Date.now();
+  const timeout = 300000; // 5 mins
+  const { wsDir } = getWorkspacePaths(workspaceId);
+  const filePath = path.join(wsDir, 'sessions', sessionId, 'sub_sessions', `${subAgentId}.json`);
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const data = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+      if (data.status !== 'running') {
+        return {
+          sub_agent_id: subAgentId,
+          status: data.status,
+          result: data.result
+        };
+      }
+    } catch (err) {
+      return { error: `Error waiting for sub-agent: ${err.message}` };
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  return { error: 'Timeout waiting for sub-agent to complete.' };
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static(__dirname));
@@ -2063,7 +2432,7 @@ app.get('/api/workspace/:id/session', async (req, res) => {
       WHERE s.workspace_id = ? 
       GROUP BY s.id
       ORDER BY updated_at DESC`, [req.params.id]);
-    const sessionsWithStatus = sessions.map(s => {
+    const sessionsWithStatus = await Promise.all(sessions.map(async s => {
       let hasRunningTerminal = false;
       for (const [_, term] of activeTerminals.entries()) {
         if (term.sessionId === s.id && term.status === 'running') {
@@ -2071,12 +2440,37 @@ app.get('/api/workspace/:id/session', async (req, res) => {
           break;
         }
       }
+
+      // Read sub-sessions list
+      let subSessions = [];
+      const { wsDir } = getWorkspacePaths(req.params.id);
+      const subSessionsDir = path.join(wsDir, 'sessions', s.id, 'sub_sessions');
+      try {
+        const files = await fs.readdir(subSessionsDir);
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            try {
+              const data = JSON.parse(await fs.readFile(path.join(subSessionsDir, file), 'utf-8'));
+              subSessions.push({
+                id: data.id,
+                name: data.name,
+                status: data.status,
+                created_at: data.created_at,
+                updated_at: data.updated_at
+              });
+            } catch {}
+          }
+        }
+      } catch {}
+      subSessions.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
       return {
         ...s,
         status: sessionStatus.get(s.id) || 'idle',
-        hasRunningTerminal
+        hasRunningTerminal,
+        subSessions
       };
-    });
+    }));
     res.json(sessionsWithStatus);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2823,7 +3217,58 @@ app.get('/api/workspace/:id/session/:sessionID', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+app.get('/api/workspace/:id/session/:sessionID/sub-sessions', async (req, res) => {
+  try {
+    const { id: workspaceId, sessionID } = req.params;
+    const { wsDir } = getWorkspacePaths(workspaceId);
+    const subSessionsDir = path.join(wsDir, 'sessions', sessionID, 'sub_sessions');
+    
+    let subSessions = [];
+    try {
+      const files = await fs.readdir(subSessionsDir);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          try {
+            const data = JSON.parse(await fs.readFile(path.join(subSessionsDir, file), 'utf-8'));
+            subSessions.push({
+              id: data.id,
+              name: data.name,
+              status: data.status,
+              created_at: data.created_at,
+              updated_at: data.updated_at
+            });
+          } catch (e) {
+            console.error(`Error loading sub-session ${file}:`, e.message);
+          }
+        }
+      }
+    } catch {}
 
+    // Sort by updated_at or created_at desc
+    subSessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    res.json(subSessions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/workspace/:id/session/:sessionID/sub-session/:subSessionID', async (req, res) => {
+  try {
+    const { id: workspaceId, sessionID, subSessionID } = req.params;
+    const { wsDir } = getWorkspacePaths(workspaceId);
+    const filePath = path.join(wsDir, 'sessions', sessionID, 'sub_sessions', `${subSessionID}.json`);
+    
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      res.setHeader('Content-Type', 'application/json');
+      res.send(content);
+    } catch {
+      res.status(404).json({ error: 'Sub-session target not found.' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/workspace/:id/session/:sessionID/artifacts', async (req, res) => {
   try {
     const workspaceId = req.params.id;
@@ -3885,12 +4330,13 @@ server.on('upgrade', (request, socket, head) => {
   const parsedUrl = new URL(request.url, `http://${request.headers.host}`);
   const pathname = parsedUrl.pathname;
 
-  const matches = pathname.match(/^\/stream\/workspace\/([^/]+)\/session\/([^/]+)$/);
+  const matches = pathname.match(/^\/stream\/workspace\/([^/]+)\/session\/([^/]+)(?:\/sub-session\/([^/]+))?$/);
   
   if (matches) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       ws.workspaceId = matches[1];
       ws.sessionId = matches[2];
+      ws.subSessionId = matches[3] || null;
       wss.emit('connection', ws, request);
     });
   } else {
@@ -3899,19 +4345,32 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 wss.on('connection', (ws) => {
-  console.log(`📡 WebSocket connected: Workspace ${ws.workspaceId}, Session ${ws.sessionId}`);
+  const targetKey = ws.subSessionId || ws.sessionId;
+  console.log(`📡 WebSocket connected: Workspace ${ws.workspaceId}, Session ${ws.sessionId}, Sub-session: ${ws.subSessionId}`);
 
-  // Track this socket for the session to support multi-tab streaming
-  if (!sessionSockets.has(ws.sessionId)) {
-    sessionSockets.set(ws.sessionId, new Set());
+  // Track this socket
+  if (!sessionSockets.has(targetKey)) {
+    sessionSockets.set(targetKey, new Set());
   }
-  sessionSockets.get(ws.sessionId).add(ws);
+  sessionSockets.get(targetKey).add(ws);
 
-  // Immediately inform the client if the session is currently generating
-  ws.send(JSON.stringify({ 
-    type: 'SESSION_STATUS', 
-    status: sessionStatus.get(ws.sessionId) || 'idle' 
-  }));
+  // Immediately inform the client if the target session/sub-session is active
+  if (ws.subSessionId) {
+    const { wsDir } = getWorkspacePaths(ws.workspaceId);
+    const filePath = path.join(wsDir, 'sessions', ws.sessionId, 'sub_sessions', `${ws.subSessionId}.json`);
+    fs.readFile(filePath, 'utf-8').then(content => {
+      const data = JSON.parse(content);
+      ws.send(JSON.stringify({ 
+        type: 'SESSION_STATUS', 
+        status: data.status === 'running' ? 'generating' : 'idle'
+      }));
+    }).catch(() => {});
+  } else {
+    ws.send(JSON.stringify({ 
+      type: 'SESSION_STATUS', 
+      status: sessionStatus.get(ws.sessionId) || 'idle' 
+    }));
+  }
 
   ws.on('message', async (data) => {
     try {
