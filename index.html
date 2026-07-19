@@ -443,6 +443,68 @@
       </div>
     </section>
 
+    <!-- Command Security Approval Overlay Modal -->
+    <div id="command-approval-modal" class="fixed inset-0 bg-brand-black/95 backdrop-blur-md z-[100] hidden items-center justify-center p-4">
+      <div class="bg-brand-dark border-2 border-brand-accent/30 rounded-xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative">
+        
+        <!-- Header -->
+        <div class="flex items-center space-x-3 text-brand-accent">
+          <i class="fa-solid fa-shield-halved text-xl"></i>
+          <h3 id="approval-header-label" class="text-sm font-bold text-white uppercase tracking-wider">Agent Permission Required</h3>
+        </div>
+        
+        <!-- Warning/Context -->
+        <p id="approval-description-text" class="text-[10px] text-zinc-400 font-sans leading-normal">
+          The coding agent is requesting permission to execute the following terminal command on your local system:
+        </p>
+
+        <!-- Command Display Box -->
+        <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-brand-accent overflow-x-auto shadow-inner leading-relaxed">
+          <span id="approval-command-prefix" class="text-zinc-600 select-none mr-2">$</span><code id="approval-command-display">npm run dev</code>
+        </div>
+
+        <!-- Selection Action Options -->
+        <div class="space-y-2">
+          <!-- Allow Once Option -->
+          <label class="flex items-start space-x-3 p-3 rounded-lg border border-zinc-800 bg-brand-black/40 hover:bg-zinc-900/60 cursor-pointer select-none transition-all group">
+            <input type="radio" name="approval-action" value="allow_once" checked class="mt-0.5 text-brand-accent focus:ring-brand-accent bg-zinc-900 border-zinc-700">
+            <div class="space-y-0.5">
+              <span class="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">Allow Once <span class="text-[9px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded ml-1.5 font-mono">default (Enter)</span></span>
+              <p class="text-[9px] text-zinc-500">Run this command once. Agent must ask again for any future commands.</p>
+            </div>
+          </label>
+
+          <!-- Always Allow Option -->
+          <label class="flex items-start space-x-3 p-3 rounded-lg border border-zinc-800 bg-brand-black/40 hover:bg-zinc-900/60 cursor-pointer select-none transition-all group">
+            <input type="radio" name="approval-action" value="always_allow" class="mt-0.5 text-brand-accent focus:ring-brand-accent bg-zinc-900 border-zinc-700">
+            <div class="space-y-0.5">
+              <span id="approval-always-allow-label" class="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">Always Allow</span>
+              <p id="approval-always-allow-description" class="text-[9px] text-zinc-500">Add this command prefix to Allowed list. Runs automatically without future prompts.</p>
+            </div>
+          </label>
+
+          <!-- Deny Option -->
+          <label class="flex items-start space-x-3 p-3 rounded-lg border border-zinc-800 bg-brand-black/40 hover:bg-zinc-900/60 cursor-pointer select-none transition-all group">
+            <input type="radio" name="approval-action" value="deny" class="mt-0.5 text-brand-accent focus:ring-brand-accent bg-zinc-900 border-zinc-700">
+            <div class="space-y-0.5">
+              <span class="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">Deny Execution</span>
+              <p class="text-[9px] text-zinc-500">Abort this command. nxCoder will receive a security error response.</p>
+            </div>
+          </label>
+        </div>
+
+        <!-- Bottom Actions -->
+        <div class="flex items-center justify-between border-t border-zinc-800 pt-4">
+          <span class="text-[9px] text-zinc-500 font-mono">Press <kbd class="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300">Enter</kbd> to confirm</span>
+          <button id="btn-submit-command-approval" class="bg-brand-accent hover:bg-brand-accent/90 text-white text-xs font-bold px-5 py-2.5 rounded-lg shadow-lg transition-all flex items-center space-x-2">
+            <i class="fa-solid fa-check"></i>
+            <span>Confirm & Resume</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ========================================== -->
     <!-- VIEW D: MARKETPLACE HUB VIEW               -->
     <!-- ========================================== -->
@@ -622,6 +684,159 @@
     </section>
 
     <!-- ========================================== -->
+    <!-- VIEW E: EDIT WORKSPACE / CONFIGURATION PAGE -->
+    <!-- ========================================== -->
+    <section id="view-edit-workspace" class="absolute inset-0 z-10 flex flex-col opacity-0 translate-x-12 pointer-events-none transition-all duration-300 ease-out bg-brand-black">
+      <!-- Fixed Top Panel -->
+      <div class="bg-brand-dark/80 backdrop-blur-md border-b border-zinc-800 p-6 space-y-4 shrink-0 z-20 shadow-xl">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <button id="btn-edit-ws-back" class="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-md transition-all" title="Back">
+              <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div>
+              <h2 class="text-base font-bold text-white">Configure Workspace Settings</h2>
+              <p class="text-[10px] text-zinc-500 font-mono">ID: <span id="edit-ws-id-label">ws_xxxx</span></p>
+            </div>
+          </div>
+          <button id="btn-save-edit-ws" class="bg-brand-accent text-white text-xs font-bold px-5 py-2.5 rounded-lg shadow-lg hover:bg-brand-accent/90 transition-all flex items-center space-x-2">
+            <i class="fa-solid fa-floppy-disk"></i>
+            <span>Save Configurations</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Config Content Panels Grid -->
+      <div class="flex-1 overflow-y-auto p-6 bg-brand-black">
+        <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          
+          <!-- Column 1: Core Details & Folders -->
+          <div class="space-y-6 lg:col-span-2">
+            <div class="bg-brand-dark border border-zinc-800 rounded-xl p-5 space-y-4 shadow-lg">
+              <h3 class="text-xs font-bold text-zinc-300 uppercase tracking-wider border-b border-zinc-800 pb-2">1. Workspace Metadata</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Workspace Label</label>
+                  <input type="text" id="edit-ws-name" placeholder="e.g., Python Microservice App" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-brand-accent transition-all">
+                </div>
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Instruct Profile</label>
+                  <select id="edit-ws-instruct" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-brand-accent transition-all">
+                    <option value="">Standard Default Personality Prompt</option>
+                    <!-- Populated by JS -->
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Workspace Folders configuration -->
+            <div class="bg-brand-dark border border-zinc-800 rounded-xl p-5 space-y-4 shadow-lg">
+              <div class="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <h3 class="text-xs font-bold text-zinc-300 uppercase tracking-wider">2. Bounded Directories</h3>
+                <div class="flex items-center space-x-2">
+                  <span class="text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Folders count</span>
+                  <span id="edit-ws-folder-count" class="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">0</span>
+                </div>
+              </div>
+              
+              <div class="space-y-4">
+                <div id="edit-ws-folders-list" class="flex flex-wrap gap-2 min-h-12 items-center bg-zinc-900/20 p-3 rounded-lg border border-zinc-800/40">
+                  <span class="text-xs text-zinc-600 italic">No folders selected. Add paths below.</span>
+                </div>
+
+                <!-- Directory Browser Explorer inside Edit view -->
+                <div class="bg-zinc-950 p-4 rounded-lg border border-zinc-800 space-y-3 flex flex-col h-[350px]">
+                  <span class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Local Directory Explorer</span>
+                  
+                  <div class="flex items-center justify-between gap-3 shrink-0">
+                    <div class="flex items-center space-x-2 flex-1">
+                      <button type="button" id="btn-edit-explorer-up" class="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-all font-bold" title="Go Up">
+                        <i class="fa-solid fa-arrow-up-from-bracket text-xs"></i>
+                      </button>
+                      <div class="flex-1 flex items-center bg-brand-black border border-zinc-850 rounded px-2.5 py-1.5 text-[10px] font-mono text-zinc-300 overflow-hidden">
+                        <span id="edit-explorer-current-path" class="truncate">/</span>
+                      </div>
+                    </div>
+                    <div class="relative w-full max-w-[150px]">
+                      <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-[10px]"></i>
+                      <input type="text" id="edit-explorer-search" placeholder="Filter..." class="w-full bg-brand-black border border-zinc-850 rounded pl-7 pr-2 py-1 text-[10px] text-white focus:outline-none focus:border-brand-accent transition-all">
+                    </div>
+                  </div>
+
+                  <div id="edit-explorer-items-grid" class="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 content-start">
+                    <!-- Items populated by JS -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Agent Security Settings & Allowed Commands -->
+          <div class="space-y-6 lg:col-span-1">
+            <!-- Security mode settings -->
+            <div class="bg-brand-dark border border-zinc-800 rounded-xl p-5 space-y-4 shadow-lg">
+              <h3 class="text-xs font-bold text-zinc-300 uppercase tracking-wider border-b border-zinc-800 pb-2">3. Security Configuration</h3>
+              
+              <div class="space-y-3">
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Security Policy Mode</label>
+                  <select id="edit-ws-security-mode" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-brand-accent transition-all">
+                    <option value="ask">Always Ask Permission (Highly Secured)</option>
+                    <option value="auto_harmless">Auto-Allow Harmless (Default behavior)</option>
+                    <option value="relax">Relaxed Mode (Allow All Execution - Warning)</option>
+                  </select>
+                  <p class="text-[9px] text-zinc-500 mt-1 leading-normal">
+                    In <strong>Always Ask</strong> mode, nxCoder will ask confirmation for every command execution. 
+                    In <strong>Auto-Allow Harmless</strong>, harmless/approved commands execute silently while other terminal commands prompt you.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Command rules configuration -->
+            <div class="bg-brand-dark border border-zinc-800 rounded-xl p-5 space-y-4 shadow-lg">
+              <h3 class="text-xs font-bold text-zinc-300 uppercase tracking-wider border-b border-zinc-800 pb-2">4. Policy Rules Configuration</h3>
+              
+              <div class="space-y-4">
+                <!-- Rule Type Toggle (Commands vs Tools) -->
+                <div class="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800/80 mb-1 select-none">
+                  <button type="button" onclick="switchSecurityRuleType('commands')" id="btn-security-type-commands" class="flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all">Commands</button>
+                  <button type="button" onclick="switchSecurityRuleType('tools')" id="btn-security-type-tools" class="flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all">Tools</button>
+                </div>
+
+                <!-- Tabs for rules types -->
+                <div class="flex border-b border-zinc-800">
+                  <button type="button" onclick="switchSecurityRuleTab('allowed')" id="btn-security-tab-allowed" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-brand-accent border-b-2 border-brand-accent transition-all">Allowed</button>
+                  <button type="button" onclick="switchSecurityRuleTab('denied')" id="btn-security-tab-denied" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b-2 border-transparent hover:text-zinc-300 transition-all">Denied</button>
+                  <button type="button" onclick="switchSecurityRuleTab('harmless')" id="btn-security-tab-harmless" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b-2 border-transparent hover:text-zinc-300 transition-all">Harmless</button>
+                </div>
+
+                <!-- Add rule input -->
+                <div class="flex items-center space-x-2">
+                  <input type="text" id="security-rule-input" placeholder="e.g. git status, npm test" class="flex-1 bg-brand-black border border-zinc-800 rounded p-2 text-xs font-mono text-white focus:outline-none focus:border-brand-accent">
+                  <button type="button" onclick="addSecurityRuleFromInput()" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 px-3 py-2 rounded text-xs font-semibold transition-all">
+                    Add
+                  </button>
+                </div>
+
+                <!-- Rules list container -->
+                <div id="security-rules-list" class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                  <!-- Rendered rules list item chips -->
+                </div>
+                
+                <p class="text-[9px] text-zinc-500 leading-normal">
+                  Rules act as prefixes. For example, adding <strong>git</strong> as an allowed command rule automatically permits all git commands (e.g. <code>git commit</code>, <code>git status</code>).
+                </p>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
     <!-- VIEW B: SESSION DEVELOPMENT VIEW  -->
     <!-- ========================================== -->
     <section id="view-session" class="absolute inset-0 bg-brand-black/60 flex overflow-hidden z-0 pointer-events-none opacity-0 transition-all duration-300 transform translate-x-12">
@@ -680,6 +895,11 @@
 
           <button onclick="toggleArtifactsView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
             <span class="flex items-center"><i class="fa-solid fa-cube mr-2 text-zinc-500"></i> Artifacts</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
+          </button>
+
+          <button onclick="openEditWorkspacePanel(state.activeWorkspaceId)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
+            <span class="flex items-center"><i class="fa-solid fa-sliders mr-2 text-zinc-500"></i> Security & Settings</span>
             <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
           </button>
 
@@ -1015,6 +1235,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       viewManager: document.getElementById('view-manager'),
       viewSession: document.getElementById('view-session'),
       viewConstructWorkspace: document.getElementById('view-construct-workspace'),
+      viewEditWorkspace: document.getElementById('view-edit-workspace'),
       viewMarketplace: document.getElementById('view-marketplace'),
       workspacesDashboardGrid: document.getElementById('workspaces-dashboard-grid'),
       managerSettingsDrawer: document.getElementById('manager-settings-drawer'),
@@ -1706,7 +1927,8 @@ Group files by component. Use markdown links with relative paths and detail exac
         manager: elements.viewManager,
         session: elements.viewSession,
         construct: elements.viewConstructWorkspace,
-        marketplace: elements.viewMarketplace
+        marketplace: elements.viewMarketplace,
+        edit_workspace: elements.viewEditWorkspace
       };
 
       Object.keys(views).forEach(key => {
@@ -1742,6 +1964,10 @@ Group files by component. Use markdown links with relative paths and detail exac
         elements.viewMarketplace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
         elements.breadcrumbActiveSection.innerText = "Marketplace";
         renderMarketplaceViewPage();
+      } else if (targetView === 'edit_workspace') {
+        elements.viewEditWorkspace.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
+        elements.viewEditWorkspace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.breadcrumbActiveSection.innerText = "Edit Workspace Settings";
       }
 
       toggleMobileSidebar(false); // Ensure sidebar is closed when navigating
@@ -1822,6 +2048,9 @@ Group files by component. Use markdown links with relative paths and detail exac
             <div class="flex items-center justify-between">
               ${statusIndicator}
               <div class="flex items-center space-x-1.5">
+                <button onclick="event.stopPropagation(); openEditWorkspacePanel('${ws.id}')" class="text-zinc-500 hover:text-brand-accent text-[10px] p-1 rounded hover:bg-zinc-900 transition-all" title="Edit Workspace Settings">
+                  <i class="fa-solid fa-pen-to-square"></i>
+                </button>
                 <button onclick="event.stopPropagation(); deleteWorkspaceRegistry('${ws.id}')" class="text-zinc-500 hover:text-red-500 text-[10px] p-1 rounded hover:bg-zinc-900 transition-all" title="Wipe Context">
                   <i class="fa-solid fa-trash-can"></i>
                 </button>
@@ -3120,6 +3349,415 @@ Group files by component. Use markdown links with relative paths and detail exac
       await renderConstructExplorer();
     }
 
+    // ==========================================
+    // EDIT WORKSPACE / SECURITY CONFIGURATION STATE & HANDLERS
+    // ==========================================
+    const editWorkspaceState = {
+      workspaceId: null,
+      name: "",
+      instructionId: "",
+      folders: [],
+      securityMode: "auto_harmless",
+      allowedCommands: [],
+      deniedCommands: [],
+      harmlessCommands: [],
+      allowedTools: [],
+      deniedTools: [],
+      harmlessTools: [],
+      activeRuleType: "commands", // 'commands' | 'tools'
+      activeRuleTab: "allowed" // 'allowed' | 'denied' | 'harmless'
+    };
+
+    let editExplorerState = {
+      currentPath: '',
+      searchFilter: ''
+    };
+
+    async function openEditWorkspacePanel(workspaceId) {
+      if (!workspaceId) {
+        showToast('Error', 'No workspace identifier provided.', 'error');
+        return;
+      }
+      
+      try {
+        const wsObj = state.workspaces.find(w => w.id === workspaceId);
+        if (!wsObj) {
+          const wsRes = await fetch('/api/workspace');
+          state.workspaces = await wsRes.json();
+        }
+        
+        const ws = state.workspaces.find(w => w.id === workspaceId);
+        if (!ws) {
+          showToast('Not Found', 'Workspace registry not found.', 'error');
+          return;
+        }
+
+        // Fetch security settings from API
+        const secRes = await fetch(`/api/workspace/${workspaceId}/security`);
+        if (!secRes.ok) throw new Error("Could not fetch security settings");
+        const security = await secRes.json();
+
+        // Populate edit state
+        editWorkspaceState.workspaceId = workspaceId;
+        editWorkspaceState.name = ws.name;
+        editWorkspaceState.instructionId = ws.instruction_id || "";
+        editWorkspaceState.folders = [...ws.folders_path];
+        editWorkspaceState.securityMode = security.security_mode || "auto_harmless";
+        editWorkspaceState.allowedCommands = security.allowed_commands || [];
+        editWorkspaceState.deniedCommands = security.denied_commands || [];
+        editWorkspaceState.harmlessCommands = security.harmless_commands || [];
+        editWorkspaceState.allowedTools = security.allowed_tools || [];
+        editWorkspaceState.deniedTools = security.denied_tools || [];
+        editWorkspaceState.harmlessTools = security.harmless_tools || [];
+        editWorkspaceState.activeRuleType = "commands";
+        editWorkspaceState.activeRuleTab = "allowed";
+
+        // Update UI inputs
+        document.getElementById('edit-ws-id-label').innerText = workspaceId;
+        document.getElementById('edit-ws-name').value = ws.name;
+        
+        // Populate Instruct profile dropdown
+        const select = document.getElementById('edit-ws-instruct');
+        select.innerHTML = `<option value="">Standard Default Personality Prompt</option>` +
+          state.instructions.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+        select.value = ws.instruction_id || "";
+
+        document.getElementById('edit-ws-security-mode').value = editWorkspaceState.securityMode;
+
+        // Reset and show rules type toggle
+        const btnCmd = document.getElementById('btn-security-type-commands');
+        const btnTools = document.getElementById('btn-security-type-tools');
+        if (btnCmd && btnTools) {
+          btnCmd.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all";
+          btnTools.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all";
+          document.getElementById('security-rule-input').placeholder = "e.g. git status, npm test";
+        }
+
+        // Render folders list
+        renderEditWorkspaceFoldersList();
+        
+        // Render security tab and rules list
+        switchSecurityRuleTab('allowed');
+
+        // Set up and load edit directory explorer starting at first workspace folder path
+        editExplorerState.currentPath = ws.folders_path[0] || '/';
+        editExplorerState.searchFilter = '';
+        const filterInput = document.getElementById('edit-explorer-search');
+        if (filterInput) filterInput.value = '';
+        await renderEditExplorer();
+
+        // Redirect/Navigate to edit workspace view
+        navigateToView('edit_workspace');
+
+      } catch (err) {
+        showToast('Hydration Error', `Could not fetch workspace details: ${err.message}`, 'error');
+      }
+    }
+
+    function renderEditWorkspaceFoldersList() {
+      const list = document.getElementById('edit-ws-folders-list');
+      const count = document.getElementById('edit-ws-folder-count');
+      
+      count.innerText = editWorkspaceState.folders.length;
+      
+      if (editWorkspaceState.folders.length === 0) {
+        list.innerHTML = '<span class="text-xs text-zinc-600 italic">No folders selected. Add paths below.</span>';
+        return;
+      }
+
+      list.innerHTML = '';
+      editWorkspaceState.folders.forEach((path, index) => {
+        const chip = document.createElement('div');
+        chip.className = "flex items-center space-x-2 bg-zinc-900 px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 font-mono group hover:border-brand-accent/50 transition-all";
+        chip.innerHTML = `
+          <span class="truncate max-w-[200px]" title="${path}">${path}</span>
+          <button onclick="removeEditWorkspaceFolder(${index})" class="text-zinc-600 hover:text-red-400 transition-colors"><i class="fa-solid fa-xmark"></i></button>
+        `;
+        list.appendChild(chip);
+      });
+    }
+
+    window.removeEditWorkspaceFolder = function(index) {
+      editWorkspaceState.folders.splice(index, 1);
+      renderEditWorkspaceFoldersList();
+      renderEditExplorer();
+    };
+
+    window.switchSecurityRuleType = function(type) {
+      editWorkspaceState.activeRuleType = type;
+      
+      const btnCmd = document.getElementById('btn-security-type-commands');
+      const btnTools = document.getElementById('btn-security-type-tools');
+      
+      if (type === 'commands') {
+        btnCmd.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all";
+        btnTools.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all";
+        document.getElementById('security-rule-input').placeholder = "e.g. git status, npm test";
+      } else {
+        btnTools.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all";
+        btnCmd.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all";
+        document.getElementById('security-rule-input').placeholder = "e.g. write_file, edit_file";
+      }
+      
+      renderSecurityRulesList();
+    };
+
+    window.switchSecurityRuleTab = function(tabName) {
+      editWorkspaceState.activeRuleTab = tabName;
+      
+      const tabs = ['allowed', 'denied', 'harmless'];
+      tabs.forEach(tab => {
+        const btn = document.getElementById(`btn-security-tab-${tab}`);
+        if (tab === tabName) {
+          btn.classList.add('text-brand-accent', 'border-brand-accent');
+          btn.classList.remove('text-zinc-500', 'border-transparent');
+        } else {
+          btn.classList.remove('text-brand-accent', 'border-brand-accent');
+          btn.classList.add('text-zinc-500', 'border-transparent');
+        }
+      });
+      
+      renderSecurityRulesList();
+    };
+
+    function renderSecurityRulesList() {
+      const container = document.getElementById('security-rules-list');
+      container.innerHTML = "";
+      
+      let list = [];
+      const type = editWorkspaceState.activeRuleType;
+      const tab = editWorkspaceState.activeRuleTab;
+      
+      if (type === 'commands') {
+        if (tab === 'allowed') list = editWorkspaceState.allowedCommands;
+        else if (tab === 'denied') list = editWorkspaceState.deniedCommands;
+        else list = editWorkspaceState.harmlessCommands;
+      } else {
+        if (tab === 'allowed') list = editWorkspaceState.allowedTools;
+        else if (tab === 'denied') list = editWorkspaceState.deniedTools;
+        else list = editWorkspaceState.harmlessTools;
+      }
+      
+      if (list.length === 0) {
+        container.innerHTML = `<div class="text-[10px] text-zinc-600 italic py-4 text-center">No rules configured in this tab.</div>`;
+        return;
+      }
+      
+      list.forEach((rule, index) => {
+        const row = document.createElement('div');
+        row.className = "flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded p-1.5 px-2.5 text-[10px] font-mono text-zinc-300";
+        row.innerHTML = `
+          <span class="truncate pr-4">${rule}</span>
+          <button onclick="removeSecurityRule(${index})" class="text-zinc-600 hover:text-red-400 p-0.5"><i class="fa-solid fa-trash text-[9px]"></i></button>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    window.removeSecurityRule = function(index) {
+      const type = editWorkspaceState.activeRuleType;
+      const tab = editWorkspaceState.activeRuleTab;
+      
+      let list = [];
+      if (type === 'commands') {
+        if (tab === 'allowed') list = editWorkspaceState.allowedCommands;
+        else if (tab === 'denied') list = editWorkspaceState.deniedCommands;
+        else list = editWorkspaceState.harmlessCommands;
+      } else {
+        if (tab === 'allowed') list = editWorkspaceState.allowedTools;
+        else if (tab === 'denied') list = editWorkspaceState.deniedTools;
+        else list = editWorkspaceState.harmlessTools;
+      }
+      
+      list.splice(index, 1);
+      renderSecurityRulesList();
+    };
+
+    window.addSecurityRuleFromInput = function() {
+      const input = document.getElementById('security-rule-input');
+      const val = input.value.trim();
+      if (!val) return;
+      
+      const type = editWorkspaceState.activeRuleType;
+      const tab = editWorkspaceState.activeRuleTab;
+      
+      let list = [];
+      if (type === 'commands') {
+        if (tab === 'allowed') list = editWorkspaceState.allowedCommands;
+        else if (tab === 'denied') list = editWorkspaceState.deniedCommands;
+        else list = editWorkspaceState.harmlessCommands;
+      } else {
+        if (tab === 'allowed') list = editWorkspaceState.allowedTools;
+        else if (tab === 'denied') list = editWorkspaceState.deniedTools;
+        else list = editWorkspaceState.harmlessTools;
+      }
+      
+      if (list.includes(val)) {
+        showToast('Duplicate Rule', 'This rule already exists.', 'info');
+        return;
+      }
+      
+      list.push(val);
+      input.value = "";
+      renderSecurityRulesList();
+    };
+
+    async function renderEditExplorer() {
+      const grid = document.getElementById('edit-explorer-items-grid');
+      const pathEl = document.getElementById('edit-explorer-current-path');
+      if (!grid || !pathEl) return;
+      
+      grid.innerHTML = '<div class="col-span-full text-center py-10 text-zinc-600 text-xs italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i> Scanning filesystem...</div>';
+
+      try {
+        const res = await fetch(`/api/folder?path=${encodeURIComponent(editExplorerState.currentPath)}`);
+        if (!res.ok) throw new Error('Could not fetch directory content');
+        
+        const data = await res.json();
+        const items = data.items;
+        
+        editExplorerState.currentPath = data.currentPath;
+        pathEl.innerText = editExplorerState.currentPath;
+        
+        grid.innerHTML = '';
+
+        const filteredItems = items.filter(item => 
+          item.name.toLowerCase().includes(editExplorerState.searchFilter.toLowerCase())
+        );
+
+        if (filteredItems.length === 0) {
+          grid.innerHTML = '<div class="col-span-full text-center py-10 text-zinc-600 text-xs italic">No folders match filter.</div>';
+          return;
+        }
+
+        filteredItems.forEach(item => {
+          const isFolder = item.type === 'folder' || item.type === 'directory';
+          if (!isFolder) return;
+
+          const isSelected = editWorkspaceState.folders.includes(item.full_path);
+          
+          const card = document.createElement('div');
+          card.className = `group relative p-3 rounded-lg border transition-all cursor-pointer flex flex-col items-center justify-center text-center space-y-1.5 ${
+            isSelected 
+              ? 'bg-brand-accent/10 border-brand-accent shadow-lg shadow-brand-accent/10' 
+              : 'bg-brand-dark border-zinc-800 hover:border-zinc-600'
+          }`;
+
+          card.innerHTML = `
+            <i class="fa-solid fa-folder text-amber-500 text-xl"></i>
+            <span class="text-[10px] font-mono text-zinc-300 truncate w-full" title="${item.name}">${item.name}</span>
+            <button type="button" class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 px-1 bg-brand-black rounded border border-zinc-800 text-[8px] text-zinc-400 hover:text-white">
+              ${isSelected ? '<i class="fa-solid fa-check text-brand-accent"></i>' : '<i class="fa-solid fa-plus"></i>'}
+            </button>
+          `;
+
+          card.onclick = (e) => {
+            if (e.target.closest('button')) {
+              toggleEditFolder(item.full_path);
+            } else {
+              navigateToEditFolder(item.full_path);
+            }
+          };
+          
+          grid.appendChild(card);
+        });
+
+      } catch (err) {
+        grid.innerHTML = `<div class="col-span-full text-center py-10 text-red-500/50 text-[10px] italic">Error: ${err.message}</div>`;
+      }
+    }
+
+    function toggleEditFolder(path) {
+      const idx = editWorkspaceState.folders.indexOf(path);
+      if (idx > -1) {
+        editWorkspaceState.folders.splice(idx, 1);
+      } else {
+        editWorkspaceState.folders.push(path);
+      }
+      renderEditWorkspaceFoldersList();
+      renderEditExplorer();
+    }
+
+    function navigateToEditFolder(path) {
+      editExplorerState.currentPath = path;
+      editExplorerState.searchFilter = '';
+      const filterInput = document.getElementById('edit-explorer-search');
+      if (filterInput) filterInput.value = '';
+      renderEditExplorer();
+    }
+
+    async function saveWorkspaceConfigurations() {
+      const name = document.getElementById('edit-ws-name').value.trim();
+      const instruction_id = document.getElementById('edit-ws-instruct').value;
+      const folders_path = editWorkspaceState.folders;
+      const security_mode = document.getElementById('edit-ws-security-mode').value;
+      
+      if (!name) {
+        showToast('Required Field', 'Workspace Label is required.', 'error');
+        return;
+      }
+      
+      if (folders_path.length === 0) {
+        showToast('Required Field', 'At least one bounded directory is required.', 'error');
+        return;
+      }
+      
+      try {
+        const coreRes = await fetch(`/api/workspace/${editWorkspaceState.workspaceId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            instruction_id,
+            folders_path
+          })
+        });
+        
+        if (!coreRes.ok) {
+          const errData = await coreRes.json();
+          throw new Error(errData.error || 'Failed to update workspace metadata');
+        }
+        
+        const secRes = await fetch(`/api/workspace/${editWorkspaceState.workspaceId}/security`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            security_mode,
+            allowed_commands: editWorkspaceState.allowedCommands,
+            denied_commands: editWorkspaceState.deniedCommands,
+            harmless_commands: editWorkspaceState.harmlessCommands,
+            allowed_tools: editWorkspaceState.allowedTools,
+            denied_tools: editWorkspaceState.deniedTools,
+            harmless_tools: editWorkspaceState.harmlessTools
+          })
+        });
+        
+        if (!secRes.ok) {
+          const errData = await secRes.json();
+          throw new Error(errData.error || 'Failed to update security settings');
+        }
+        
+        showToast('Workspace Saved', 'Configuration updated successfully.', 'success');
+        
+        const wsRes = await fetch('/api/workspace');
+        state.workspaces = await wsRes.json();
+        
+        if (state.activeWorkspaceId === editWorkspaceState.workspaceId) {
+          const wsObj = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+          if (wsObj) {
+            elements.sidebarActiveWsName.innerText = wsObj.name;
+            elements.sidebarActiveWsPaths.innerText = wsObj.folders_path.join(', ');
+          }
+          navigateToView('session');
+        } else {
+          navigateToView('manager');
+        }
+        
+      } catch (err) {
+        showToast('Save Error', err.message, 'error');
+      }
+    }
+
     function openCreateWorkspacePanel() {
       const drawer = elements.managerSettingsDrawer;
       const body = elements.settingsDrawerContent;
@@ -3529,6 +4167,32 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     function processWebSocketGatewayPayload(data) {
       switch (data.type) {
+        case 'TOOL_APPROVAL_REQUEST': {
+          showToolApprovalModal(data.approvalId, data.toolName, data.args);
+          break;
+        }
+        case 'TOOL_APPROVAL_TIMEOUT': {
+          const modal = document.getElementById('command-approval-modal');
+          if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+          }
+          showToast('Security Alert', 'Tool execution request timed out.', 'warning');
+          break;
+        }
+        case 'COMMAND_APPROVAL_REQUEST': {
+          showCommandApprovalModal(data.approvalId, data.command);
+          break;
+        }
+        case 'COMMAND_APPROVAL_TIMEOUT': {
+          const modal = document.getElementById('command-approval-modal');
+          if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+          }
+          showToast('Security Alert', 'Command execution request timed out.', 'warning');
+          break;
+        }
         case 'TOKEN_STREAM': {
           removeRetryingCard();
           setGeneratingState(true);
@@ -5445,6 +6109,145 @@ Group files by component. Use markdown links with relative paths and detail exac
         elements.sessionChatContainer.scrollTop = elements.sessionChatContainer.scrollHeight;
       }, 50);
     }
+
+    // ==========================================
+    // COMMAND & TOOL SECURITY APPROVAL & EDIT WS HOOKS
+    // ==========================================
+    let currentApprovalId = null;
+    let currentApprovalType = null; // 'command' | 'tool'
+
+    function showCommandApprovalModal(approvalId, command) {
+      currentApprovalId = approvalId;
+      currentApprovalType = 'command';
+      
+      document.getElementById('approval-header-label').innerText = "Agent Command Permission Required";
+      document.getElementById('approval-description-text').innerText = "The coding agent is requesting permission to execute the following terminal command on your local system:";
+      document.getElementById('approval-command-prefix').style.display = 'inline';
+      document.getElementById('approval-command-display').innerText = command;
+      
+      document.getElementById('approval-always-allow-label').innerText = "Always Allow Command";
+      document.getElementById('approval-always-allow-description').innerText = "Add this command prefix to Allowed list. Runs automatically without future prompts.";
+
+      const radios = document.getElementsByName('approval-action');
+      radios.forEach(r => {
+        if (r.value === 'allow_once') r.checked = true;
+      });
+
+      const modal = document.getElementById('command-approval-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    window.showCommandApprovalModal = showCommandApprovalModal;
+
+    function showToolApprovalModal(approvalId, toolName, args) {
+      currentApprovalId = approvalId;
+      currentApprovalType = 'tool';
+      
+      document.getElementById('approval-header-label').innerText = `Tool Execution: ${toolName}`;
+      document.getElementById('approval-description-text').innerText = `The coding agent is requesting permission to execute the tool "${toolName}" with the following arguments:`;
+      document.getElementById('approval-command-prefix').style.display = 'none';
+      document.getElementById('approval-command-display').innerText = JSON.stringify(args, null, 2);
+      
+      document.getElementById('approval-always-allow-label').innerText = "Always Allow Tool";
+      document.getElementById('approval-always-allow-description').innerText = `Add "${toolName}" to the Allowed tools list. Runs automatically without future prompts.`;
+
+      const radios = document.getElementsByName('approval-action');
+      radios.forEach(r => {
+        if (r.value === 'allow_once') r.checked = true;
+      });
+
+      const modal = document.getElementById('command-approval-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    window.showToolApprovalModal = showToolApprovalModal;
+
+    function submitCommandApproval() {
+      if (!currentApprovalId) return;
+
+      const radios = document.getElementsByName('approval-action');
+      let action = 'allow_once';
+      for (const r of radios) {
+        if (r.checked) {
+          action = r.value;
+          break;
+        }
+      }
+
+      const modal = document.getElementById('command-approval-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+
+      if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+        if (currentApprovalType === 'command') {
+          state.wsConn.send(JSON.stringify({
+            type: 'COMMAND_APPROVAL_RESPONSE',
+            approvalId: currentApprovalId,
+            action: action
+          }));
+        } else {
+          state.wsConn.send(JSON.stringify({
+            type: 'TOOL_APPROVAL_RESPONSE',
+            approvalId: currentApprovalId,
+            action: action
+          }));
+        }
+      }
+
+      currentApprovalId = null;
+      currentApprovalType = null;
+    }
+    window.submitCommandApproval = submitCommandApproval;
+
+    // Initialize listeners for editing and approvals
+    function initWorkspaceEditAndSecurityHooks() {
+      // Buttons
+      document.getElementById('btn-submit-command-approval').onclick = submitCommandApproval;
+      document.getElementById('btn-save-edit-ws').onclick = saveWorkspaceConfigurations;
+      document.getElementById('btn-edit-ws-back').onclick = () => {
+        if (state.activeWorkspaceId === editWorkspaceState.workspaceId) {
+          navigateToView('session');
+        } else {
+          navigateToView('manager');
+        }
+      };
+
+      // Explorer listeners
+      document.getElementById('btn-edit-explorer-up').onclick = () => {
+        if (editExplorerState.currentPath === '/' || !editExplorerState.currentPath) return;
+        const parts = editExplorerState.currentPath.split('/').filter(Boolean);
+        parts.pop();
+        const parent = '/' + parts.join('/');
+        navigateToEditFolder(parent);
+      };
+
+      document.getElementById('edit-explorer-search').addEventListener('input', (e) => {
+        editExplorerState.searchFilter = e.target.value;
+        renderEditExplorer();
+      });
+
+      // Rules enter listener
+      document.getElementById('security-rule-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addSecurityRuleFromInput();
+        }
+      });
+
+      // Global enter to confirm command approval modal
+      window.addEventListener('keydown', (e) => {
+        const modal = document.getElementById('command-approval-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitCommandApproval();
+          }
+        }
+      });
+    }
+
+    // Run initialization hooks when document scripts parse
+    setTimeout(initWorkspaceEditAndSecurityHooks, 100);
   </script>
   <script>
     (function() {

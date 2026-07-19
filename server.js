@@ -685,6 +685,18 @@ async function initDatabase() {
     FOREIGN KEY (instruction_id) REFERENCES instructions(id) ON DELETE SET NULL
   )`);
 
+  await dbRun(`CREATE TABLE IF NOT EXISTS workspace_security (
+    workspace_id TEXT PRIMARY KEY,
+    security_mode TEXT DEFAULT 'auto_harmless',
+    allowed_commands TEXT DEFAULT '[]',
+    denied_commands TEXT DEFAULT '[]',
+    harmless_commands TEXT DEFAULT '["npm test", "git status", "git diff", "ls", "pwd", "echo", "node -v", "npm -v"]',
+    allowed_tools TEXT DEFAULT '[]',
+    denied_tools TEXT DEFAULT '[]',
+    harmless_tools TEXT DEFAULT '["list_dir", "read_file", "regex_search", "view_image", "wait", "wait_terminal", "get_sub_agent_status", "wait_sub_agent", "set_session_name"]',
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+  )`);
+
   await dbRun(`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     workspace_id TEXT,
@@ -702,8 +714,17 @@ async function initDatabase() {
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   )`);
 
+  // Migrations for workspace_security columns
+  try {
+    await dbRun("ALTER TABLE workspace_security ADD COLUMN allowed_tools TEXT DEFAULT '[]'");
+  } catch (e) {}
+  try {
+    await dbRun("ALTER TABLE workspace_security ADD COLUMN denied_tools TEXT DEFAULT '[]'");
+  } catch (e) {}
+  try {
+    await dbRun("ALTER TABLE workspace_security ADD COLUMN harmless_tools TEXT DEFAULT '[\"list_dir\", \"read_file\", \"regex_search\", \"view_image\", \"wait\", \"wait_terminal\", \"get_sub_agent_status\", \"wait_sub_agent\", \"set_session_name\"]'");
+  } catch (e) {}
 
-  
   await marketplaceManager.initDatabase();
   await marketplaceManager.syncMarketplace();
   
@@ -1131,8 +1152,221 @@ async function editFileTool(workspaceId, sessionId, filePath, search, replace, o
   }
 }
 
+const pendingApprovals = new Map();
+
+async function getOrCreateWorkspaceSecurity(workspaceId) {
+  let settings = await dbGet("SELECT * FROM workspace_security WHERE workspace_id = ?", [workspaceId]);
+  const defaultHarmlessTools = ["list_dir", "read_file", "regex_search", "view_image", "wait", "wait_terminal", "get_sub_agent_status", "wait_sub_agent", "set_session_name"];
+  const defaultHarmlessCmds = ["npm test", "git status", "git diff", "ls", "pwd", "echo", "node -v", "npm -v"];
+  
+  if (!settings) {
+    await dbRun(
+      `INSERT OR IGNORE INTO workspace_security (workspace_id, security_mode, allowed_commands, denied_commands, harmless_commands, allowed_tools, denied_tools, harmless_tools) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [workspaceId, 'auto_harmless', '[]', '[]', JSON.stringify(defaultHarmlessCmds), '[]', '[]', JSON.stringify(defaultHarmlessTools)]
+    );
+    settings = await dbGet("SELECT * FROM workspace_security WHERE workspace_id = ?", [workspaceId]);
+  }
+  return {
+    workspace_id: settings.workspace_id,
+    security_mode: settings.security_mode,
+    allowed_commands: JSON.parse(settings.allowed_commands || '[]'),
+    denied_commands: JSON.parse(settings.denied_commands || '[]'),
+    harmless_commands: JSON.parse(settings.harmless_commands || '[]'),
+    allowed_tools: JSON.parse(settings.allowed_tools || '[]'),
+    denied_tools: JSON.parse(settings.denied_tools || '[]'),
+    harmless_tools: JSON.parse(settings.harmless_tools || '[]')
+  };
+}
+
+function isCommandMatched(targetCommand, rulesList) {
+  if (!targetCommand || !rulesList || !Array.isArray(rulesList)) return false;
+  const targetClean = targetCommand.trim().toLowerCase();
+  
+  for (const rule of rulesList) {
+    const ruleClean = rule.trim().toLowerCase();
+    if (!ruleClean) continue;
+    
+    // Exact match
+    if (targetClean === ruleClean) {
+      return true;
+    }
+    
+    // Prefix match on word boundary (e.g. "git" matches "git status", but not "github")
+    if (targetClean.startsWith(ruleClean)) {
+      const remainder = targetClean.slice(ruleClean.length);
+      if (remainder.length === 0 || remainder.startsWith(' ') || remainder.startsWith('\t')) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+async function promptUserForCommandApproval(workspaceId, sessionId, command) {
+  return new Promise((resolve, reject) => {
+    const approvalId = 'appr_' + crypto.randomUUID().substring(0, 8);
+    
+    const timeout = setTimeout(() => {
+      if (pendingApprovals.has(approvalId)) {
+        pendingApprovals.delete(approvalId);
+        resolve('deny'); // Default to deny on timeout
+        sendToSession(sessionId, {
+          type: 'COMMAND_APPROVAL_TIMEOUT',
+          approvalId
+        });
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    pendingApprovals.set(approvalId, {
+      resolve: (action) => {
+        clearTimeout(timeout);
+        resolve(action);
+      },
+      reject: (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      },
+      command,
+      workspaceId,
+      sessionId
+    });
+    
+    sendToSession(sessionId, {
+      type: 'COMMAND_APPROVAL_REQUEST',
+      approvalId,
+      command
+    });
+    console.log(`[Security] Sent command approval request ${approvalId} for command: "${command}"`);
+  });
+}
+
+async function promptUserForToolApproval(workspaceId, sessionId, toolName, args) {
+  return new Promise((resolve, reject) => {
+    const approvalId = 'appr_' + crypto.randomUUID().substring(0, 8);
+    
+    const timeout = setTimeout(() => {
+      if (pendingApprovals.has(approvalId)) {
+        pendingApprovals.delete(approvalId);
+        resolve('deny');
+        sendToSession(sessionId, {
+          type: 'TOOL_APPROVAL_TIMEOUT',
+          approvalId
+        });
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    pendingApprovals.set(approvalId, {
+      resolve: (action) => {
+        clearTimeout(timeout);
+        resolve(action);
+      },
+      reject: (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      },
+      toolName,
+      args,
+      workspaceId,
+      sessionId
+    });
+    
+    const cleanArgs = { ...args };
+    delete cleanArgs.workspaceId;
+    delete cleanArgs.sessionId;
+    
+    sendToSession(sessionId, {
+      type: 'TOOL_APPROVAL_REQUEST',
+      approvalId,
+      toolName,
+      args: cleanArgs
+    });
+    console.log(`[Security] Sent tool approval request ${approvalId} for tool: "${toolName}"`);
+  });
+}
+
+async function verifyToolPermission(workspaceId, sessionId, toolName, args) {
+  if (!workspaceId) return; // Skip if no workspace is active
+  if (toolName === 'execute_command') return; // Command has its own permission handler
+
+  const security = await getOrCreateWorkspaceSecurity(workspaceId);
+
+  // Check if tool is denied
+  if (security.denied_tools && security.denied_tools.includes(toolName)) {
+    throw new Error(`Access Denied: Tool "${toolName}" is denied by workspace security policies.`);
+  }
+
+  let shouldPrompt = true;
+  if (security.security_mode === 'relax') {
+    shouldPrompt = false;
+  } else if (security.security_mode === 'auto_harmless') {
+    if ((security.allowed_tools && security.allowed_tools.includes(toolName)) || 
+        (security.harmless_tools && security.harmless_tools.includes(toolName))) {
+      shouldPrompt = false;
+    }
+  } else { // 'ask'
+    if (security.allowed_tools && security.allowed_tools.includes(toolName)) {
+      shouldPrompt = false;
+    }
+  }
+
+  if (shouldPrompt) {
+    const approvalAction = await promptUserForToolApproval(workspaceId, sessionId, toolName, args);
+    if (approvalAction === 'deny') {
+      throw new Error(`Tool execution denied by user: "${toolName}"`);
+    } else if (approvalAction === 'always_allow') {
+      const updatedAllowed = [...(security.allowed_tools || []), toolName];
+      await dbRun(
+        "UPDATE workspace_security SET allowed_tools = ? WHERE workspace_id = ?",
+        [JSON.stringify(updatedAllowed), workspaceId]
+      );
+      console.log(`Tool "${toolName}" added to allowed_tools for workspace ${workspaceId}`);
+    }
+  }
+}
+
+async function executeMcpToolWithSecurity(toolName, enrichedArgs) {
+  const { workspaceId, sessionId } = enrichedArgs;
+  await verifyToolPermission(workspaceId, sessionId, toolName, enrichedArgs);
+  return await marketplaceManager.executeMcpTool(toolName, enrichedArgs);
+}
+
 async function executeCommandTool(workspaceId, sessionId, command, targetPath, name) {
   try {
+    const security = await getOrCreateWorkspaceSecurity(workspaceId);
+    
+    if (isCommandMatched(command, security.denied_commands)) {
+      return { error: `Access Denied: Command "${command}" is denied by security settings of this workspace.` };
+    }
+    
+    let shouldPrompt = true;
+    if (security.security_mode === 'relax') {
+      shouldPrompt = false;
+    } else if (security.security_mode === 'auto_harmless') {
+      if (isCommandMatched(command, security.allowed_commands) || isCommandMatched(command, security.harmless_commands)) {
+        shouldPrompt = false;
+      }
+    } else { // 'ask'
+      if (isCommandMatched(command, security.allowed_commands)) {
+        shouldPrompt = false;
+      }
+    }
+    
+    if (shouldPrompt) {
+      const approvalAction = await promptUserForCommandApproval(workspaceId, sessionId, command);
+      if (approvalAction === 'deny') {
+        return { error: `Permission Denied: Execution of "${command}" was rejected by the user.` };
+      } else if (approvalAction === 'always_allow') {
+        // Add to allowed_commands
+        const updatedAllowed = [...security.allowed_commands, command.trim()];
+        await dbRun(
+          "UPDATE workspace_security SET allowed_commands = ? WHERE workspace_id = ?",
+          [JSON.stringify(updatedAllowed), workspaceId]
+        );
+        console.log(`Command "${command}" added to allowed_commands for workspace ${workspaceId}`);
+      }
+    }
+
     const { resolvedPath, sessionFolder } = await validateAndResolvePath(workspaceId, sessionId, targetPath || '.');
     await fs.mkdir(resolvedPath, { recursive: true });
 
@@ -1716,7 +1950,7 @@ Safety Guardrails:
             let toolResult;
             try {
               const enrichedArgs = { ...args, workspaceId, sessionId };
-              toolResult = await marketplaceManager.executeMcpTool(name, enrichedArgs);
+              toolResult = await executeMcpToolWithSecurity(name, enrichedArgs);
             } catch (err) {
               toolResult = { error: `MCP Tool execution failed: ${err.message}` };
             }
@@ -1752,7 +1986,7 @@ Safety Guardrails:
             let toolResult;
             try {
               const enrichedArgs = { ...call.args, workspaceId, sessionId };
-              toolResult = await marketplaceManager.executeMcpTool(call.name, enrichedArgs);
+              toolResult = await executeMcpToolWithSecurity(call.name, enrichedArgs);
             } catch (err) {
               toolResult = { error: `Tool execution failed: ${err.message}` };
             }
@@ -2418,6 +2652,42 @@ app.delete('/api/workspace/:id', async (req, res) => {
     const { wsDir } = getWorkspacePaths(id);
     await fs.rm(wsDir, { recursive: true, force: true });
     res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/workspace/:id/security', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const security = await getOrCreateWorkspaceSecurity(id);
+    res.json(security);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/workspace/:id/security', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { security_mode, allowed_commands, denied_commands, harmless_commands, allowed_tools, denied_tools, harmless_tools } = req.body;
+    if (!security_mode || 
+        !Array.isArray(allowed_commands) || !Array.isArray(denied_commands) || !Array.isArray(harmless_commands) ||
+        !Array.isArray(allowed_tools) || !Array.isArray(denied_tools) || !Array.isArray(harmless_tools)) {
+      return res.status(400).json({ error: 'Missing security settings fields' });
+    }
+    
+    // Ensure security row exists
+    await getOrCreateWorkspaceSecurity(id);
+    
+    await dbRun(
+      `UPDATE workspace_security 
+       SET security_mode = ?, allowed_commands = ?, denied_commands = ?, harmless_commands = ?, allowed_tools = ?, denied_tools = ?, harmless_tools = ? 
+       WHERE workspace_id = ?`,
+      [security_mode, JSON.stringify(allowed_commands), JSON.stringify(denied_commands), JSON.stringify(harmless_commands), JSON.stringify(allowed_tools), JSON.stringify(denied_tools), JSON.stringify(harmless_tools), id]
+    );
+    
+    res.json({ message: 'Security settings updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3992,7 +4262,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
                 let toolResult;
                 try {
                   const enrichedArgs = { ...args, workspaceId, sessionId };
-                  toolResult = await marketplaceManager.executeMcpTool(name, enrichedArgs);
+                  toolResult = await executeMcpToolWithSecurity(name, enrichedArgs);
                 } catch (err) {
                   toolResult = { error: `MCP Tool execution failed: ${err.message}` };
                 }
@@ -4084,7 +4354,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
               let toolResult;
               try {
                 const enrichedArgs = { ...call.args, workspaceId, sessionId };
-                toolResult = await marketplaceManager.executeMcpTool(call.name, enrichedArgs);
+                toolResult = await executeMcpToolWithSecurity(call.name, enrichedArgs);
               } catch (err) {
                 toolResult = { error: `MCP Tool execution failed: ${err.message}` };
               }
@@ -4393,6 +4663,20 @@ wss.on('connection', (ws) => {
         // Signal the active stream to abort
         sessionAbortFlags.set(ws.sessionId, true);
         sendToSession(ws.sessionId, { type: 'DONE' });
+      } else if (payload.type === 'COMMAND_APPROVAL_RESPONSE') {
+        const { approvalId, action } = payload;
+        const approval = pendingApprovals.get(approvalId);
+        if (approval) {
+          pendingApprovals.delete(approvalId);
+          approval.resolve(action);
+        }
+      } else if (payload.type === 'TOOL_APPROVAL_RESPONSE') {
+        const { approvalId, action } = payload;
+        const approval = pendingApprovals.get(approvalId);
+        if (approval) {
+          pendingApprovals.delete(approvalId);
+          approval.resolve(action);
+        }
       }
     } catch (err) {
       ws.send(JSON.stringify({ type: 'ERROR', message: `Payload exception: ${err.message}` }));
