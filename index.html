@@ -1292,6 +1292,23 @@ Group files by component. Use markdown links with relative paths and detail exac
         }
       });
 
+      // Auto-expand prompt input height
+      elements.chatPromptInput.addEventListener('input', (e) => {
+        e.target.style.height = 'auto'; // Reset to get accurate scrollHeight
+        
+        const maxHeight = window.innerHeight * 0.5;
+        const newHeight = Math.min(e.target.scrollHeight, maxHeight);
+        
+        e.target.style.height = `${newHeight}px`;
+
+        // Toggle scrollbar visibility
+        if (e.target.scrollHeight > maxHeight) {
+          e.target.style.overflowY = 'auto';
+        } else {
+          e.target.style.overflowY = 'hidden';
+        }
+      });
+
       // Track chat container scroll to toggle stick-to-bottom
       elements.sessionChatContainer.addEventListener('scroll', () => {
         const { scrollTop, scrollHeight, clientHeight } = elements.sessionChatContainer;
