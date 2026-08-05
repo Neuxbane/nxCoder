@@ -429,7 +429,21 @@
 
       <!-- Workspace Cards & Creation Container Grid -->
       <div class="max-w-7xl mx-auto w-full">
-        <h2 class="text-xs uppercase font-bold tracking-wider text-zinc-500 mb-4">Workspace</h2>
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
+          <h2 class="text-xs uppercase font-bold tracking-wider text-zinc-500">Workspace</h2>
+          <div class="w-full md:w-[340px]">
+            <label for="workspace-keyword-filter" class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider mb-1">Filter Keyword Project</label>
+            <div class="relative">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 text-[10px]"></i>
+              <input
+                id="workspace-keyword-filter"
+                type="text"
+                placeholder="Search project name or folder..."
+                class="w-full bg-brand-dark border border-zinc-800 rounded-lg pl-8 pr-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-brand-accent transition-all"
+              >
+            </div>
+          </div>
+        </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           <!-- Dynamically Rendered Workspaces + Creation triggers -->
@@ -1188,6 +1202,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     let state = {
       view: 'manager', // 'manager' | 'session'
       workspaces: [],
+      workspaceKeywordFilter: '',
       apiKeys: [],
       instructions: [],
       sessions: [], // sessions belonging to the active workspace
@@ -1238,6 +1253,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       viewEditWorkspace: document.getElementById('view-edit-workspace'),
       viewMarketplace: document.getElementById('view-marketplace'),
       workspacesDashboardGrid: document.getElementById('workspaces-dashboard-grid'),
+      workspaceKeywordFilter: document.getElementById('workspace-keyword-filter'),
       managerSettingsDrawer: document.getElementById('manager-settings-drawer'),
       settingsDrawerContent: document.getElementById('settings-drawer-content'),
       
@@ -1284,6 +1300,13 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     // Wire global click events
     function setupMainActions() {
+      if (elements.workspaceKeywordFilter) {
+        elements.workspaceKeywordFilter.addEventListener('input', (e) => {
+          state.workspaceKeywordFilter = e.target.value || '';
+          renderManagerWorkspaceDashboard();
+        });
+      }
+
       // Hotkey prompts submission (Ctrl+Enter)
       elements.chatPromptInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && e.ctrlKey) {
@@ -2006,8 +2029,11 @@ Group files by component. Use markdown links with relative paths and detail exac
         // Update the dropdown for custom instructions on prompt input
         populateInstructionsDropdown();
         
-        // Build landing page dashboard elements
+      // Build landing page dashboard elements
         if (state.view === 'manager') {
+          if (!elements.workspaceKeywordFilter) {
+            elements.workspaceKeywordFilter = document.getElementById('workspace-keyword-filter');
+          }
           await renderManagerWorkspaceDashboard();
         }
 
@@ -2021,6 +2047,22 @@ Group files by component. Use markdown links with relative paths and detail exac
     async function renderManagerWorkspaceDashboard() {
       const container = elements.workspacesDashboardGrid;
       container.innerHTML = "";
+
+      const workspaceFilter = (state.workspaceKeywordFilter || '').trim().toLowerCase();
+      const sortedWorkspaces = [...state.workspaces].sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+        const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+      const filteredWorkspaces = workspaceFilter
+        ? sortedWorkspaces.filter(ws => {
+            const searchableText = [
+              ws.name,
+              ...(Array.isArray(ws.folders_path) ? ws.folders_path : [])
+            ].join(' ').toLowerCase();
+            return searchableText.includes(workspaceFilter);
+          })
+        : sortedWorkspaces;
 
       // 1. Render Creation Action Card
       const addCard = document.createElement('div');
@@ -2040,7 +2082,18 @@ Group files by component. Use markdown links with relative paths and detail exac
         return;
       }
 
-      for (const ws of state.workspaces) {
+      if (filteredWorkspaces.length === 0) {
+        const emptyState = document.createElement('div');
+        emptyState.className = "col-span-full text-center py-16 text-zinc-500 text-xs italic border border-dashed border-zinc-800 rounded-xl bg-brand-dark/30";
+        emptyState.innerHTML = `
+          <i class="fa-solid fa-magnifying-glass mr-2"></i>
+          No workspace matches "${workspaceFilter}".
+        `;
+        container.appendChild(emptyState);
+        return;
+      }
+
+      for (const ws of filteredWorkspaces) {
         const card = document.createElement('div');
         card.className = "bg-brand-dark border border-zinc-800 rounded-xl p-5 flex flex-col justify-between shadow-lg relative hover:border-brand-accent/40 transition-all min-h-[190px]";
         
