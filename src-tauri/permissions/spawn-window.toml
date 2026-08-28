@@ -1,0 +1,8 @@
+[default]
+description = "Default permissions for spawn_window command"
+permissions = ["allow-spawn-window"]
+
+[[permission]]
+identifier = "allow-spawn-window"
+description = "Enables the spawn_window command without pre-configured scope."
+commands.allow = ["spawn_window"]

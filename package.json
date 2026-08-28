@@ -14,5 +14,20 @@
     "sharp": "^0.33.4",
     "sqlite3": "^5.1.7",
     "ws": "^8.17.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "scripts": {
+    "start": "cd backend && go run ./cmd/server",
+    "generate-icons": "node src-tauri/generate_icons.js",
+    "build:backend": "cd backend && go mod tidy && go build -o ../nxcoder-backend ./cmd/server",
+    "pretauri:dev": "node src-tauri/generate_icons.js && npm run build:backend",
+    "pretauri:build": "node src-tauri/generate_icons.js && npm run build:backend",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:android": "tauri android dev",
+    "tauri:android:build": "tauri android build"
   }
 }

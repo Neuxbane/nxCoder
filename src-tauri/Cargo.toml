@@ -1,0 +1,21 @@
+[package]
+name = "nxcoder"
+version = "1.0.0"
+description = "nxCoder AI Development Environment"
+edition = "2021"
+
+[lib]
+name = "nxcoder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+portpicker = "0.1"
+dirs = "5.0"
