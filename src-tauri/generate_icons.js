@@ -36,6 +36,34 @@ const svgIcon = `
 
 const svgBuffer = Buffer.from(svgIcon);
 
+function createIco(images) {
+  const count = images.length;
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // Reserved
+  header.writeUInt16LE(1, 2); // 1 = ICO
+  header.writeUInt16LE(count, 4); // Number of images
+
+  const dirEntries = [];
+  let offset = 6 + count * 16;
+
+  for (const img of images) {
+    const entry = Buffer.alloc(16);
+    entry.writeUInt8(img.width >= 256 ? 0 : img.width, 0); // 0 means 256px
+    entry.writeUInt8(img.height >= 256 ? 0 : img.height, 1); // 0 means 256px
+    entry.writeUInt8(0, 2); // Color palette (0 = no palette)
+    entry.writeUInt8(0, 3); // Reserved
+    entry.writeUInt16LE(1, 4); // Color planes
+    entry.writeUInt16LE(32, 6); // Bits per pixel (32-bit RGBA)
+    entry.writeUInt32LE(img.buffer.length, 8); // Image data size in bytes
+    entry.writeUInt32LE(offset, 12); // Byte offset to image data
+
+    dirEntries.push(entry);
+    offset += img.buffer.length;
+  }
+
+  return Buffer.concat([header, ...dirEntries, ...images.map(img => img.buffer)]);
+}
+
 async function generate() {
   const sizes = [
     { name: 'icon.png', size: 512 },
@@ -61,11 +89,19 @@ async function generate() {
       .toFile(path.join(iconsDir, name));
   }
 
-  // Also create icon.ico copy if needed
-  await sharp(svgBuffer)
-    .resize(256, 256)
-    .png()
-    .toFile(path.join(iconsDir, 'icon.ico'));
+  // Generate valid binary multi-resolution Windows ICO (16, 24, 32, 48, 64, 128, 256)
+  const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+  const icoImages = [];
+  for (const size of icoSizes) {
+    const buffer = await sharp(svgBuffer)
+      .resize(size, size)
+      .png()
+      .toBuffer();
+    icoImages.push({ width: size, height: size, buffer });
+  }
+
+  const icoBuffer = createIco(icoImages);
+  fs.writeFileSync(path.join(iconsDir, 'icon.ico'), icoBuffer);
 
   console.log('Successfully generated Tauri application icons in:', iconsDir);
 }

@@ -14,6 +14,14 @@ backend/nxcoder-backend
 *.so
 *.dylib
 
+# Release & Bundler Outputs
+release-builds/
+dist/
+release.keystore
+*.AppImage
+*.deb
+*.rpm
+
 # Rust & Tauri Builds
 src-tauri/target/
 src-tauri/gen/

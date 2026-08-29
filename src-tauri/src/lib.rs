@@ -6,7 +6,9 @@ use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Manager, RunEvent};
-use tokio::net::{TcpListener, UnixStream};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 
 #[allow(dead_code)]
 struct AppState {
@@ -100,6 +102,7 @@ fn spawn_backend_server(socket_path: &PathBuf, data_dir: &PathBuf) -> Result<Chi
     }
 }
 
+#[cfg(unix)]
 async fn wait_for_unix_socket(socket_path: &PathBuf, timeout_secs: u64) -> bool {
     let start = std::time::Instant::now();
     let timeout = Duration::from_secs(timeout_secs);
@@ -116,6 +119,7 @@ async fn wait_for_unix_socket(socket_path: &PathBuf, timeout_secs: u64) -> bool 
     false
 }
 
+#[cfg(unix)]
 async fn start_unix_socket_bridge(socket_path: PathBuf) -> Result<u16, Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let local_port = listener.local_addr()?.port();
@@ -188,6 +192,7 @@ fn spawn_window(app_handle: tauri::AppHandle, url: String, title: Option<String>
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
     {
@@ -215,17 +220,22 @@ pub fn run() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to initialize Tokio runtime");
 
     // Wait for Node server to start listening on Unix socket
+    #[cfg(unix)]
     let is_ready = rt.block_on(async {
         wait_for_unix_socket(&socket_path, 15).await
     });
 
+    #[cfg(unix)]
     if !is_ready {
         eprintln!("Warning: Unix socket timeout reached.");
     }
 
     // Start IPC bridge for the internal webview
     let bridge_port = rt.block_on(async {
-        start_unix_socket_bridge(socket_path.clone()).await.unwrap_or(8080)
+        #[cfg(unix)]
+        { start_unix_socket_bridge(socket_path.clone()).await.unwrap_or(8080) }
+        #[cfg(not(unix))]
+        { 8080 } // Default port if bridge is not running/needed
     });
 
     let app = tauri::Builder::default()

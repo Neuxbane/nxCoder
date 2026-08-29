@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,7 +96,7 @@ func (tm *TerminalManager) ExecuteCommand(baseDir, workspaceID, sessionID, comma
 	cmd.Env = childEnv
 
 	// Process group configuration for clean termination
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(cmd)
 
 	stdinPipe, _ := cmd.StdinPipe()
 	cmd.Stdout = logFile
@@ -269,9 +268,7 @@ func (tm *TerminalManager) TerminateTerminal(terminalID string) error {
 	}
 
 	if inst.Status == "running" && inst.cmd != nil && inst.cmd.Process != nil {
-		_ = syscall.Kill(-inst.cmd.Process.Pid, syscall.SIGTERM)
-		time.Sleep(200 * time.Millisecond)
-		_ = syscall.Kill(-inst.cmd.Process.Pid, syscall.SIGKILL)
+		terminateProcessGracefully(inst.cmd)
 	}
 
 	inst.Status = "killed"
@@ -284,7 +281,7 @@ func (tm *TerminalManager) TerminateSessionTerminals(sessionID string) {
 
 	for _, inst := range tm.terminals {
 		if inst.SessionID == sessionID && inst.Status == "running" && inst.cmd != nil && inst.cmd.Process != nil {
-			_ = syscall.Kill(-inst.cmd.Process.Pid, syscall.SIGKILL)
+			killProcessGroup(inst.cmd)
 			inst.Status = "killed"
 		}
 	}
