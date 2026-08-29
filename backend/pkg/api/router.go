@@ -163,6 +163,7 @@ func (s *Server) Routes() http.Handler {
 
 	// Modular Tools, JS Scripts & MCP Servers
 	r.Get("/api/tools", s.handleGetToolGroups)
+	r.Post("/api/tools/group/{id}/toggle", s.handleToggleToolGroup)
 	r.Get("/api/tool-scripts", s.handleGetToolScripts)
 	r.Post("/api/tool-scripts", s.handleSaveToolScript)
 	r.Post("/api/tool-scripts/import-url", s.handleImportToolScriptFromURL)
@@ -868,6 +869,39 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func classifyFileType(filename, mimeType string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".zip" {
+		return "ZIP archive"
+	}
+	if strings.HasPrefix(mimeType, "image/") || ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif" || ext == ".svg" || ext == ".bmp" || ext == ".ico" {
+		return "image"
+	}
+	if strings.HasPrefix(mimeType, "video/") || ext == ".mp4" || ext == ".webm" || ext == ".mkv" || ext == ".mov" || ext == ".avi" {
+		return "video"
+	}
+	if strings.HasPrefix(mimeType, "audio/") || ext == ".mp3" || ext == ".wav" || ext == ".ogg" || ext == ".m4a" || ext == ".flac" {
+		return "audio"
+	}
+	if ext == ".pdf" || ext == ".doc" || ext == ".docx" || ext == ".txt" || ext == ".md" || ext == ".csv" || ext == ".json" {
+		return "document"
+	}
+	return "file"
+}
+
 func (s *Server) handlePostUserMessage(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
 	sessionID := chi.URLParam(r, "sessionID")
@@ -881,7 +915,7 @@ func (s *Server) handlePostUserMessage(w http.ResponseWriter, r *http.Request) {
 	var parentID *int64
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		if err := r.ParseMultipartForm(64 << 20); err == nil {
+		if err := r.ParseMultipartForm(128 << 20); err == nil {
 			text = r.FormValue("message")
 			if pStr := r.FormValue("parentId"); pStr != "" {
 				if pVal, err := strconv.ParseInt(pStr, 10, 64); err == nil {
@@ -891,6 +925,14 @@ func (s *Server) handlePostUserMessage(w http.ResponseWriter, r *http.Request) {
 			if text != "" {
 				parts = append(parts, map[string]any{"text": text})
 			}
+
+			relPaths := r.MultipartForm.Value["paths"]
+			if len(relPaths) == 0 {
+				relPaths = r.MultipartForm.Value["relative_paths"]
+			}
+
+			var uploadedSummary []string
+			var fileIndex int
 
 			if r.MultipartForm != nil && r.MultipartForm.File != nil {
 				for _, fileHeaders := range r.MultipartForm.File {
@@ -903,11 +945,35 @@ func (s *Server) handlePostUserMessage(w http.ResponseWriter, r *http.Request) {
 						ext := filepath.Ext(fh.Filename)
 						baseName := strings.TrimSuffix(fh.Filename, ext)
 						cleanBase := regexp.MustCompile(`[^a-zA-Z0-9.-]`).ReplaceAllString(baseName, "_")
-						randHash := randHex(2)
-						secureFileName := fmt.Sprintf("%s_%s%s", randHash, cleanBase, ext)
-						localFilePath := filepath.Join(wPaths.SessionUploadsDir, secureFileName)
-						relFilePath := fmt.Sprintf("uploads/%s", secureFileName)
 
+						relPath := ""
+						if fileIndex < len(relPaths) && relPaths[fileIndex] != "" {
+							relPath = relPaths[fileIndex]
+						}
+						fileIndex++
+
+						var localFilePath string
+						var sessionRelPath string
+
+						if relPath != "" {
+							cleanRel := filepath.Clean(filepath.ToSlash(relPath))
+							cleanRel = strings.TrimPrefix(cleanRel, "/")
+							for strings.HasPrefix(cleanRel, "../") {
+								cleanRel = strings.TrimPrefix(cleanRel, "../")
+							}
+							if cleanRel == "" || cleanRel == "." {
+								cleanRel = fh.Filename
+							}
+							localFilePath = filepath.Join(wPaths.SessionUploadsDir, cleanRel)
+							sessionRelPath = fmt.Sprintf("uploads/%s", filepath.ToSlash(cleanRel))
+						} else {
+							randHash := randHex(3)
+							secureFileName := fmt.Sprintf("%s_%s%s", randHash, cleanBase, ext)
+							localFilePath = filepath.Join(wPaths.SessionUploadsDir, secureFileName)
+							sessionRelPath = fmt.Sprintf("uploads/%s", secureFileName)
+						}
+
+						_ = os.MkdirAll(filepath.Dir(localFilePath), 0755)
 						outFile, err := os.Create(localFilePath)
 						if err == nil {
 							_, _ = io.Copy(outFile, file)
@@ -918,17 +984,56 @@ func (s *Server) handlePostUserMessage(w http.ResponseWriter, r *http.Request) {
 								mimeType = "application/octet-stream"
 							}
 
+							fileType := classifyFileType(fh.Filename, mimeType)
+							fileSize := formatBytes(fh.Size)
+
 							parts = append(parts, map[string]any{
 								"_localFilePath": localFilePath,
 								"mimeType":       mimeType,
 							})
-							parts = append(parts, map[string]any{
-								"text": fmt.Sprintf("[User uploaded file: \"%s\" is available in workspace at relative path: \"%s\"]", fh.Filename, relFilePath),
-							})
+
+							if strings.ToLower(ext) == ".zip" {
+								extractDirName := cleanBase
+								if extractDirName == "" {
+									extractDirName = "archive_" + randHex(3)
+								}
+								extractDest := filepath.Join(wPaths.SessionUploadsDir, extractDirName)
+								extractedFiles, extractErr := workspace.ExtractZipSafe(localFilePath, extractDest)
+
+								extractRelPath := fmt.Sprintf("uploads/%s/", extractDirName)
+								if extractErr == nil && len(extractedFiles) > 0 {
+									var sampleList []string
+									for i, ef := range extractedFiles {
+										if i >= 8 {
+											sampleList = append(sampleList, fmt.Sprintf("...and %d more files", len(extractedFiles)-8))
+											break
+										}
+										sampleList = append(sampleList, ef)
+									}
+									zipNote := fmt.Sprintf("[User uploaded ZIP archive: \"%s\" (%s) -> Saved at relative path: \"%s\" and automatically extracted into: \"%s\" (%d files: %s)]",
+										fh.Filename, fileSize, sessionRelPath, extractRelPath, len(extractedFiles), strings.Join(sampleList, ", "))
+									parts = append(parts, map[string]any{"text": zipNote})
+									uploadedSummary = append(uploadedSummary, fmt.Sprintf("- %s (%s) -> Extracted into %s (%d files)", sessionRelPath, fileSize, extractRelPath, len(extractedFiles)))
+								} else {
+									zipNote := fmt.Sprintf("[User uploaded ZIP archive: \"%s\" (%s) -> Saved at relative path: \"%s\"]", fh.Filename, fileSize, sessionRelPath)
+									parts = append(parts, map[string]any{"text": zipNote})
+									uploadedSummary = append(uploadedSummary, fmt.Sprintf("- %s (%s)", sessionRelPath, fileSize))
+								}
+							} else {
+								fileNote := fmt.Sprintf("[User uploaded %s: \"%s\" (%s) -> Available in workspace at relative path: \"%s\"]",
+									fileType, fh.Filename, fileSize, sessionRelPath)
+								parts = append(parts, map[string]any{"text": fileNote})
+								uploadedSummary = append(uploadedSummary, fmt.Sprintf("- %s (%s, %s)", sessionRelPath, fileType, fileSize))
+							}
 						}
 						_ = file.Close()
 					}
 				}
+			}
+
+			if len(uploadedSummary) > 1 {
+				summaryBlock := fmt.Sprintf("\n[WORKSPACE UPLOAD SUMMARY]\nAll uploaded files/folders are saved in your session \"uploads/\" directory:\n%s\nYou can inspect, read, or process them using relative paths.\n", strings.Join(uploadedSummary, "\n"))
+				parts = append(parts, map[string]any{"text": summaryBlock})
 			}
 		}
 	} else {
@@ -1914,6 +2019,19 @@ type ToolScriptItem struct {
 }
 
 func (s *Server) handleGetToolGroups(w http.ResponseWriter, r *http.Request) {
+	disabledJSON := s.db.GetAppSetting("disabled_tool_groups", "[]")
+	var disabledList []string
+	_ = json.Unmarshal([]byte(disabledJSON), &disabledList)
+	disabledMap := make(map[string]bool)
+	for _, id := range disabledList {
+		disabledMap[id] = true
+	}
+
+	builtin := tools.BuiltinToolGroups()
+	for i := range builtin {
+		builtin[i].Enabled = !disabledMap[builtin[i].ID]
+	}
+
 	tsDir := s.getToolScriptsDir()
 	var scriptGroups []tools.ToolGroup
 	if dbScripts, err := s.db.GetToolScripts(); err == nil {
@@ -1933,10 +2051,64 @@ func (s *Server) handleGetToolGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]any{
-		"builtin": tools.BuiltinToolGroups(),
+		"builtin": builtin,
 		"scripts": scriptGroups,
 		"mcp":     mcpGroups,
 	})
+}
+
+func (s *Server) handleToggleToolGroup(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	if strings.HasPrefix(groupID, "script_") {
+		scriptID := strings.TrimPrefix(groupID, "script_")
+		enabledInt := 0
+		if body.Enabled {
+			enabledInt = 1
+		}
+		_ = s.db.ToggleToolScript(scriptID, enabledInt)
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": body.Enabled})
+		return
+	}
+
+	if strings.HasPrefix(groupID, "mcp_") {
+		mcpID := strings.TrimPrefix(groupID, "mcp_")
+		activeInt := 0
+		if body.Enabled {
+			activeInt = 1
+		}
+		_ = s.db.ToggleMcpServer(mcpID, activeInt)
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": body.Enabled})
+		return
+	}
+
+	disabledJSON := s.db.GetAppSetting("disabled_tool_groups", "[]")
+	var disabledList []string
+	_ = json.Unmarshal([]byte(disabledJSON), &disabledList)
+
+	disabledMap := make(map[string]bool)
+	for _, id := range disabledList {
+		disabledMap[id] = true
+	}
+
+	if body.Enabled {
+		delete(disabledMap, groupID)
+	} else {
+		disabledMap[groupID] = true
+	}
+
+	var newList []string
+	for id := range disabledMap {
+		newList = append(newList, id)
+	}
+	newJSON, _ := json.Marshal(newList)
+	_ = s.db.SetAppSetting("disabled_tool_groups", string(newJSON))
+
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": body.Enabled})
 }
 
 func (s *Server) handleGetToolScripts(w http.ResponseWriter, r *http.Request) {

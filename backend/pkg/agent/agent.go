@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -429,6 +430,30 @@ func (ae *AgentEngine) runAgentLoop(
 				if txt, ok := p["text"].(string); ok {
 					textAccumulator.WriteString(txt)
 					geminiParts = append(geminiParts, providers.GeminiPart{Text: txt})
+				} else if localPath, ok := p["_localFilePath"].(string); ok && localPath != "" {
+					mimeType, _ := p["mimeType"].(string)
+					if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "audio/") {
+						if data, err := os.ReadFile(localPath); err == nil && len(data) > 0 && len(data) < 20<<20 {
+							b64 := base64.StdEncoding.EncodeToString(data)
+							geminiParts = append(geminiParts, providers.GeminiPart{
+								InlineData: &providers.GeminiBlob{
+									MimeType: mimeType,
+									Data:     b64,
+								},
+							})
+						}
+					}
+				} else if inlineData, ok := p["inlineData"].(map[string]any); ok {
+					mimeType, _ := inlineData["mimeType"].(string)
+					dataB64, _ := inlineData["data"].(string)
+					if mimeType != "" && dataB64 != "" {
+						geminiParts = append(geminiParts, providers.GeminiPart{
+							InlineData: &providers.GeminiBlob{
+								MimeType: mimeType,
+								Data:     dataB64,
+							},
+						})
+					}
 				} else if fc, ok := p["functionCall"].(map[string]any); ok {
 					name, _ := fc["name"].(string)
 					args, _ := fc["args"].(map[string]any)
@@ -585,6 +610,29 @@ func (ae *AgentEngine) runAgentLoop(
 						"response": map[string]any{"result": sanitized},
 					},
 				})
+
+				// If tool produced an image (e.g. view_image), inject multi-modal inlineData part so Gemini vision encoder receives the visual tokens!
+				if imgRes, ok := toolResult.(*tools.ViewImageResult); ok && imgRes != nil && imgRes.InlineImage.Data != "" {
+					toolResponseParts = append(toolResponseParts, map[string]any{
+						"inlineData": map[string]any{
+							"mimeType": imgRes.InlineImage.MimeType,
+							"data":     imgRes.InlineImage.Data,
+						},
+					})
+				} else if imgMap, ok := toolResult.(map[string]any); ok {
+					if inlineImg, ok := imgMap["inlineImage"].(map[string]any); ok {
+						mimeType, _ := inlineImg["mimeType"].(string)
+						dataB64, _ := inlineImg["data"].(string)
+						if mimeType != "" && dataB64 != "" {
+							toolResponseParts = append(toolResponseParts, map[string]any{
+								"inlineData": map[string]any{
+									"mimeType": mimeType,
+									"data":     dataB64,
+								},
+							})
+						}
+					}
+				}
 			}
 
 			dbToolMsg, _ := ae.DB.InsertSessionMessage(sessionID, &modelMsgID, "user", toolResponseParts)
@@ -816,13 +864,21 @@ func (ae *AgentEngine) ExecuteTool(workspaceID, sessionID, toolName string, args
 }
 
 func (ae *AgentEngine) getActiveToolGroups(hasProject bool, isSubAgent bool) []tools.ToolGroup {
+	disabledJSON := ae.DB.GetAppSetting("disabled_tool_groups", "[]")
+	var disabledList []string
+	_ = json.Unmarshal([]byte(disabledJSON), &disabledList)
+	disabledMap := make(map[string]bool)
+	for _, id := range disabledList {
+		disabledMap[id] = true
+	}
+
 	scriptToolsDir := filepath.Join(ae.BaseDir, "tool-scripts")
 	_ = os.MkdirAll(scriptToolsDir, 0755)
 
 	var scriptGroups []tools.ToolGroup
 	if dbScripts, err := ae.DB.GetToolScripts(); err == nil {
 		for _, s := range dbScripts {
-			if s.Enabled != 1 {
+			if s.Enabled != 1 || disabledMap["script_"+s.ID] {
 				continue
 			}
 			filePath := filepath.Join(scriptToolsDir, s.FileName)
@@ -834,7 +890,7 @@ func (ae *AgentEngine) getActiveToolGroups(hasProject bool, isSubAgent bool) []t
 	var mcpGroups []tools.ToolGroup
 	if mcpServers, err := ae.DB.GetMcpServers(); err == nil {
 		for _, s := range mcpServers {
-			if s.Active != 1 {
+			if s.Active != 1 || disabledMap["mcp_"+s.ID] {
 				continue
 			}
 			decls, err := tools.GlobalMCPManager.QueryServerTools(s.Source)
@@ -844,7 +900,14 @@ func (ae *AgentEngine) getActiveToolGroups(hasProject bool, isSubAgent bool) []t
 		}
 	}
 
-	return tools.GetActiveGroups(hasProject, isSubAgent, scriptGroups, mcpGroups)
+	activeAll := tools.GetActiveGroups(hasProject, isSubAgent, scriptGroups, mcpGroups)
+	var filtered []tools.ToolGroup
+	for _, g := range activeAll {
+		if !disabledMap[g.ID] {
+			filtered = append(filtered, g)
+		}
+	}
+	return filtered
 }
 
 func randHex(n int) string {

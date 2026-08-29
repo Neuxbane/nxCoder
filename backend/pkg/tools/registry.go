@@ -8,9 +8,11 @@ type ToolParamProperty struct {
 }
 
 type ToolFunctionDeclaration struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Parameters  ToolParameters `json:"parameters"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	ActiveVerb    string         `json:"activeVerb,omitempty"`
+	CompletedVerb string         `json:"completedVerb,omitempty"`
+	Parameters    ToolParameters `json:"parameters"`
 }
 
 type ToolParameters struct {
@@ -20,28 +22,34 @@ type ToolParameters struct {
 }
 
 type ToolGroup struct {
-	ID      string                    `json:"id"`
-	Source  string                    `json:"source"`  // "builtin" | "script" | "mcp"
-	Context string                    `json:"context"` // "always" | "project"
-	Label   string                    `json:"label"`
-	Icon    string                    `json:"icon"`
-	Tools   []ToolFunctionDeclaration `json:"tools"`
-	Enabled bool                      `json:"enabled"`
+	ID            string                    `json:"id"`
+	Source        string                    `json:"source"`  // "builtin" | "script" | "mcp"
+	Context       string                    `json:"context"` // "always" | "project"
+	Label         string                    `json:"label"`
+	Icon          string                    `json:"icon"`
+	ActiveVerb    string                    `json:"activeVerb,omitempty"`
+	CompletedVerb string                    `json:"completedVerb,omitempty"`
+	Tools         []ToolFunctionDeclaration `json:"tools"`
+	Enabled       bool                      `json:"enabled"`
 }
 
 func BuiltinToolGroups() []ToolGroup {
 	return []ToolGroup{
 		{
-			ID:      "filesystem",
-			Source:  "builtin",
-			Context: "project",
-			Label:   "File System",
-			Icon:    "fa-solid fa-folder-tree",
-			Enabled: true,
+			ID:            "explore",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Explore",
+			Icon:          "fa-solid fa-compass",
+			ActiveVerb:    "Exploring",
+			CompletedVerb: "Explored",
+			Enabled:       true,
 			Tools: []ToolFunctionDeclaration{
 				{
-					Name:        "list_dir",
-					Description: "Lists files and directory structures inside paths. All paths are relative to your session workspace root.",
+					Name:          "list_dir",
+					Description:   "Lists files and directory structures inside paths. All paths are relative to your session workspace root.",
+					ActiveVerb:    "Exploring",
+					CompletedVerb: "Explored",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -51,8 +59,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "read_file",
-					Description: "Reads contents of file, supporting pagination. Returns the content and the total line count of the file.",
+					Name:          "read_file",
+					Description:   "Reads contents of file, supporting pagination. Returns the content and the total line count of the file.",
+					ActiveVerb:    "Analyzing",
+					CompletedVerb: "Analyzed",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -64,34 +74,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "write_file",
-					Description: "Creates a new file or completely overwrites an existing file. Use ONLY for creating new files or when replacing the entire content. For editing existing files, use edit_file instead.",
-					Parameters: ToolParameters{
-						Type: "object",
-						Properties: map[string]ToolParamProperty{
-							"path":    {Type: "string", Description: "Relative path within your session workspace (e.g. \"workspace_mirror/myproject/new_file.js\")."},
-							"content": {Type: "string", Description: "Complete file contents to write."},
-						},
-						Required: []string{"path", "content"},
-					},
-				},
-				{
-					Name:        "edit_file",
-					Description: "Patches an existing file using a search-block / replace-block strategy. Finds an exact occurrence of `search` in the file and replaces it with `replace`. The `search` block must exactly match the file content including whitespace and indentation.",
-					Parameters: ToolParameters{
-						Type: "object",
-						Properties: map[string]ToolParamProperty{
-							"path":       {Type: "string", Description: "Relative path to the file to patch (e.g. \"workspace_mirror/myproject/src/index.js\")."},
-							"search":     {Type: "string", Description: "The exact text block to find in the file. Must match character-for-character."},
-							"replace":    {Type: "string", Description: "The replacement text that will substitute the matched search block."},
-							"occurrence": {Type: "integer", Description: "Which occurrence to replace when there are multiple matches (1-based, default 1)."},
-						},
-						Required: []string{"path", "search", "replace"},
-					},
-				},
-				{
-					Name:        "regex_search",
-					Description: "Searches for a regular expression in file names or file contents within specified paths.",
+					Name:          "regex_search",
+					Description:   "Searches for a regular expression in file names or file contents within specified paths.",
+					ActiveVerb:    "Searching",
+					CompletedVerb: "Searched",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -104,16 +90,62 @@ func BuiltinToolGroups() []ToolGroup {
 			},
 		},
 		{
-			ID:      "terminal_exec",
-			Source:  "builtin",
-			Context: "project",
-			Label:   "Terminal Execution",
-			Icon:    "fa-solid fa-terminal",
-			Enabled: true,
+			ID:            "edit",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Workspace Edit",
+			Icon:          "fa-solid fa-pen-to-square",
+			ActiveVerb:    "Editing",
+			CompletedVerb: "Edited",
+			Enabled:       true,
 			Tools: []ToolFunctionDeclaration{
 				{
-					Name:        "execute_command",
-					Description: "Spawns terminal actions asynchronously. Returns output quickly or terminal_id and relative log_file path you can read with read_file.",
+					Name:          "write_file",
+					Description:   "Creates a new file or completely overwrites an existing file. Use ONLY for creating new files or when replacing the entire content. For editing existing files, use edit_file instead.",
+					ActiveVerb:    "Creating",
+					CompletedVerb: "Created",
+					Parameters: ToolParameters{
+						Type: "object",
+						Properties: map[string]ToolParamProperty{
+							"path":    {Type: "string", Description: "Relative path within your session workspace (e.g. \"workspace_mirror/myproject/new_file.js\")."},
+							"content": {Type: "string", Description: "Complete file contents to write."},
+						},
+						Required: []string{"path", "content"},
+					},
+				},
+				{
+					Name:          "edit_file",
+					Description:   "Patches an existing file using a search-block / replace-block strategy. Finds an exact occurrence of `search` in the file and replaces it with `replace`. The `search` block must exactly match the file content including whitespace and indentation.",
+					ActiveVerb:    "Editing",
+					CompletedVerb: "Edited",
+					Parameters: ToolParameters{
+						Type: "object",
+						Properties: map[string]ToolParamProperty{
+							"path":       {Type: "string", Description: "Relative path to the file to patch (e.g. \"workspace_mirror/myproject/src/index.js\")."},
+							"search":     {Type: "string", Description: "The exact text block to find in the file. Must match character-for-character."},
+							"replace":    {Type: "string", Description: "The replacement text that will substitute the matched search block."},
+							"occurrence": {Type: "integer", Description: "Which occurrence to replace when there are multiple matches (1-based, default 1)."},
+						},
+						Required: []string{"path", "search", "replace"},
+					},
+				},
+			},
+		},
+		{
+			ID:            "terminal_exec",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Terminal Execution",
+			Icon:          "fa-solid fa-terminal",
+			ActiveVerb:    "Running",
+			CompletedVerb: "Ran",
+			Enabled:       true,
+			Tools: []ToolFunctionDeclaration{
+				{
+					Name:          "execute_command",
+					Description:   "Spawns terminal actions asynchronously. Returns output quickly or terminal_id and relative log_file path you can read with read_file.",
+					ActiveVerb:    "Running",
+					CompletedVerb: "Ran",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -127,16 +159,20 @@ func BuiltinToolGroups() []ToolGroup {
 			},
 		},
 		{
-			ID:      "media",
-			Source:  "builtin",
-			Context: "project",
-			Label:   "Media & Documents",
-			Icon:    "fa-solid fa-file-lines",
-			Enabled: true,
+			ID:            "media",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Media & Documents",
+			Icon:          "fa-solid fa-file-lines",
+			ActiveVerb:    "Inspecting Media",
+			CompletedVerb: "Inspected Media",
+			Enabled:       true,
 			Tools: []ToolFunctionDeclaration{
 				{
-					Name:        "parse_document",
-					Description: "Converts a document (PDF, Word, Excel, PowerPoint, Text, HTML, CSV) to Markdown and extracts any embedded images.",
+					Name:          "parse_document",
+					Description:   "Converts a document (PDF, Word, Excel, PowerPoint, Text, HTML, CSV) to Markdown and extracts any embedded images.",
+					ActiveVerb:    "Parsing",
+					CompletedVerb: "Parsed",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -147,8 +183,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "view_image",
-					Description: "Loads an image file (PNG, JPEG, WEBP, GIF, SVG) and injects it directly into context.",
+					Name:          "view_image",
+					Description:   "Loads an image file (PNG, JPEG, WEBP, GIF, SVG) and injects it directly into context.",
+					ActiveVerb:    "Inspecting",
+					CompletedVerb: "Inspected",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -160,16 +198,20 @@ func BuiltinToolGroups() []ToolGroup {
 			},
 		},
 		{
-			ID:      "terminal_control",
-			Source:  "builtin",
-			Context: "always",
-			Label:   "Terminal Control",
-			Icon:    "fa-solid fa-keyboard",
-			Enabled: true,
+			ID:            "terminal_control",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Terminal Control",
+			Icon:          "fa-solid fa-keyboard",
+			ActiveVerb:    "Controlling Terminal",
+			CompletedVerb: "Controlled Terminal",
+			Enabled:       true,
 			Tools: []ToolFunctionDeclaration{
 				{
-					Name:        "send_terminal_input",
-					Description: "Sends keyboard input or ASCII/escape sequences to a running terminal session's stdin (e.g. y/n, Enter, Ctrl+C).",
+					Name:          "send_terminal_input",
+					Description:   "Sends keyboard input or ASCII/escape sequences to a running terminal session's stdin (e.g. y/n, Enter, Ctrl+C).",
+					ActiveVerb:    "Sending input to",
+					CompletedVerb: "Sent input to",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -180,8 +222,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "wait",
-					Description: "Pauses active stream model turns for processing tasks.",
+					Name:          "wait",
+					Description:   "Pauses active stream model turns for processing tasks.",
+					ActiveVerb:    "Waiting",
+					CompletedVerb: "Waited",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -191,8 +235,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "wait_terminal",
-					Description: "Awaits complete background program outputs or logs.",
+					Name:          "wait_terminal",
+					Description:   "Awaits complete background program outputs or logs.",
+					ActiveVerb:    "Awaiting terminal",
+					CompletedVerb: "Awaited terminal",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -203,8 +249,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "terminate_terminal",
-					Description: "Immediately kills running terminal tasks.",
+					Name:          "terminate_terminal",
+					Description:   "Immediately kills running terminal tasks.",
+					ActiveVerb:    "Terminating",
+					CompletedVerb: "Terminated",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -216,16 +264,20 @@ func BuiltinToolGroups() []ToolGroup {
 			},
 		},
 		{
-			ID:      "agent_control",
-			Source:  "builtin",
-			Context: "always",
-			Label:   "Session Controls",
-			Icon:    "fa-solid fa-sliders",
-			Enabled: true,
+			ID:            "agent_control",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Session Controls",
+			Icon:          "fa-solid fa-sliders",
+			ActiveVerb:    "Configuring Session",
+			CompletedVerb: "Configured Session",
+			Enabled:       true,
 			Tools: []ToolFunctionDeclaration{
 				{
-					Name:        "set_session_name",
-					Description: "Renames the current active chat window title dynamically.",
+					Name:          "set_session_name",
+					Description:   "Renames the current active chat window title dynamically.",
+					ActiveVerb:    "Renaming session",
+					CompletedVerb: "Renamed session",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -237,16 +289,20 @@ func BuiltinToolGroups() []ToolGroup {
 			},
 		},
 		{
-			ID:      "subagents",
-			Source:  "builtin",
-			Context: "always",
-			Label:   "Sub-Agent Orchestration",
-			Icon:    "fa-solid fa-network-wired",
-			Enabled: true,
+			ID:            "subagents",
+			Source:        "builtin",
+			Context:       "always",
+			Label:         "Sub-Agent Orchestration",
+			Icon:          "fa-solid fa-network-wired",
+			ActiveVerb:    "Orchestrating Sub-Agents",
+			CompletedVerb: "Orchestrated Sub-Agents",
+			Enabled:       true,
 			Tools: []ToolFunctionDeclaration{
 				{
-					Name:        "spawn_sub_agent",
-					Description: "Spawns a new sub-AI agent asynchronously in the background.",
+					Name:          "spawn_sub_agent",
+					Description:   "Spawns a new sub-AI agent asynchronously in the background.",
+					ActiveVerb:    "Spawning sub-agent",
+					CompletedVerb: "Spawned sub-agent",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -258,8 +314,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "get_sub_agent_status",
-					Description: "Checks the current execution status, recent chat history, and final output result of a previously spawned sub-agent.",
+					Name:          "get_sub_agent_status",
+					Description:   "Checks the current execution status, recent chat history, and final output result of a previously spawned sub-agent.",
+					ActiveVerb:    "Checking sub-agent",
+					CompletedVerb: "Checked sub-agent",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{
@@ -270,8 +328,10 @@ func BuiltinToolGroups() []ToolGroup {
 					},
 				},
 				{
-					Name:        "wait_sub_agent",
-					Description: "Blocks and waits until the target sub-agent completes its execution. Returns final status and output.",
+					Name:          "wait_sub_agent",
+					Description:   "Blocks and waits until the target sub-agent completes its execution. Returns final status and output.",
+					ActiveVerb:    "Waiting on sub-agent",
+					CompletedVerb: "Waited on sub-agent",
 					Parameters: ToolParameters{
 						Type: "object",
 						Properties: map[string]ToolParamProperty{

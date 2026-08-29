@@ -690,12 +690,25 @@
                 <div class="flex items-center justify-between pt-2 mt-1 select-none">
                   <!-- Left Controls: Attachment & Model Selector Pill -->
                   <div class="flex items-center space-x-2">
-                    <!-- File attachment button (+) -->
-                    <button onclick="document.getElementById('file-upload-input').click()" 
-                            class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors flex items-center justify-center" title="Add attachments">
-                      <i class="fa-solid fa-plus text-xs"></i>
-                    </button>
+                    <!-- File & Folder attachment button (+) -->
+                    <div class="relative">
+                      <button onclick="toggleAttachmentMenu(event)" id="btn-attachment-toggle"
+                              class="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors flex items-center justify-center" title="Add files, media, or folders">
+                        <i class="fa-solid fa-plus text-xs"></i>
+                      </button>
+                      <div id="attachment-dropdown-menu" class="hidden absolute left-0 bottom-full mb-2 w-52 bg-[#18181b] border border-zinc-800 rounded-xl shadow-2xl p-1.5 z-50 text-xs backdrop-blur-xl">
+                        <button onclick="triggerFileInput(); hideAttachmentMenu();" class="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800/80 hover:text-white rounded-lg flex items-center space-x-2.5 transition-colors">
+                          <i class="fa-solid fa-file-arrow-up text-zinc-400 w-4 text-center"></i>
+                          <span>Upload Files & Media</span>
+                        </button>
+                        <button onclick="triggerFolderInput(); hideAttachmentMenu();" class="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800/80 hover:text-white rounded-lg flex items-center space-x-2.5 transition-colors">
+                          <i class="fa-solid fa-folder-plus text-zinc-400 w-4 text-center"></i>
+                          <span>Upload Folder</span>
+                        </button>
+                      </div>
+                    </div>
                     <input type="file" id="file-upload-input" class="hidden" multiple onchange="handleChatFileUpload(event)">
+                    <input type="file" id="folder-upload-input" class="hidden" webkitdirectory directory multiple onchange="handleChatFolderUpload(event)">
 
                     <!-- Dynamic Model Provider & Extension Selector Pill -->
                     <div class="relative">
@@ -986,37 +999,109 @@ Group files by component. Use markdown links with relative paths and detail exac
         }
       });
 
-      // Paste image directly into the input area
+      // Paste image or files directly into the input area
       elements.chatPromptInput.addEventListener('paste', (e) => {
         const items = Array.from(e.clipboardData?.items || []);
-        const imageItems = items.filter(it => it.type.startsWith('image/'));
-        if (imageItems.length === 0) return; // let normal text paste proceed
+        const fileItems = items.filter(it => it.kind === 'file');
+        if (fileItems.length === 0) return; // let normal text paste proceed
         e.preventDefault();
-        imageItems.forEach(item => {
+        fileItems.forEach(item => {
           const file = item.getAsFile();
           if (!file) return;
-          state.selectedAttachments.push({ name: `paste_${Date.now()}.png`, mime: file.type, size: file.size, raw: file });
+          const ext = file.type ? (file.type.split('/')[1] || 'png') : 'png';
+          const name = file.name && file.name !== 'image.png' ? file.name : `paste_${Date.now()}.${ext}`;
+          state.selectedAttachments.push({
+            name: name,
+            relativePath: name,
+            mime: file.type,
+            size: file.size,
+            raw: file
+          });
         });
         renderAttachmentChips();
       });
 
-      // Drag & drop files onto the chat input container
+      // Recursive helper for Drag & Drop entries (files and directories)
+      async function traverseFileSystemEntry(entry, path = "") {
+        if (entry.isFile) {
+          return new Promise((resolve) => {
+            entry.file((file) => {
+              resolve([{
+                name: file.name,
+                relativePath: path + file.name,
+                mime: file.type,
+                size: file.size,
+                raw: file
+              }]);
+            }, () => resolve([]));
+          });
+        } else if (entry.isDirectory) {
+          const dirReader = entry.createReader();
+          const entries = await new Promise((resolve) => {
+            const allEntries = [];
+            function readBatch() {
+              dirReader.readEntries((results) => {
+                if (!results.length) {
+                  resolve(allEntries);
+                } else {
+                  allEntries.push(...results);
+                  readBatch();
+                }
+              }, () => resolve(allEntries));
+            }
+            readBatch();
+          });
+          const nested = await Promise.all(entries.map(e => traverseFileSystemEntry(e, path + entry.name + "/")));
+          return nested.flat();
+        }
+        return [];
+      }
+
+      // Drag & drop files and folders onto the chat input container or chat area
       const inputContainer = elements.chatInputContainer || document.getElementById('chat-input-container');
       if (inputContainer) {
-        inputContainer.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          inputContainer.classList.add('border-brand-accent');
-        });
-        inputContainer.addEventListener('dragleave', () => {
-          inputContainer.classList.remove('border-brand-accent');
-        });
-        inputContainer.addEventListener('drop', (e) => {
-          e.preventDefault();
-          inputContainer.classList.remove('border-brand-accent');
-          const files = Array.from(e.dataTransfer?.files || []);
-          files.forEach(file => {
-            state.selectedAttachments.push({ name: file.name, mime: file.type, size: file.size, raw: file });
+        ['dragenter', 'dragover'].forEach(eventName => {
+          inputContainer.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            inputContainer.classList.add('border-brand-accent', 'bg-zinc-800/40');
           });
+        });
+
+        ['dragleave', 'dragend'].forEach(eventName => {
+          inputContainer.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            inputContainer.classList.remove('border-brand-accent', 'bg-zinc-800/40');
+          });
+        });
+
+        inputContainer.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          inputContainer.classList.remove('border-brand-accent', 'bg-zinc-800/40');
+
+          const items = Array.from(e.dataTransfer?.items || []);
+          if (items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
+            for (const item of items) {
+              const entry = item.webkitGetAsEntry();
+              if (entry) {
+                const collected = await traverseFileSystemEntry(entry);
+                state.selectedAttachments.push(...collected);
+              }
+            }
+          } else {
+            const files = Array.from(e.dataTransfer?.files || []);
+            files.forEach(file => {
+              state.selectedAttachments.push({
+                name: file.name,
+                relativePath: file.webkitRelativePath || file.name,
+                mime: file.type,
+                size: file.size,
+                raw: file
+              });
+            });
+          }
           renderAttachmentChips();
         });
       }
@@ -1025,6 +1110,30 @@ Group files by component. Use markdown links with relative paths and detail exac
       elements.btnSidebarNewSession.onclick = function() {
         startNewChat(state.activeWorkspaceId);
       };
+    }
+
+    function getAttachmentChipIcon(f) {
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      const mime = f.mime || '';
+      if (ext === 'zip' || ext === 'tar' || ext === 'gz' || ext === '7z') {
+        return '<i class="fa-solid fa-file-zipper text-amber-400"></i>';
+      }
+      if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) {
+        return '<i class="fa-solid fa-file-image text-emerald-400"></i>';
+      }
+      if (mime.startsWith('video/') || ['mp4', 'webm', 'mkv', 'mov', 'avi'].includes(ext)) {
+        return '<i class="fa-solid fa-file-video text-purple-400"></i>';
+      }
+      if (mime.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) {
+        return '<i class="fa-solid fa-file-audio text-pink-400"></i>';
+      }
+      if (f.relativePath && f.relativePath.includes('/')) {
+        return '<i class="fa-solid fa-folder-tree text-blue-400"></i>';
+      }
+      if (['pdf', 'doc', 'docx', 'txt', 'md', 'json', 'csv'].includes(ext)) {
+        return '<i class="fa-solid fa-file-lines text-sky-400"></i>';
+      }
+      return '<i class="fa-solid fa-file-code text-zinc-400"></i>';
     }
 
     function renderAttachmentChips() {
@@ -1037,14 +1146,15 @@ Group files by component. Use markdown links with relative paths and detail exac
       indicator.classList.remove('hidden');
       indicator.innerHTML = "";
       state.selectedAttachments.forEach((f, index) => {
-        const isImage = f.mime && f.mime.startsWith('image/');
+        const isImage = (f.mime && f.mime.startsWith('image/')) || /\.(png|jpe?g|webp|gif)$/i.test(f.name);
         const chip = document.createElement('div');
-        chip.className = "flex items-center space-x-2 bg-brand-dark px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 select-none font-mono";
-        const previewSrc = isImage ? URL.createObjectURL(f.raw) : null;
+        chip.className = "flex items-center space-x-2 bg-brand-dark px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 select-none font-mono max-w-[240px]";
+        const previewSrc = (isImage && f.raw) ? URL.createObjectURL(f.raw) : null;
+        const displayName = f.relativePath || f.name;
         chip.innerHTML = `
-          ${isImage ? `<img src="${previewSrc}" class="w-6 h-6 object-cover rounded">` : `<i class="fa-solid fa-file text-zinc-500"></i>`}
-          <span class="truncate max-w-[100px]">${f.name}</span>
-          <button onclick="removeSelectedFile(${index})" class="text-zinc-500 hover:text-zinc-200 transition-colors"><i class="fa-solid fa-xmark"></i></button>
+          ${previewSrc ? `<img src="${previewSrc}" class="w-6 h-6 object-cover rounded shadow-sm">` : getAttachmentChipIcon(f)}
+          <span class="truncate flex-1" title="${displayName}">${displayName}</span>
+          <button onclick="removeSelectedFile(${index})" class="text-zinc-500 hover:text-zinc-200 transition-colors ml-1" title="Remove attachment"><i class="fa-solid fa-xmark"></i></button>
         `;
         indicator.appendChild(chip);
       });
@@ -2396,6 +2506,250 @@ Group files by component. Use markdown links with relative paths and detail exac
     let rawResponseAccumulator = "";
     let activeThinkingNode = null;
 
+    // Modular Tool Rendering Registry
+    // Modular Tool Rendering Registry (Bundle verbs & Per-tool active/completed verbs)
+    window.ToolRenderers = {
+      read_file: (args) => {
+        const rawPath = args?.path || '';
+        const file = rawPath.split(/[/\\]/).pop() || 'file';
+        let lineRange = '';
+        if (args?.from_line !== undefined && args?.to_line !== undefined) {
+          lineRange = ` <span class="text-zinc-500 font-mono text-[10px]">#L${args.from_line}-${args.to_line}</span>`;
+        } else if (args?.from_line !== undefined) {
+          lineRange = ` <span class="text-zinc-500 font-mono text-[10px]">#L${args.from_line}+</span>`;
+        }
+        return {
+          activeVerb: 'Analyzing',
+          completedVerb: 'Analyzed',
+          bundleId: 'explore',
+          bundleVerb: 'Exploring',
+          completedBundleVerb: 'Explored',
+          targetNoun: 'file',
+          html: `<span class="text-amber-500 font-mono font-bold text-[10px]">&lt;/&gt;</span> <strong class="text-zinc-200 font-mono">${escapeHtml(file)}</strong>${lineRange}`,
+          summaryTarget: file
+        };
+      },
+      list_dir: (args) => {
+        const rawPath = args?.path || '.';
+        const folder = rawPath.split(/[/\\]/).pop() || rawPath;
+        return {
+          activeVerb: 'Exploring',
+          completedVerb: 'Explored',
+          bundleId: 'explore',
+          bundleVerb: 'Exploring',
+          completedBundleVerb: 'Explored',
+          targetNoun: 'directory',
+          html: `<i class="fa-solid fa-folder text-amber-500 text-[10px]"></i> <strong class="text-zinc-200 font-mono">${escapeHtml(folder)}</strong>`,
+          summaryTarget: folder
+        };
+      },
+      regex_search: (args) => {
+        const pattern = args?.regexStr || '';
+        const paths = (args?.paths || []).map(p => p.split(/[/\\]/).pop() || p).join(', ') || 'workspace';
+        return {
+          activeVerb: 'Searching',
+          completedVerb: 'Searched',
+          bundleId: 'explore',
+          bundleVerb: 'Exploring',
+          completedBundleVerb: 'Explored',
+          targetNoun: 'pattern',
+          html: `<span class="text-emerald-400 font-mono text-[10px]">"${escapeHtml(pattern)}"</span> <span class="text-zinc-500 text-[10px]">in</span> <strong class="text-zinc-200 font-mono text-[10px]">${escapeHtml(paths)}</strong>`,
+          summaryTarget: pattern
+        };
+      },
+      edit_file: (args) => {
+        const file = (args?.path || '').split(/[/\\]/).pop() || args?.path || 'file';
+        return {
+          activeVerb: 'Editing',
+          completedVerb: 'Edited',
+          bundleId: 'edit',
+          bundleVerb: 'Editing',
+          completedBundleVerb: 'Edited',
+          targetNoun: 'file',
+          html: `<span class="text-teal-400 font-mono font-bold text-[10px]">&lt;/&gt;</span> <strong class="text-zinc-200 font-mono">${escapeHtml(file)}</strong>`,
+          summaryTarget: file
+        };
+      },
+      write_file: (args) => {
+        const file = (args?.path || '').split(/[/\\]/).pop() || args?.path || 'file';
+        return {
+          activeVerb: 'Creating',
+          completedVerb: 'Created',
+          bundleId: 'edit',
+          bundleVerb: 'Editing',
+          completedBundleVerb: 'Edited',
+          targetNoun: 'file',
+          html: `<span class="text-emerald-400 font-mono font-bold text-[10px]">&lt;/&gt;</span> <strong class="text-zinc-200 font-mono">${escapeHtml(file)}</strong>`,
+          summaryTarget: file
+        };
+      },
+      execute_command: (args) => {
+        const cmd = args?.command || '';
+        return {
+          activeVerb: 'Running',
+          completedVerb: 'Ran',
+          bundleId: 'terminal_exec',
+          bundleVerb: 'Running',
+          completedBundleVerb: 'Ran',
+          targetNoun: 'command',
+          html: `<code class="bg-zinc-900 border border-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono text-[10px]">${escapeHtml(cmd)}</code>`,
+          summaryTarget: cmd
+        };
+      },
+      parse_document: (args) => {
+        const file = (args?.filepath || '').split(/[/\\]/).pop() || 'document';
+        return {
+          activeVerb: 'Parsing',
+          completedVerb: 'Parsed',
+          bundleId: 'media',
+          bundleVerb: 'Inspecting Media',
+          completedBundleVerb: 'Inspected',
+          targetNoun: 'document',
+          html: `<i class="fa-solid fa-file-pdf text-red-400 text-[10px]"></i> <strong class="text-zinc-200 font-mono">${escapeHtml(file)}</strong>`,
+          summaryTarget: file
+        };
+      },
+      view_image: (args) => {
+        const file = (args?.path || '').split(/[/\\]/).pop() || 'image';
+        return {
+          activeVerb: 'Inspecting',
+          completedVerb: 'Inspected',
+          bundleId: 'media',
+          bundleVerb: 'Inspecting Media',
+          completedBundleVerb: 'Inspected',
+          targetNoun: 'image',
+          html: `<i class="fa-solid fa-image text-cyan-400 text-[10px]"></i> <strong class="text-zinc-200 font-mono">${escapeHtml(file)}</strong>`,
+          summaryTarget: file
+        };
+      },
+      set_session_name: (args) => ({
+        activeVerb: 'Renaming session',
+        completedVerb: 'Renamed session',
+        bundleId: 'agent_control',
+        bundleVerb: 'Configuring Session',
+        completedBundleVerb: 'Configured',
+        targetNoun: 'session',
+        html: `<strong class="text-zinc-200 font-mono">${escapeHtml(args?.name || '')}</strong>`,
+        summaryTarget: args?.name || ''
+      }),
+      send_terminal_input: (args) => ({
+        activeVerb: 'Sending input to',
+        completedVerb: 'Sent input to',
+        bundleId: 'terminal_control',
+        bundleVerb: 'Controlling Terminal',
+        completedBundleVerb: 'Controlled',
+        targetNoun: 'terminal',
+        html: `<code class="bg-zinc-900 border border-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono text-[10px]">${escapeHtml(args?.input || '')}</code>`,
+        summaryTarget: args?.input || ''
+      }),
+      spawn_sub_agent: (args) => ({
+        activeVerb: 'Spawning sub-agent',
+        completedVerb: 'Spawned sub-agent',
+        bundleId: 'subagents',
+        bundleVerb: 'Orchestrating Sub-Agents',
+        completedBundleVerb: 'Orchestrated',
+        targetNoun: 'sub-agent',
+        html: `<strong class="text-zinc-200 font-mono">${escapeHtml(args?.name || '')}</strong>`,
+        summaryTarget: args?.name || ''
+      }),
+      get_sub_agent_status: (args) => ({
+        activeVerb: 'Checking sub-agent',
+        completedVerb: 'Checked sub-agent',
+        bundleId: 'subagents',
+        bundleVerb: 'Orchestrating Sub-Agents',
+        completedBundleVerb: 'Orchestrated',
+        targetNoun: 'sub-agent',
+        html: `<strong class="text-zinc-200 font-mono">${escapeHtml(args?.sub_agent_id || '')}</strong>`,
+        summaryTarget: args?.sub_agent_id || ''
+      }),
+      wait_sub_agent: (args) => ({
+        activeVerb: 'Waiting on sub-agent',
+        completedVerb: 'Waited on sub-agent',
+        bundleId: 'subagents',
+        bundleVerb: 'Orchestrating Sub-Agents',
+        completedBundleVerb: 'Orchestrated',
+        targetNoun: 'sub-agent',
+        html: `<strong class="text-zinc-200 font-mono">${escapeHtml(args?.sub_agent_id || '')}</strong>`,
+        summaryTarget: args?.sub_agent_id || ''
+      })
+    };
+
+    function getToolRenderer(toolName, args) {
+      if (window.ToolRenderers && typeof window.ToolRenderers[toolName] === 'function') {
+        return window.ToolRenderers[toolName](args);
+      }
+      return {
+        activeVerb: 'Executing',
+        completedVerb: 'Executed',
+        bundleId: 'custom',
+        bundleVerb: 'Executing Tools',
+        completedBundleVerb: 'Executed',
+        targetNoun: 'tool',
+        html: `<strong class="text-zinc-200 font-mono">${escapeHtml(toolName)}</strong> <span class="text-zinc-500 font-mono text-[9px]">${escapeHtml(JSON.stringify(args || {}))}</span>`,
+        summaryTarget: toolName
+      };
+    }
+
+    // Action Bundle Accordion State
+    let currentActionBundle = null; // { el, bundleId, count, bundleVerb, completedVerb, noun, completed }
+
+    function getOrCreateActionBundle(bundleId, bundleVerb, completedVerb, noun) {
+      if (currentActionBundle && currentActionBundle.bundleId === bundleId && !currentActionBundle.completed) {
+        return currentActionBundle;
+      }
+      finalizeActiveActionBundle();
+
+      const details = document.createElement('details');
+      details.className = "action-bundle-group group my-2 max-w-3xl mr-auto select-text";
+      details.open = true;
+      details.innerHTML = `
+        <summary class="cursor-pointer flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white select-none py-1 list-none [&::-webkit-details-marker]:hidden font-medium">
+          <span class="bundle-status-spinner"><i class="fa-solid fa-circle-notch animate-spin text-zinc-400 text-[10px]"></i></span>
+          <span class="bundle-label">${bundleVerb} 1 ${noun}...</span>
+          <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500 transition-transform duration-200 group-open:rotate-90"></i>
+        </summary>
+        <div class="bundle-items-list mt-1 pl-3 border-l-2 border-zinc-700/50 space-y-1 text-xs select-text"></div>
+      `;
+      elements.sessionChatContainer.appendChild(details);
+      currentActionBundle = {
+        el: details,
+        bundleId: bundleId,
+        count: 0,
+        bundleVerb: bundleVerb,
+        completedVerb: completedVerb,
+        noun: noun,
+        completed: false
+      };
+      return currentActionBundle;
+    }
+
+    function finalizeActiveActionBundle() {
+      if (!currentActionBundle || currentActionBundle.completed) return;
+      const count = Math.max(1, currentActionBundle.count);
+      const labelEl = currentActionBundle.el.querySelector('.bundle-label');
+      const spinnerEl = currentActionBundle.el.querySelector('.bundle-status-spinner');
+      if (labelEl) {
+        const plural = count > 1 ? (currentActionBundle.noun.endsWith('y') ? currentActionBundle.noun.slice(0, -1) + 'ies' : currentActionBundle.noun + 's') : currentActionBundle.noun;
+        labelEl.textContent = `${currentActionBundle.completedVerb} ${count} ${plural}`;
+      }
+      if (spinnerEl) spinnerEl.remove();
+
+      // Ensure any child tool items inside this bundle that still have spinner markers get finalized to checkmarks!
+      currentActionBundle.el.querySelectorAll('.tool-sub-item').forEach(stepEl => {
+        const marker = stepEl.querySelector('.status-marker');
+        if (marker && marker.querySelector('.fa-spinner')) {
+          marker.innerHTML = '<i class="fa-solid fa-check text-emerald-500 text-[9px]"></i>';
+          const verbLabel = stepEl.querySelector('.tool-verb-label');
+          if (verbLabel && stepEl.dataset.completedVerb) {
+            verbLabel.textContent = stepEl.dataset.completedVerb;
+          }
+        }
+      });
+
+      currentActionBundle.completed = true;
+      currentActionBundle = null;
+    }
+
     // Modern Thought Block Live State
     let currentLiveThoughtEl = null;
     let liveThoughtStartTime = 0;
@@ -2407,16 +2761,26 @@ Group files by component. Use markdown links with relative paths and detail exac
         rawLiveThoughtAccumulator = "";
 
         const details = document.createElement('details');
-        details.className = "thought-block group my-2 max-w-3xl mr-auto select-text";
+        details.className = "thought-block group my-1 max-w-3xl mr-auto select-text";
         details.open = true;
         details.innerHTML = `
-          <summary class="cursor-pointer flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-300 select-none py-1 list-none [&::-webkit-details-marker]:hidden">
+          <summary class="cursor-pointer flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-300 select-none py-0.5 list-none [&::-webkit-details-marker]:hidden">
             <span class="thought-label">Thinking...</span>
             <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500 transition-transform duration-200 group-open:rotate-90"></i>
           </summary>
-          <div class="thought-content mt-1.5 pl-3 border-l-2 border-zinc-700/50 text-xs text-zinc-400 leading-relaxed font-sans space-y-2 max-h-80 overflow-y-auto select-text"></div>
+          <div class="thought-content mt-1 pl-3 border-l-2 border-zinc-700/50 text-xs text-zinc-400 leading-relaxed font-sans space-y-2 max-h-80 overflow-y-auto select-text"></div>
         `;
-        elements.sessionChatContainer.appendChild(details);
+
+        if (currentActionBundle && !currentActionBundle.completed) {
+          const list = currentActionBundle.el.querySelector('.bundle-items-list');
+          if (list) {
+            list.appendChild(details);
+          } else {
+            elements.sessionChatContainer.appendChild(details);
+          }
+        } else {
+          elements.sessionChatContainer.appendChild(details);
+        }
         currentLiveThoughtEl = details;
       }
 
@@ -2442,14 +2806,14 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     function createHistoricalThoughtBlock(text, durationText = "3s") {
       const details = document.createElement('details');
-      details.className = "thought-block group my-2 max-w-3xl mr-auto select-text";
+      details.className = "thought-block group my-1 max-w-3xl mr-auto select-text";
       details.open = false;
       details.innerHTML = `
-        <summary class="cursor-pointer flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-300 select-none py-1 list-none [&::-webkit-details-marker]:hidden">
+        <summary class="cursor-pointer flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-300 select-none py-0.5 list-none [&::-webkit-details-marker]:hidden">
           <span class="thought-label">Thought for ${durationText}</span>
           <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500 transition-transform duration-200 group-open:rotate-90"></i>
         </summary>
-        <div class="thought-content mt-1.5 pl-3 border-l-2 border-zinc-700/50 text-xs text-zinc-400 leading-relaxed font-sans space-y-2 max-h-80 overflow-y-auto select-text">
+        <div class="thought-content mt-1 pl-3 border-l-2 border-zinc-700/50 text-xs text-zinc-400 leading-relaxed font-sans space-y-2 max-h-80 overflow-y-auto select-text">
           ${state.markdownParser.render(text)}
         </div>
       `;
@@ -2523,6 +2887,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         }
         case 'TOKEN_STREAM': {
           finalizeLiveThoughtBlock();
+          finalizeActiveActionBundle();
           removeRetryingCard();
           setGeneratingState(true);
 
@@ -2579,6 +2944,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
         case 'MEDIA_STREAM': {
           finalizeLiveThoughtBlock();
+          finalizeActiveActionBundle();
           removeRetryingCard();
           setGeneratingState(true);
 
@@ -2609,6 +2975,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
         case 'DONE':
           finalizeLiveThoughtBlock();
+          finalizeActiveActionBundle();
           removeRetryingCard();
           setGeneratingState(false);
           if (data.modelMessageId) {
@@ -2712,7 +3079,12 @@ Group files by component. Use markdown links with relative paths and detail exac
       const formData = new FormData();
       if (prompt) formData.append('message', prompt);
       if (parentId !== null && parentId !== undefined) formData.append('parentId', parentId.toString());
-      files.forEach(f => formData.append('files', f.raw));
+      files.forEach(f => {
+        if (f.raw) {
+          formData.append('files', f.raw);
+          formData.append('paths', f.relativePath || f.name);
+        }
+      });
 
       let userMsgId = null;
       try {
@@ -2967,6 +3339,14 @@ Group files by component. Use markdown links with relative paths and detail exac
                         response: { result: execData.sanitized || toolResult }
                       }
                     });
+                    if (toolResult?.inlineImage?.data) {
+                      toolResponseParts.push({
+                        inlineData: {
+                          mimeType: toolResult.inlineImage.mimeType || 'image/jpeg',
+                          data: toolResult.inlineImage.data
+                        }
+                      });
+                    }
                   } catch (toolExecErr) {
                     console.error("Tool execution failed:", toolExecErr);
                     processWebSocketGatewayPayload({
@@ -2981,6 +3361,28 @@ Group files by component. Use markdown links with relative paths and detail exac
                         response: { error: toolExecErr.message }
                       }
                     });
+                  }
+                }
+
+                // Save tool responses to backend database
+                if (toolResponseParts.length > 0) {
+                  try {
+                    const saveToolRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/message`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        parts: toolResponseParts,
+                        parentId: currentParentMsgId
+                      })
+                    });
+                    if (saveToolRes.ok) {
+                      const stData = await saveToolRes.json();
+                      if (stData.messageId) {
+                        currentParentMsgId = stData.messageId;
+                      }
+                    }
+                  } catch (saveToolErr) {
+                    console.error("Failed to save tool response turn:", saveToolErr);
                   }
                 }
 
@@ -3127,6 +3529,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                 finalizeInlineActionThoughtBlock(part.functionResponse.id, part.functionResponse.response, item.id);
               }
             });
+            finalizeActiveActionBundle();
             // Reset active group after finishing responses
             activeThinkingNode = null;
             // Insert branch divider after tool-response turns too
@@ -3135,6 +3538,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             }
             return;
           }
+          finalizeActiveActionBundle();
 
           let promptText = "";
           const attachments = [];
@@ -3171,6 +3575,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                 createHistoricalThoughtBlock(thoughtText, p.duration || "3s");
               }
             } else if (p.text) {
+              finalizeActiveActionBundle();
               activeThinkingNode = null;
               if (!responseBubbleEl) {
                 responseBubbleEl = createEmptyMessageBubble('model', item.id);
@@ -3180,6 +3585,7 @@ Group files by component. Use markdown links with relative paths and detail exac
               responseBubbleEl._rawText = existingText + p.text;
               responseBubbleEl.querySelector('.chat-body-content').innerHTML = state.markdownParser.render(responseBubbleEl._rawText);
             } else if (p._localFilePath) {
+              finalizeActiveActionBundle();
               activeThinkingNode = null;
               if (!responseBubbleEl) {
                 responseBubbleEl = createEmptyMessageBubble('model', item.id);
@@ -3218,6 +3624,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           appendBranchDivider(branchPointByMsgId.get(item.id));
         }
       });
+      finalizeActiveActionBundle();
       scrollToChatBottom();
     }
 
@@ -3608,82 +4015,56 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     // Render dynamic tool calls inside threads
     function appendInlineActionThoughtBlock(toolName, args, callId) {
-      if (!activeThinkingNode) {
-        activeThinkingNode = document.createElement('div');
-        activeThinkingNode.className = "max-w-4xl mx-auto pl-12 space-y-2 select-none";
-        elements.sessionChatContainer.appendChild(activeThinkingNode);
+      const r = getToolRenderer(toolName, args);
+      const bundle = getOrCreateActionBundle(r.bundleId, r.bundleVerb, r.completedVerb, r.targetNoun);
+      bundle.count++;
+
+      const pluralNoun = bundle.count > 1 ? (bundle.noun.endsWith('y') ? bundle.noun.slice(0, -1) + 'ies' : bundle.noun + 's') : bundle.noun;
+      const labelEl = bundle.el.querySelector('.bundle-label');
+      if (labelEl) {
+        labelEl.textContent = `${bundle.bundleVerb} ${bundle.count} ${pluralNoun}...`;
       }
 
-      const stepDetails = document.createElement('details');
-      // Store callId as a data attribute for reliable lookup
-      stepDetails.dataset.callId = callId || '';
-      stepDetails.className = "group border border-zinc-800 bg-brand-dark/30 rounded-xl overflow-hidden";
-      
-      let stepIcon = "fa-solid fa-gear";
-      let stepVerb = "Initiated execution action";
-      let toolTargetDescription = args?.path || args?.command || args?.name || "Process";
+      const list = bundle.el.querySelector('.bundle-items-list');
+      const itemDetails = document.createElement('details');
+      itemDetails.className = "tool-sub-item group/tool my-0.5";
+      itemDetails.dataset.callId = callId || '';
+      itemDetails.dataset.toolName = toolName;
+      itemDetails.dataset.activeVerb = r.activeVerb || 'Executing';
+      itemDetails.dataset.completedVerb = r.completedVerb || 'Executed';
+      if (args?.content) itemDetails.dataset.content = args.content;
+      if (args?.search) itemDetails.dataset.search = args.search;
+      if (args?.replace) itemDetails.dataset.replace = args.replace;
 
-      if (toolName === 'list_dir') { stepIcon = "fa-solid fa-folder-tree text-amber-500"; stepVerb = "Explored folder"; }
-      else if (toolName === 'read_file') { stepIcon = "fa-solid fa-file-invoice text-sky-400"; stepVerb = "Read file"; }
-      else if (toolName === 'write_file') { 
-        stepIcon = "fa-solid fa-floppy-disk text-emerald-400"; 
-        stepVerb = "Created/overwrote file"; 
-        toolTargetDescription = args?.path || "File";
-        stepDetails.dataset.toolName = 'write_file';
-        stepDetails.dataset.content = args?.content || '';
-      }
-      else if (toolName === 'edit_file') { 
-        stepIcon = "fa-solid fa-code-compare text-teal-400"; 
-        stepVerb = "Patched file"; 
-        toolTargetDescription = args?.path || "File";
-        stepDetails.dataset.toolName = 'edit_file';
-        stepDetails.dataset.search = args?.search || '';
-        stepDetails.dataset.replace = args?.replace || '';
-      }
-      else if (toolName === 'execute_command') { stepIcon = "fa-solid fa-square-terminal text-purple-400"; stepVerb = "Launched process"; }
-      else if (toolName === 'send_terminal_input') { stepIcon = "fa-solid fa-keyboard text-amber-400"; stepVerb = "Sent terminal input"; toolTargetDescription = args?.terminal_id || "Terminal"; }
-      else if (toolName === 'set_session_name') { stepIcon = "fa-solid fa-tag text-zinc-400"; stepVerb = "Renamed session"; }
-      else if (toolName === 'parse_document') { 
-        stepIcon = "fa-solid fa-file-pdf text-red-400"; 
-        stepVerb = "Parsed document"; 
-        toolTargetDescription = args?.filepath || "Document"; 
-      }
-      else if (toolName === 'view_image') { 
-        stepIcon = "fa-solid fa-image text-cyan-400"; 
-        stepVerb = "Inspected image"; 
-        toolTargetDescription = args?.path || "Image"; 
-      }
-
-      stepDetails.innerHTML = `
-        <summary class="flex items-center justify-between p-3 cursor-pointer hover:bg-zinc-900/40 transition-colors text-[10px] text-zinc-400 font-mono">
-          <div class="flex items-center space-x-2">
-            <i class="${stepIcon} text-xs"></i>
-            <span>${stepVerb} <strong class="text-zinc-200 truncate max-w-[240px]">${toolTargetDescription}</strong></span>
+      itemDetails.innerHTML = `
+        <summary class="cursor-pointer flex items-center justify-between text-xs py-0.5 hover:text-zinc-200 list-none [&::-webkit-details-marker]:hidden font-sans select-text">
+          <div class="flex items-center space-x-2 min-w-0">
+            <span class="tool-verb-label text-zinc-400 font-medium select-none text-xs">${r.activeVerb}</span>
+            <span class="text-zinc-200 text-xs">${r.html}</span>
           </div>
-          <div class="flex items-center space-x-2 text-[10px] text-zinc-500">
-            <span class="status-marker flex items-center space-x-1"><i class="fa-solid fa-spinner animate-spin text-[9px]"></i> <span>Executing…</span></span>
-            <i class="fa-solid fa-chevron-down group-open:rotate-180 transition-transform"></i>
-          </div>
+          <span class="status-marker text-[10px] text-zinc-500 font-mono ml-2 shrink-0 select-none"><i class="fa-solid fa-spinner animate-spin text-[8px]"></i></span>
         </summary>
-        <div class="p-3.5 border-t border-zinc-800/60 bg-brand-black/50 text-[10px] font-mono text-zinc-400 space-y-2 overflow-x-auto">
-          <div><strong class="text-zinc-300">Tool Parameters:</strong></div>
-          <pre class="bg-brand-dark/80 p-2.5 rounded-lg border border-zinc-800 text-[9px] leading-normal text-zinc-400">${JSON.stringify(args, null, 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')}</pre>
-          <div class="terminal-log-output mt-2.5 hidden">
-            <div><strong class="text-zinc-300">Result Output:</strong></div>
-            <div class="diff-editor-container hidden w-full h-[300px] border border-zinc-800 rounded-lg overflow-hidden mt-1"></div>
-            <pre class="bg-brand-black p-2.5 rounded border border-zinc-800 text-[9px] text-zinc-500 mt-1 max-h-48 overflow-y-auto leading-normal whitespace-pre-wrap"></pre>
+        <div class="terminal-log-output mt-1 pl-2 text-[10px] font-mono text-zinc-400 border-l border-zinc-800 space-y-1.5 hidden">
+          <div><strong class="text-zinc-400 text-[9px]">Parameters:</strong></div>
+          <pre class="bg-zinc-900/90 p-2 rounded border border-zinc-800/80 overflow-x-auto text-[9px]">${JSON.stringify(args, null, 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')}</pre>
+          <div class="diff-editor-container hidden w-full h-[240px] border border-zinc-800 rounded-lg overflow-hidden mt-1"></div>
+          <div class="tool-result-box hidden">
+            <div><strong class="text-zinc-400 text-[9px]">Output:</strong></div>
+            <pre class="bg-brand-black p-2 rounded border border-zinc-800 text-[9px] text-zinc-500 max-h-40 overflow-y-auto leading-normal whitespace-pre-wrap"></pre>
           </div>
         </div>
       `;
 
-      activeThinkingNode.appendChild(stepDetails);
+      if (list) {
+        list.appendChild(itemDetails);
+      } else {
+        elements.sessionChatContainer.appendChild(itemDetails);
+      }
       scrollToChatBottom();
     }
 
     function finalizeInlineActionThoughtBlock(callId, response, messageId = null) {
-      // Find the details element by its data-call-id attribute for reliable matching
       let stepEl = callId ? document.querySelector(`details[data-call-id="${callId}"]`) : null;
-      // Fallback: find last uncompleted block
       if (!stepEl) {
         const all = document.querySelectorAll('details[data-call-id]');
         for (let i = all.length - 1; i >= 0; i--) {
@@ -3697,26 +4078,31 @@ Group files by component. Use markdown links with relative paths and detail exac
         stepEl.dataset.messageId = messageId;
       }
 
+      const verbLabel = stepEl.querySelector('.tool-verb-label');
+      if (verbLabel && stepEl.dataset.completedVerb) {
+        verbLabel.textContent = stepEl.dataset.completedVerb;
+      }
+
       const statusMarker = stepEl.querySelector('.status-marker');
       if (statusMarker) {
-        statusMarker.innerHTML = '<span class="text-emerald-500 font-bold">Completed</span>';
+        statusMarker.innerHTML = '<i class="fa-solid fa-check text-emerald-500 text-[9px]"></i>';
       }
 
       const preWrapper = stepEl.querySelector('.terminal-log-output');
       if (preWrapper) {
         preWrapper.classList.remove('hidden');
-        
-        // Special handling for edit_file tool to show VS Code style diff
+        const resBox = preWrapper.querySelector('.tool-result-box');
+        if (resBox) resBox.classList.remove('hidden');
+
         if (stepEl.dataset.toolName === 'edit_file') {
           const diffContainer = preWrapper.querySelector('.diff-editor-container');
           if (diffContainer) {
             diffContainer.classList.remove('hidden');
-            // Hide the fallback pre for diffs
-            preWrapper.querySelector('pre').classList.add('hidden');
-            
-            const searchText = stepEl.dataset.search;
-            const replaceText = stepEl.dataset.replace;
-            
+            if (resBox) resBox.classList.add('hidden');
+
+            const searchText = stepEl.dataset.search || '';
+            const replaceText = stepEl.dataset.replace || '';
+
             require(['vs/editor/editor.main'], function() {
               const diffEditor = monaco.editor.createDiffEditor(diffContainer, {
                 automaticLayout: true,
@@ -3728,42 +4114,21 @@ Group files by component. Use markdown links with relative paths and detail exac
 
               const originalModel = monaco.editor.createModel(searchText, 'javascript');
               const modifiedModel = monaco.editor.createModel(replaceText, 'javascript');
-              
+
               diffEditor.setModel({
                 original: originalModel,
                 modified: modifiedModel
               });
             });
           }
-        } else if (stepEl.dataset.toolName === 'write_file') {
-          const diffContainer = preWrapper.querySelector('.diff-editor-container');
-          if (diffContainer) {
-            diffContainer.classList.remove('hidden');
-            preWrapper.querySelector('pre').classList.add('hidden');
-
-            const content = stepEl.dataset.content;
-
-            require(['vs/editor/editor.main'], function() {
-              const editor = monaco.editor.create(diffContainer, {
-                value: content,
-                language: 'javascript',
-                theme: 'vs-dark',
-                readOnly: true,
-                automaticLayout: true,
-                minimap: { enabled: false },
-                fontSize: 11,
-                lineNumbers: 'on',
-                glyphMargin: false,
-                folding: true,
-                scrollBeyondLastLine: false,
-              });
-            });
-          }
         } else {
           const resVal = response?.result !== undefined ? response.result : (response?.error !== undefined ? { error: response.error } : response);
-          preWrapper.querySelector('pre').textContent = typeof resVal === 'string'
-            ? resVal
-            : JSON.stringify(resVal, null, 2);
+          const outPre = preWrapper.querySelector('.tool-result-box pre') || preWrapper.querySelector('pre');
+          if (outPre) {
+            outPre.textContent = typeof resVal === 'string'
+              ? resVal
+              : JSON.stringify(resVal, null, 2);
+          }
         }
       }
 
@@ -3877,17 +4242,60 @@ Group files by component. Use markdown links with relative paths and detail exac
       elements.sessionRightDrawer.classList.add('hidden');
     }
 
-    // Process prompts and uploads
+    // Attachment dropdown menu and upload triggers
+    function toggleAttachmentMenu(event) {
+      event?.stopPropagation();
+      const menu = document.getElementById('attachment-dropdown-menu');
+      if (menu) menu.classList.toggle('hidden');
+    }
+
+    function hideAttachmentMenu() {
+      const menu = document.getElementById('attachment-dropdown-menu');
+      if (menu) menu.classList.add('hidden');
+    }
+
+    function triggerFileInput() {
+      document.getElementById('file-upload-input')?.click();
+    }
+
+    function triggerFolderInput() {
+      document.getElementById('folder-upload-input')?.click();
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#btn-attachment-toggle') && !e.target.closest('#attachment-dropdown-menu')) {
+        hideAttachmentMenu();
+      }
+    });
+
+    // Process prompts, files and folder uploads
     function handleChatFileUpload(event) {
       const selected = Array.from(event.target.files);
       selected.forEach(file => {
         state.selectedAttachments.push({
           name: file.name,
+          relativePath: file.name,
           mime: file.type,
           size: file.size,
           raw: file
         });
       });
+      event.target.value = '';
+      renderAttachmentChips();
+    }
+
+    function handleChatFolderUpload(event) {
+      const selected = Array.from(event.target.files);
+      selected.forEach(file => {
+        state.selectedAttachments.push({
+          name: file.name,
+          relativePath: file.webkitRelativePath || file.name,
+          mime: file.type,
+          size: file.size,
+          raw: file
+        });
+      });
+      event.target.value = '';
       renderAttachmentChips();
     }
 
@@ -4797,9 +5205,11 @@ Group files by component. Use markdown links with relative paths and detail exac
                           <span class="ml-2 text-[10px] text-zinc-400 font-mono">${bg.tools.length} tool${bg.tools.length > 1 ? 's' : ''}</span>
                         </div>
                       </div>
-                      <span class="text-[10px] px-2 py-0.5 rounded-full font-medium ${bg.context === 'project' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
-                        ${bg.context === 'project' ? 'In Project' : 'Always Active'}
-                      </span>
+                      <label class="relative inline-flex items-center cursor-pointer select-none">
+                        <input type="checkbox" ${bg.enabled ? 'checked' : ''} onchange="toggleToolGroupSwitch('${bg.id}', this.checked)" class="sr-only peer">
+                        <div class="w-8 h-4.5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        <span class="ml-2 text-[10px] font-medium ${bg.enabled ? 'text-emerald-400' : 'text-zinc-500'}">${bg.enabled ? 'Active' : 'Disabled'}</span>
+                      </label>
                     </div>
                     <div class="flex flex-wrap gap-1.5 pt-1">
                       ${bg.tools.map(t => `<span class="bg-zinc-800/80 text-zinc-300 font-mono text-[10px] px-2 py-0.5 rounded-md border border-white/5" title="${t.description}">${t.name}</span>`).join('')}
@@ -4854,10 +5264,12 @@ Group files by component. Use markdown links with relative paths and detail exac
                           </div>
                           <p class="text-[11px] text-zinc-400 line-clamp-2">${scr.description || 'No description provided.'}</p>
                         </div>
-                        <div class="flex items-center space-x-1.5 shrink-0">
-                          <button onclick="toggleToolScript('${scr.id}', ${scr.enabled ? 0 : 1})" class="px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${scr.enabled ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-zinc-800 text-zinc-500 border-zinc-700'}">
-                            ${scr.enabled ? 'Enabled' : 'Disabled'}
-                          </button>
+                        <div class="flex items-center space-x-2 shrink-0">
+                          <label class="relative inline-flex items-center cursor-pointer select-none">
+                            <input type="checkbox" ${scr.enabled ? 'checked' : ''} onchange="toggleToolScript('${scr.id}', this.checked ? 1 : 0)" class="sr-only peer">
+                            <div class="w-8 h-4.5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-600"></div>
+                            <span class="ml-2 text-[10px] font-medium ${scr.enabled ? 'text-emerald-400' : 'text-zinc-500'}">${scr.enabled ? 'Active' : 'Disabled'}</span>
+                          </label>
                           <button onclick="openViewToolScriptCodeModal('${scr.fileName}')" class="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors" title="View Code">
                             <i class="fa-solid fa-eye text-xs"></i>
                           </button>
@@ -4913,9 +5325,11 @@ Group files by component. Use markdown links with relative paths and detail exac
                         <div class="text-[11px] text-zinc-400 font-mono truncate">${srv.source}</div>
                       </div>
                       <div class="flex items-center space-x-2 shrink-0">
-                        <button onclick="toggleMcpServer('${srv.id}', ${srv.active ? 0 : 1})" class="px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${srv.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-zinc-800 text-zinc-500 border-zinc-700'}">
-                          ${srv.active ? 'Active' : 'Paused'}
-                        </button>
+                        <label class="relative inline-flex items-center cursor-pointer select-none">
+                          <input type="checkbox" ${srv.active ? 'checked' : ''} onchange="toggleMcpServer('${srv.id}', this.checked ? 1 : 0)" class="sr-only peer">
+                          <div class="w-8 h-4.5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-600"></div>
+                          <span class="ml-2 text-[10px] font-medium ${srv.active ? 'text-emerald-400' : 'text-zinc-500'}">${srv.active ? 'Active' : 'Paused'}</span>
+                        </label>
                         <button onclick="viewMcpToolsModal('${srv.id}', '${srv.name}')" class="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors" title="Inspect Tools">
                           <i class="fa-solid fa-list-check text-xs"></i>
                         </button>
@@ -6240,6 +6654,25 @@ export async function execute({ input }) {
           showToast('Tool Removed', 'Script tool deleted', 'info');
           await openSettingsModal('tools');
           switchToolsHubTab('scripts');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
+    async function toggleToolGroupSwitch(groupId, isEnabled) {
+      try {
+        const res = await fetch(`/api/tools/group/${groupId}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !!isEnabled })
+        });
+        if (res.ok) {
+          await openSettingsModal('tools');
+          switchToolsHubTab('builtin');
+        } else {
+          const err = await res.text();
+          showToast('Error', err, 'error');
         }
       } catch (err) {
         showToast('Error', err.message, 'error');

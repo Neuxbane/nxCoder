@@ -273,12 +273,14 @@ func (m *MCPManager) CallServerTool(command, toolName string, args map[string]an
 
 func BuildMCPToolGroup(server db.McpServer, tools []ToolFunctionDeclaration) ToolGroup {
 	return ToolGroup{
-		ID:      "mcp_" + server.ID,
-		Source:  "mcp",
-		Context: "always",
-		Label:   server.Name,
-		Icon:    "fa-solid fa-plug",
-		Enabled: server.Active == 1,
-		Tools:   tools,
+		ID:            "mcp_" + server.ID,
+		Source:        "mcp",
+		Context:       "always",
+		Label:         server.Name,
+		Icon:          "fa-solid fa-plug",
+		ActiveVerb:    "Calling MCP",
+		CompletedVerb: "Called MCP",
+		Enabled:       server.Active == 1,
+		Tools:         tools,
 	}
 }

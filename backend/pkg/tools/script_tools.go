@@ -131,12 +131,14 @@ func BuildScriptToolGroup(script db.ToolScript, decl *ScriptToolDeclaration) Too
 	}
 
 	return ToolGroup{
-		ID:      "script_" + script.ID,
-		Source:  "script",
-		Context: contextStr,
-		Label:   name,
-		Icon:    "fa-solid fa-code",
-		Enabled: script.Enabled == 1,
+		ID:            "script_" + script.ID,
+		Source:        "script",
+		Context:       contextStr,
+		Label:         name,
+		Icon:          "fa-solid fa-code",
+		ActiveVerb:    "Executing",
+		CompletedVerb: "Executed",
+		Enabled:       script.Enabled == 1,
 		Tools: []ToolFunctionDeclaration{
 			{
 				Name:        name,

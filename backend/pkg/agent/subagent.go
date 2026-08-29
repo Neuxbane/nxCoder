@@ -151,6 +151,17 @@ func (sae *SubAgentEngine) runSubAgentTask(workspaceID, sessionID, subAgentID, p
 			for _, p := range rawParts {
 				if txt, ok := p["text"].(string); ok {
 					parts = append(parts, providers.GeminiPart{Text: txt})
+				} else if inlineData, ok := p["inlineData"].(map[string]any); ok {
+					mimeType, _ := inlineData["mimeType"].(string)
+					dataB64, _ := inlineData["data"].(string)
+					if mimeType != "" && dataB64 != "" {
+						parts = append(parts, providers.GeminiPart{
+							InlineData: &providers.GeminiBlob{
+								MimeType: mimeType,
+								Data:     dataB64,
+							},
+						})
+					}
 				} else if fc, ok := p["functionCall"].(map[string]any); ok {
 					name, _ := fc["name"].(string)
 					args, _ := fc["args"].(map[string]any)
@@ -248,6 +259,28 @@ func (sae *SubAgentEngine) runSubAgentTask(workspaceID, sessionID, subAgentID, p
 						"response": map[string]any{"result": sanitized},
 					},
 				})
+
+				if imgRes, ok := toolResult.(*tools.ViewImageResult); ok && imgRes != nil && imgRes.InlineImage.Data != "" {
+					toolResponseParts = append(toolResponseParts, map[string]any{
+						"inlineData": map[string]any{
+							"mimeType": imgRes.InlineImage.MimeType,
+							"data":     imgRes.InlineImage.Data,
+						},
+					})
+				} else if imgMap, ok := toolResult.(map[string]any); ok {
+					if inlineImg, ok := imgMap["inlineImage"].(map[string]any); ok {
+						mimeType, _ := inlineImg["mimeType"].(string)
+						dataB64, _ := inlineImg["data"].(string)
+						if mimeType != "" && dataB64 != "" {
+							toolResponseParts = append(toolResponseParts, map[string]any{
+								"inlineData": map[string]any{
+									"mimeType": mimeType,
+									"data":     dataB64,
+								},
+							})
+						}
+					}
+				}
 			}
 
 			trBytes, _ := json.Marshal(toolResponseParts)
