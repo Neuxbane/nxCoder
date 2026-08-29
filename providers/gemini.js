@@ -35,6 +35,13 @@ export default {
                   : { result: p.functionResponse.response }
               }
             };
+          } else if (p.inlineData) {
+            return {
+              inlineData: {
+                mimeType: p.inlineData.mimeType,
+                data: p.inlineData.data
+              }
+            };
           } else if (p.text) {
             return { text: p.text };
           }

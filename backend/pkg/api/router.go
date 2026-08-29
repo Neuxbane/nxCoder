@@ -85,6 +85,8 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/api/find-folder", s.handleFindFolder)
 	r.Get("/api/pick-folder", s.handlePickFolder)
 	r.Post("/api/open-window", s.handleOpenWindow)
+	r.Get("/api/read-file", s.handleReadLocalFile)
+	r.Post("/api/read-file", s.handleReadLocalFile)
 
 	// API Keys
 	r.Get("/api/key", s.handleGetApiKeys)
@@ -118,6 +120,7 @@ func (s *Server) Routes() http.Handler {
 	r.Delete("/api/workspace/{id}/session/{sessionID}", s.handleDeleteSession)
 	r.Get("/api/workspace/{id}/session/{sessionID}", s.handleGetSessionMessages)
 	r.Post("/api/workspace/{id}/session/{sessionID}", s.handlePostUserMessage)
+	r.Post("/api/workspace/{id}/session/{sessionID}/message", s.handlePostUserMessage)
 	r.Post("/api/workspace/{id}/session/{sessionID}/assistant", s.handlePostAssistantMessage)
 	r.Post("/api/workspace/{id}/session/{sessionID}/tools/execute", s.handleExecuteTool)
 
@@ -324,6 +327,91 @@ func (s *Server) handleFindFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Folder not found", http.StatusNotFound)
+}
+
+func (s *Server) handleReadLocalFile(w http.ResponseWriter, r *http.Request) {
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		var body struct {
+			Path string `json:"path"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		filePath = body.Path
+	}
+
+	if filePath == "" {
+		http.Error(w, "Missing file path", http.StatusBadRequest)
+		return
+	}
+
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(filePath, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			filePath = filepath.Join(home, filePath[2:])
+		}
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		http.Error(w, "File not found: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	if info.IsDir() {
+		type DroppedFileInfo struct {
+			Name         string `json:"name"`
+			RelativePath string `json:"relativePath"`
+			FullPath     string `json:"fullPath"`
+			Size         int64  `json:"size"`
+			Mime         string `json:"mime"`
+		}
+		var results []DroppedFileInfo
+		baseDir := filepath.Dir(filePath)
+		_ = filepath.Walk(filePath, func(p string, fi os.FileInfo, err error) error {
+			if err != nil || fi.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(baseDir, p)
+			ext := filepath.Ext(p)
+			mimeType := mime.TypeByExtension(ext)
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
+			results = append(results, DroppedFileInfo{
+				Name:         fi.Name(),
+				RelativePath: filepath.ToSlash(rel),
+				FullPath:     p,
+				Size:         fi.Size(),
+				Mime:         mimeType,
+			})
+			return nil
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"isDirectory": true,
+			"files":       results,
+		})
+		return
+	}
+
+	ext := filepath.Ext(filePath)
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "Failed to read file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("X-File-Name", filepath.Base(filePath))
+	w.Header().Set("X-File-Size", strconv.FormatInt(info.Size(), 10))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleOpenWindow(w http.ResponseWriter, r *http.Request) {
@@ -1038,13 +1126,16 @@ func (s *Server) handlePostUserMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var body struct {
-			Message  string `json:"message"`
-			ParentID *int64 `json:"parentId"`
+			Message  string           `json:"message"`
+			Parts    []map[string]any `json:"parts"`
+			ParentID *int64           `json:"parentId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		text = body.Message
 		parentID = body.ParentID
-		if text != "" {
+		if len(body.Parts) > 0 {
+			parts = body.Parts
+		} else if text != "" {
 			parts = append(parts, map[string]any{"text": text})
 		}
 	}

@@ -347,7 +347,7 @@
     <!-- ========================================== -->
     <!-- VIEW E: EDIT WORKSPACE / CONFIGURATION PAGE -->
     <!-- ========================================== -->
-    <section id="view-edit-workspace" class="absolute inset-0 z-10 flex flex-col opacity-0 translate-x-12 pointer-events-none transition-all duration-300 ease-out bg-brand-black">
+    <section id="view-edit-workspace" class="absolute inset-0 z-0 flex flex-col opacity-0 translate-x-12 pointer-events-none transition-all duration-300 ease-out bg-brand-black hidden">
       <!-- Fixed Top Panel -->
       <div class="bg-brand-dark/80 backdrop-blur-md border-b border-zinc-800 p-6 space-y-4 shrink-0 z-20 shadow-xl">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
@@ -500,7 +500,7 @@
     <!-- ============================================ -->
     <!-- VIEW: SETTINGS (Full Page)                   -->
     <!-- ============================================ -->
-    <section id="view-settings" class="absolute inset-0 bg-[#121214] flex flex-col z-20 pointer-events-none opacity-0 translate-x-12 transition-all duration-300 ease-out overflow-hidden">
+    <section id="view-settings" class="absolute inset-0 bg-[#121214] flex flex-col z-0 pointer-events-none opacity-0 translate-x-12 transition-all duration-300 ease-out overflow-hidden hidden">
 
       <!-- Top Header Bar (always visible) -->
       <div id="settings-topbar" class="h-12 px-4 border-b border-zinc-800/80 flex items-center justify-between shrink-0 bg-[#121214]">
@@ -661,6 +661,17 @@
 
         <!-- Chat Interface Wrapper -->
         <div id="chat-interface-wrapper" class="flex-1 flex flex-col overflow-hidden relative">
+          <!-- Drag & Drop Global Chat Overlay -->
+          <div id="chat-drag-overlay" class="absolute inset-0 z-30 bg-brand-black/85 backdrop-blur-sm border-2 border-dashed border-brand-accent/80 rounded-xl m-3 hidden flex-col items-center justify-center space-y-3 pointer-events-none transition-all">
+            <div class="w-16 h-16 rounded-2xl bg-brand-accent/20 border border-brand-accent/40 flex items-center justify-center text-brand-accent animate-bounce">
+              <i class="fa-solid fa-cloud-arrow-up text-2xl"></i>
+            </div>
+            <div class="text-center">
+              <h3 class="text-sm font-bold text-white">Drop files or folders here</h3>
+              <p class="text-xs text-zinc-400 mt-1">Files will be attached to your conversation</p>
+            </div>
+          </div>
+
           <!-- Chat History Scroll Target Box -->
           <div id="session-chat-container" class="flex-1 overflow-y-auto px-3 sm:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
             <!-- Dynamic bubbles appended here -->
@@ -1057,54 +1068,344 @@ Group files by component. Use markdown links with relative paths and detail exac
         return [];
       }
 
-      // Drag & drop files and folders onto the chat input container or chat area
-      const inputContainer = elements.chatInputContainer || document.getElementById('chat-input-container');
-      if (inputContainer) {
-        ['dragenter', 'dragover'].forEach(eventName => {
-          inputContainer.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            inputContainer.classList.add('border-brand-accent', 'bg-zinc-800/40');
-          });
-        });
+      // Helper to load and attach files given local filesystem paths (e.g. from Tauri or Linux URI list)
+      async function handleLocalFilePaths(paths) {
+        if (!paths || paths.length === 0) return;
+        if (!state.selectedAttachments) state.selectedAttachments = [];
+        const added = [];
 
-        ['dragleave', 'dragend'].forEach(eventName => {
-          inputContainer.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            inputContainer.classList.remove('border-brand-accent', 'bg-zinc-800/40');
-          });
-        });
+        for (const filePath of paths) {
+          if (!filePath || typeof filePath !== 'string') continue;
+          try {
+            const cleanPath = filePath.trim();
+            if (!cleanPath) continue;
 
-        inputContainer.addEventListener('drop', async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          inputContainer.classList.remove('border-brand-accent', 'bg-zinc-800/40');
-
-          const items = Array.from(e.dataTransfer?.items || []);
-          if (items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
-            for (const item of items) {
-              const entry = item.webkitGetAsEntry();
-              if (entry) {
-                const collected = await traverseFileSystemEntry(entry);
-                state.selectedAttachments.push(...collected);
-              }
+            const res = await fetch(`/api/read-file?path=${encodeURIComponent(cleanPath)}`);
+            if (!res.ok) {
+              console.warn("Failed to read file from backend:", cleanPath, res.statusText);
+              continue;
             }
-          } else {
-            const files = Array.from(e.dataTransfer?.files || []);
-            files.forEach(file => {
-              state.selectedAttachments.push({
-                name: file.name,
-                relativePath: file.webkitRelativePath || file.name,
-                mime: file.type,
-                size: file.size,
-                raw: file
+
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const data = await res.json();
+              if (data.isDirectory && Array.isArray(data.files)) {
+                for (const item of data.files) {
+                  try {
+                    const fRes = await fetch(`/api/read-file?path=${encodeURIComponent(item.fullPath)}`);
+                    if (fRes.ok) {
+                      const blob = await fRes.blob();
+                      const fileObj = new File([blob], item.name, { type: item.mime || blob.type || 'application/octet-stream' });
+                      added.push({
+                        name: item.name,
+                        relativePath: item.relativePath || item.name,
+                        mime: item.mime || blob.type || 'application/octet-stream',
+                        size: blob.size,
+                        raw: fileObj,
+                        localPath: item.fullPath
+                      });
+                    }
+                  } catch (e) {
+                    console.warn("Error reading directory child file:", item, e);
+                  }
+                }
+              }
+            } else {
+              const blob = await res.blob();
+              const headerName = res.headers.get('x-file-name');
+              const fileName = headerName ? decodeURIComponent(headerName) : (cleanPath.split('/').pop() || cleanPath.split('\\').pop() || 'file');
+              const fileObj = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+              added.push({
+                name: fileName,
+                relativePath: fileName,
+                mime: blob.type || 'application/octet-stream',
+                size: blob.size,
+                raw: fileObj,
+                localPath: cleanPath
               });
-            });
+            }
+          } catch (err) {
+            console.warn("Failed to load dropped file from local path:", filePath, err);
+          }
+        }
+
+        if (added.length > 0) {
+          for (const att of added) {
+            if (!state.selectedAttachments.some(existing => existing.relativePath === att.relativePath && existing.size === att.size)) {
+              state.selectedAttachments.push(att);
+            }
           }
           renderAttachmentChips();
+          showToast('Attached', `${added.length} item(s) ready to upload`, 'info');
+        }
+      }
+
+      // Robust Drag & drop files and folders handler
+      async function handleDroppedFilesAndItems(dataTransfer) {
+        if (!dataTransfer) return;
+        if (!state.selectedAttachments) state.selectedAttachments = [];
+
+        // 1. SYNCHRONOUSLY capture all direct File objects immediately before any async tick!
+        const rawFiles = [];
+        if (dataTransfer.files && dataTransfer.files.length > 0) {
+          for (let i = 0; i < dataTransfer.files.length; i++) {
+            const f = dataTransfer.files[i];
+            if (f) rawFiles.push(f);
+          }
+        }
+
+        // 2. Also check items synchronously if files was empty
+        if (rawFiles.length === 0 && dataTransfer.items && dataTransfer.items.length > 0) {
+          for (let i = 0; i < dataTransfer.items.length; i++) {
+            const it = dataTransfer.items[i];
+            if (it && it.kind === 'file') {
+              try {
+                const f = it.getAsFile ? it.getAsFile() : null;
+                if (f) rawFiles.push(f);
+              } catch (e) {}
+            }
+          }
+        }
+
+        // 3. Check for text/uri-list or plain text URI drops from Linux file managers (e.g. Dolphin/Nautilus)
+        let uriPaths = [];
+        try {
+          const uriList = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain') || '';
+          if (uriList) {
+            uriPaths = uriList.split('\n')
+              .map(line => line.trim())
+              .filter(line => line.startsWith('file://'))
+              .map(line => decodeURIComponent(line.replace(/^file:\/\//, '')));
+          }
+        } catch (e) {}
+
+        // If URI paths found from Linux file manager, resolve via backend
+        if (uriPaths.length > 0) {
+          await handleLocalFilePaths(uriPaths);
+          return;
+        }
+
+        // 4. Synchronously capture directory entries to traverse if any
+        const dirEntries = [];
+        if (dataTransfer.items && dataTransfer.items.length > 0) {
+          for (let i = 0; i < dataTransfer.items.length; i++) {
+            const it = dataTransfer.items[i];
+            if (it && it.kind === 'file' && typeof it.webkitGetAsEntry === 'function') {
+              try {
+                const entry = it.webkitGetAsEntry();
+                if (entry && entry.isDirectory) {
+                  dirEntries.push(entry);
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        const newAttachments = [];
+
+        // If directory entries were found, traverse them asynchronously
+        if (dirEntries.length > 0) {
+          for (const dirEntry of dirEntries) {
+            try {
+              const dirFiles = await traverseFileSystemEntry(dirEntry);
+              if (dirFiles && dirFiles.length > 0) {
+                newAttachments.push(...dirFiles);
+              }
+            } catch (err) {
+              console.warn("Dir traverse error:", err);
+            }
+          }
+        }
+
+        // Add all captured direct files
+        if (rawFiles.length > 0) {
+          rawFiles.forEach(file => {
+            newAttachments.push({
+              name: file.name,
+              relativePath: file.webkitRelativePath || file.name,
+              mime: file.type || 'application/octet-stream',
+              size: file.size,
+              raw: file
+            });
+          });
+        }
+
+        if (newAttachments.length > 0) {
+          for (const att of newAttachments) {
+            if (!state.selectedAttachments.some(existing => existing.relativePath === att.relativePath && existing.size === att.size)) {
+              state.selectedAttachments.push(att);
+            }
+          }
+          renderAttachmentChips();
+          showToast('Attached', `${newAttachments.length} item(s) ready to upload`, 'info');
+        }
+      }
+
+      let dragCounter = 0;
+      const dragOverlay = document.getElementById('chat-drag-overlay');
+      const inputContainer = document.getElementById('chat-input-container');
+
+      function showDragFeedback() {
+        if (dragOverlay && state.view === 'session') {
+          dragOverlay.classList.remove('hidden');
+          dragOverlay.classList.add('flex');
+        }
+        if (inputContainer) {
+          inputContainer.classList.add('border-brand-accent', 'bg-zinc-800/40');
+        }
+      }
+
+      function hideDragFeedback() {
+        if (dragOverlay) {
+          dragOverlay.classList.add('hidden');
+          dragOverlay.classList.remove('flex');
+        }
+        if (inputContainer) {
+          inputContainer.classList.remove('border-brand-accent', 'bg-zinc-800/40');
+        }
+      }
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+        window.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+          }
+          if (eventName === 'dragenter') {
+            dragCounter++;
+          }
+          showDragFeedback();
+        }, false);
+
+        document.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+          }
+        }, false);
+      });
+
+      ['dragleave', 'dragend'].forEach(eventName => {
+        window.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          dragCounter--;
+          if (dragCounter <= 0) {
+            dragCounter = 0;
+            hideDragFeedback();
+          }
+        }, false);
+      });
+
+      async function onGlobalDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter = 0;
+        hideDragFeedback();
+
+        // If settings view is active, let settings dropzone handle it if dropped inside settings
+        if (state.view === 'settings' && e.target && e.target.closest && e.target.closest('#view-settings')) {
+          return;
+        }
+
+        const dt = e.dataTransfer;
+        if (dt) {
+          await handleDroppedFilesAndItems(dt);
+        }
+        if (elements.chatPromptInput) {
+          elements.chatPromptInput.focus();
+        }
+      }
+
+      window.addEventListener('drop', onGlobalDrop, false);
+      document.addEventListener('drop', onGlobalDrop, false);
+
+      // Tauri Native Drag & Drop listener hook
+      let tauriDragHooked = false;
+      function setupTauriDragDropListeners() {
+        if (tauriDragHooked) return;
+
+        const listenFn = window.__TAURI__?.event?.listen ||
+                         window.__TAURI_INTERNALS__?.listen;
+
+        if (typeof listenFn === 'function') {
+          try {
+            tauriDragHooked = true;
+            listenFn('tauri://drag-drop', async (event) => {
+              console.log("[Tauri] tauri://drag-drop event received:", event);
+              dragCounter = 0;
+              hideDragFeedback();
+              const payload = event?.payload;
+              const paths = payload?.paths || (Array.isArray(payload) ? payload : []);
+              if (paths && paths.length > 0) {
+                await handleLocalFilePaths(paths);
+              }
+            });
+
+            listenFn('tauri://drag-enter', () => {
+              dragCounter++;
+              showDragFeedback();
+            });
+
+            listenFn('tauri://drag-over', () => {
+              showDragFeedback();
+            });
+
+            listenFn('tauri://drag-leave', () => {
+              dragCounter--;
+              if (dragCounter <= 0) {
+                dragCounter = 0;
+                hideDragFeedback();
+              }
+            });
+          } catch (err) {
+            console.warn("Error registering Tauri event.listen for drag-drop:", err);
+          }
+        }
+
+        // Hook window / webviewWindow onDragDropEvent if available in Tauri v2
+        try {
+          const webview = window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.() ||
+                          window.__TAURI__?.window?.getCurrentWindow?.();
+          if (webview && typeof webview.onDragDropEvent === 'function') {
+            tauriDragHooked = true;
+            webview.onDragDropEvent(async (event) => {
+              console.log("[Tauri] webview.onDragDropEvent received:", event);
+              const type = event?.payload?.type;
+              if (type === 'over' || type === 'enter') {
+                showDragFeedback();
+              } else if (type === 'leave' || type === 'cancelled') {
+                dragCounter = 0;
+                hideDragFeedback();
+              } else if (type === 'drop') {
+                dragCounter = 0;
+                hideDragFeedback();
+                const paths = event?.payload?.paths || [];
+                if (paths.length > 0) {
+                  await handleLocalFilePaths(paths);
+                }
+              }
+            });
+          }
+        } catch (err) {
+          console.warn("Error hooking Tauri onDragDropEvent:", err);
+        }
+
+        // Custom window event listener fallback
+        window.addEventListener('tauri://drag-drop', async (e) => {
+          console.log("[Window] Custom tauri://drag-drop event:", e);
+          dragCounter = 0;
+          hideDragFeedback();
+          const paths = e.detail?.paths || e.detail || [];
+          if (Array.isArray(paths) && paths.length > 0) {
+            await handleLocalFilePaths(paths);
+          }
         });
       }
+
+      setupTauriDragDropListeners();
+      setTimeout(setupTauriDragDropListeners, 200);
+      setTimeout(setupTauriDragDropListeners, 1000);
 
       // Thread trigger button inside
       elements.btnSidebarNewSession.onclick = function() {
@@ -1137,8 +1438,9 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     function renderAttachmentChips() {
-      const indicator = elements.chatUploadIndicator;
-      if (state.selectedAttachments.length === 0) {
+      const indicator = elements.chatUploadIndicator || document.getElementById('chat-upload-indicator');
+      if (!indicator) return;
+      if (!state.selectedAttachments || state.selectedAttachments.length === 0) {
         indicator.classList.add('hidden');
         indicator.innerHTML = "";
         return;
@@ -1146,14 +1448,14 @@ Group files by component. Use markdown links with relative paths and detail exac
       indicator.classList.remove('hidden');
       indicator.innerHTML = "";
       state.selectedAttachments.forEach((f, index) => {
-        const isImage = (f.mime && f.mime.startsWith('image/')) || /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+        const isImage = (f.mime && f.mime.startsWith('image/')) || /\.(png|jpe?g|webp|gif|bmp|svg|ico)$/i.test(f.name);
         const chip = document.createElement('div');
         chip.className = "flex items-center space-x-2 bg-brand-dark px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 select-none font-mono max-w-[240px]";
         const previewSrc = (isImage && f.raw) ? URL.createObjectURL(f.raw) : null;
         const displayName = f.relativePath || f.name;
         chip.innerHTML = `
           ${previewSrc ? `<img src="${previewSrc}" class="w-6 h-6 object-cover rounded shadow-sm">` : getAttachmentChipIcon(f)}
-          <span class="truncate flex-1" title="${displayName}">${displayName}</span>
+          <span class="truncate flex-1" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
           <button onclick="removeSelectedFile(${index})" class="text-zinc-500 hover:text-zinc-200 transition-colors ml-1" title="Remove attachment"><i class="fa-solid fa-xmark"></i></button>
         `;
         indicator.appendChild(chip);
@@ -1854,20 +2156,20 @@ Group files by component. Use markdown links with relative paths and detail exac
       Object.keys(views).forEach(key => {
         const el = views[key];
         if (!el) return;
-        el.classList.add('pointer-events-none', 'opacity-0', 'translate-x-12');
-        el.classList.remove('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        el.classList.add('pointer-events-none', 'opacity-0', 'translate-x-12', 'hidden', 'z-0');
+        el.classList.remove('pointer-events-auto', 'opacity-100', 'translate-x-0', 'z-10', 'z-20');
       });
 
       if (targetView === 'edit_workspace') {
-        elements.viewEditWorkspace.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
-        elements.viewEditWorkspace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.viewEditWorkspace.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12', 'hidden', 'z-0');
+        elements.viewEditWorkspace.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0', 'z-10');
       } else if (targetView === 'settings') {
-        elements.viewSettings.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
-        elements.viewSettings.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.viewSettings.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12', 'hidden', 'z-0');
+        elements.viewSettings.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0', 'z-20');
       } else {
         state.view = 'session';
-        elements.viewSession.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12');
-        elements.viewSession.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0');
+        elements.viewSession.classList.remove('pointer-events-none', 'opacity-0', 'translate-x-12', 'hidden', 'z-0');
+        elements.viewSession.classList.add('pointer-events-auto', 'opacity-100', 'translate-x-0', 'z-10');
       }
 
       if (targetView !== 'settings') {
@@ -3365,9 +3667,9 @@ Group files by component. Use markdown links with relative paths and detail exac
                 }
 
                 // Save tool responses to backend database
-                if (toolResponseParts.length > 0) {
+                if (toolResponseParts.length > 0 && state.activeWorkspaceId && state.activeSessionId) {
                   try {
-                    const saveToolRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/message`, {
+                    const saveToolRes = await fetch(`/api/workspace/${encodeURIComponent(state.activeWorkspaceId)}/session/${encodeURIComponent(state.activeSessionId)}`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -3376,13 +3678,16 @@ Group files by component. Use markdown links with relative paths and detail exac
                       })
                     });
                     if (saveToolRes.ok) {
-                      const stData = await saveToolRes.json();
-                      if (stData.messageId) {
-                        currentParentMsgId = stData.messageId;
+                      const contentType = saveToolRes.headers.get('content-type') || '';
+                      if (contentType.includes('application/json')) {
+                        const stData = await saveToolRes.json();
+                        if (stData && stData.messageId) {
+                          currentParentMsgId = stData.messageId;
+                        }
                       }
                     }
                   } catch (saveToolErr) {
-                    console.error("Failed to save tool response turn:", saveToolErr);
+                    console.warn("Failed to save tool response turn:", saveToolErr);
                   }
                 }
 
@@ -6808,24 +7113,6 @@ export async function execute({ input }) {
         showToast('Error', err.message, 'error');
       }
     }
-    window.addEventListener('dragover', (e) => {
-      e.preventDefault();
-    });
-
-    window.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      // If dropped inside chat textarea, let default or file upload handle it
-      if (e.target.closest('#chat-prompt-input')) return;
-
-      const files = e.dataTransfer?.files;
-      if (files && files.length > 0) {
-        const jsFiles = Array.from(files).filter(f => f.name.endsWith('.js'));
-        if (jsFiles.length > 0) {
-          await uploadProviderFiles(jsFiles);
-        }
-      }
-    });
-
     function deleteActiveSession() {
       if (state.activeSessionId) {
         deleteSessionFromSidebar(null, state.activeSessionId, state.activeWorkspaceId);

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -246,6 +246,29 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![spawn_window])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::DragDrop(drag_event) = event {
+                        match drag_event {
+                            tauri::DragDropEvent::Drop { paths, position: _ } => {
+                                let path_strings: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+                                println!("[Tauri] WindowEvent Drop received: {:?}", path_strings);
+                                let _ = window_clone.emit("tauri://drag-drop", serde_json::json!({ "paths": path_strings }));
+                            }
+                            tauri::DragDropEvent::Enter { paths: _, position: _ } => {
+                                let _ = window_clone.emit("tauri://drag-enter", ());
+                            }
+                            tauri::DragDropEvent::Over { position: _ } => {
+                                let _ = window_clone.emit("tauri://drag-over", ());
+                            }
+                            tauri::DragDropEvent::Leave => {
+                                let _ = window_clone.emit("tauri://drag-leave", ());
+                            }
+                            _ => {}
+                        }
+                    }
+                });
+
                 let target_url = format!("http://127.0.0.1:{}", bridge_port);
                 if let Ok(parsed_url) = target_url.parse() {
                     let _ = window.navigate(parsed_url);

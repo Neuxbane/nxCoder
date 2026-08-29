@@ -133,14 +133,18 @@ export default {
       }
     };
 
-    // 1. Separate history from the current turn
+    // Append anti-echo directive to system instruction
+    const antiEchoDirective = "\n\nImportant: You have access to real tools. When you receive [Tool Output], examine the data and proceed with your reasoning or next action. Do not echo internal '[Tool Executed]' or '[Tool Output]' tags in your final conversational response.";
+    effectiveSystemInstruction = effectiveSystemInstruction ? (effectiveSystemInstruction + antiEchoDirective) : antiEchoDirective.trim();
+
+    // 1. Separate historical messages from the current active turn
     const historyMessages = (messages || []).filter(m => m.role !== "system").slice(0, -1);
     const currentMessage = (messages || []).filter(m => m.role !== "system").slice(-1)[0];
 
-    // 2. Format history into a compact string (parity with marketplace gemini-live.js)
+    // 2. Format history into clean conversation context
     let historyString = "";
     if (historyMessages.length > 0) {
-      historyString += "\n\n=========================================\n=== CONVERSATION HISTORY ===\n=========================================\n";
+      historyString += "=== PREVIOUS CONVERSATION CONTEXT ===\n";
       for (const msg of historyMessages) {
         const role = msg.role === "model" || msg.role === "assistant" ? "Assistant" : "User";
         let msgText = "";
@@ -148,14 +152,11 @@ export default {
           for (const part of msg.parts) {
             if (part.text) {
               msgText += part.text;
-            } else if (part.thought) {
-              // skip internal thinking from history
             } else if (part.functionCall) {
-              msgText += `\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args)}]\n`;
+              msgText += `\n[Tool Executed: ${part.functionCall.name} with parameters ${JSON.stringify(part.functionCall.args || {})}]\n`;
             } else if (part.functionResponse) {
-              msgText += `\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`;
-            } else if (part.inlineData) {
-              msgText += `\n[Inline ${part.inlineData.mimeType || 'media'} data provided]\n`;
+              const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
+              msgText += `\n[Tool Output for ${part.functionResponse.name}]:\n${typeof res === 'string' ? res : JSON.stringify(res)}\n`;
             }
           }
         } else if (typeof msg.content === "string") {
@@ -163,17 +164,19 @@ export default {
         } else if (typeof msg.text === "string") {
           msgText = msg.text;
         }
-        historyString += `${role}: ${msgText}\n`;
+        if (msgText.trim()) {
+          historyString += `${role}: ${msgText.trim()}\n`;
+        }
       }
     }
 
-    // 3. Pre-build liveTurns using ONLY the currentMessage
+    // 3. Build the outgoing turn
     const liveTurns = [];
     if (currentMessage) {
       const parts = [];
       const textParts = [];
-      if (historyString) {
-        textParts.push(historyString + "\n\n=== CURRENT PROMPT ===\n");
+      if (historyString.trim()) {
+        textParts.push(historyString.trim() + "\n\n=== CURRENT INSTRUCTION ===\n");
       }
 
       if (Array.isArray(currentMessage.parts)) {
@@ -181,18 +184,16 @@ export default {
           if (part.text) {
             textParts.push(part.text);
           } else if (part.functionResponse) {
-            const respStr = JSON.stringify(part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response);
-            textParts.push(`\n[Tool Result for ${part.functionResponse.name}]:\n${respStr}\n`);
+            const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
+            textParts.push(`\n[Tool Output for ${part.functionResponse.name}]:\n${typeof res === 'string' ? res : JSON.stringify(res)}\n\nUse this tool output to proceed with your work. Call the next tool if needed, or output your final response.`);
           } else if (part.inlineData) {
             parts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } });
           }
         }
       } else if (typeof currentMessage.content === "string") {
         textParts.push(currentMessage.content);
-      } else if (Array.isArray(currentMessage.content)) {
-        for (const p of currentMessage.content) {
-          if (p.text) textParts.push(p.text);
-        }
+      } else if (typeof currentMessage.text === "string") {
+        textParts.push(currentMessage.text);
       }
 
       if (textParts.length > 0) {
@@ -200,8 +201,7 @@ export default {
       }
 
       if (parts.length > 0) {
-        const role = currentMessage.role === "model" || currentMessage.role === "assistant" ? "model" : "user";
-        liveTurns.push({ role, parts });
+        liveTurns.push({ role: "user", parts });
       }
     }
 
