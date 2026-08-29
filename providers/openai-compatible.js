@@ -13,7 +13,7 @@ export default {
   ],
 
   // Execution stream handler
-  async *stream({ apiKey, baseUrl, model, temperature, messages, tools, abortSignal }) {
+  async *stream({ apiKey, baseUrl, model, temperature, systemInstruction, messages, tools, abortSignal }) {
     const cleanBaseUrl = (baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
     const headers = {
       "Content-Type": "application/json"
@@ -22,13 +22,31 @@ export default {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
+    const formattedMessages = [...(messages || [])];
+    if (systemInstruction) {
+      const sysContent = typeof systemInstruction === 'string' ? systemInstruction : JSON.stringify(systemInstruction);
+      if (!formattedMessages.some(m => m.role === 'system')) {
+        formattedMessages.unshift({ role: 'system', content: sysContent });
+      }
+    }
+
     const payload = {
       model: model || "gpt-4o",
-      messages: messages,
+      messages: formattedMessages,
       stream: true
     };
     if (temperature !== undefined) {
       payload.temperature = Number(temperature);
+    }
+    if (tools && tools.length > 0) {
+      payload.tools = tools.map(t => ({
+        type: "function",
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters || { type: "object", properties: {} }
+        }
+      }));
     }
 
     const response = await fetch(`${cleanBaseUrl}/chat/completions`, {
@@ -46,6 +64,7 @@ export default {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    const activeToolCalls = {};
 
     while (true) {
       const { done, value } = await reader.read();
@@ -56,16 +75,51 @@ export default {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") continue;
+        if (!trimmed) continue;
+        if (trimmed === "data: [DONE]") {
+          try { reader.cancel(); } catch(e) {}
+          return;
+        }
         if (trimmed.startsWith("data: ")) {
           try {
             const data = JSON.parse(trimmed.slice(6));
-            const delta = data.choices?.[0]?.delta;
+            const choice = data.choices?.[0];
+            const delta = choice?.delta;
             if (delta?.reasoning_content) {
               yield { type: "thought", text: delta.reasoning_content };
             }
             if (delta?.content) {
               yield { type: "text", text: delta.content };
+            }
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index !== undefined ? tc.index : 0;
+                if (!activeToolCalls[idx]) {
+                  activeToolCalls[idx] = {
+                    id: tc.id || ("call_" + Math.random().toString(36).substring(2, 8)),
+                    name: tc.function?.name || "",
+                    arguments: ""
+                  };
+                }
+                if (tc.id) activeToolCalls[idx].id = tc.id;
+                if (tc.function?.name) activeToolCalls[idx].name = tc.function.name;
+                if (tc.function?.arguments) activeToolCalls[idx].arguments += tc.function.arguments;
+              }
+            }
+            if (choice?.finish_reason) {
+              for (const idx of Object.keys(activeToolCalls)) {
+                const tc = activeToolCalls[idx];
+                let args = {};
+                try { args = JSON.parse(tc.arguments || "{}"); } catch(e) {}
+                yield {
+                  type: "functionCall",
+                  name: tc.name,
+                  args: args,
+                  callId: tc.id
+                };
+              }
+              try { reader.cancel(); } catch(e) {}
+              return;
             }
           } catch (e) {
             // Ignore parse errors on individual SSE chunks

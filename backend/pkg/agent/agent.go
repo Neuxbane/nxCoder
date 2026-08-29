@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -224,6 +225,29 @@ Instructions for Terminal Execution:
 				}
 			}
 			finalInst += injected.String()
+		}
+	}
+
+	// Dynamic Instruction Matching (Always-on + Semantic Top-K Conditional)
+	if allInsts, err := ae.DB.GetInstructions(); err == nil && len(allInsts) > 0 {
+		topK := 3
+		topKStr := ae.DB.GetAppSetting("instruction_top_k", "3")
+		if k, err := strconv.Atoi(topKStr); err == nil && k > 0 {
+			topK = k
+		}
+		matched := MatchInstructions(allInsts, userPrompt, topK)
+		if len(matched) > 0 {
+			var instBuf strings.Builder
+			instBuf.WriteString("\n\n=========================================\n=== ACTIVE INSTRUCTIONS & RULES ===\n=========================================\n")
+			for _, mi := range matched {
+				condTag := "ALWAYS-ON"
+				if mi.IsConditional {
+					condTag = "MATCHED CONDITIONAL"
+				}
+				instBuf.WriteString(fmt.Sprintf("\n--- [%s] %s ---\n%s\n", condTag, mi.Name, mi.Text))
+			}
+			instBuf.WriteString("=========================================\n")
+			finalInst += instBuf.String()
 		}
 	}
 

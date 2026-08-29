@@ -548,6 +548,13 @@
               </div>
               <i class="fa-solid fa-chevron-right text-xs text-zinc-600 md:hidden"></i>
             </button>
+            <button data-tab="instructions" onclick="switchSettingsTab('instructions')" class="settings-nav-btn w-full text-left px-3 py-3 md:py-2 rounded-xl flex items-center justify-between md:justify-start md:space-x-3 transition-all text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40">
+              <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-scroll text-xs w-4 text-center"></i>
+                <span>Instructions</span>
+              </div>
+              <i class="fa-solid fa-chevron-right text-xs text-zinc-600 md:hidden"></i>
+            </button>
             <button data-tab="datacontrols" onclick="switchSettingsTab('datacontrols')" class="settings-nav-btn w-full text-left px-3 py-3 md:py-2 rounded-xl flex items-center justify-between md:justify-start md:space-x-3 transition-all text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40">
               <div class="flex items-center space-x-3">
                 <i class="fa-solid fa-database text-xs w-4 text-center"></i>
@@ -2777,7 +2784,8 @@ Group files by component. Use markdown links with relative paths and detail exac
                 }
                 return {
                   role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user',
-                  content: text || (typeof m.content === 'string' ? m.content : '')
+                  content: text || (typeof m.content === 'string' ? m.content : ''),
+                  parts: parts.length > 0 ? parts : undefined
                 };
               });
             }
@@ -2816,6 +2824,27 @@ Group files by component. Use markdown links with relative paths and detail exac
             console.warn("Could not load tool definitions:", e);
           }
 
+          // Retrieve matched custom instructions & conditional rules + global system prompt
+          let systemInstructionText = "";
+          const globalSysPrompt = localStorage.getItem('nx_global_system_prompt') || '';
+          if (globalSysPrompt.trim()) {
+            systemInstructionText = globalSysPrompt.trim();
+          }
+
+          try {
+            const matchRes = await fetch(`/api/instruction/match?prompt=${encodeURIComponent(prompt)}`);
+            if (matchRes.ok) {
+              const matchData = await matchRes.json();
+              if (matchData.snippet) {
+                systemInstructionText = systemInstructionText
+                  ? `${systemInstructionText}\n\n${matchData.snippet}`
+                  : matchData.snippet;
+              }
+            }
+          } catch (e) {
+            console.warn("Could not load matched instructions:", e);
+          }
+
           // Execute provider stream generator in an agent loop (up to max turns)
           try {
             let keepRunning = true;
@@ -2829,6 +2858,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                 baseUrl: state.activeProvider?.base_url || '',
                 model: state.activeProvider?.model_name || '',
                 temperature: 0.7,
+                systemInstruction: systemInstructionText,
                 messages: conversationHistory,
                 tools: activeTools,
                 abortSignal: state.activeAbortController.signal,
@@ -2925,6 +2955,11 @@ Group files by component. Use markdown links with relative paths and detail exac
                     });
                     const execData = await execRes.json();
                     const toolResult = execData.result;
+                    processWebSocketGatewayPayload({
+                      type: 'FUNCTION_RESPONSE',
+                      callId: call.id,
+                      response: { result: toolResult }
+                    });
                     toolResponseParts.push({
                       functionResponse: {
                         id: call.id,
@@ -3725,9 +3760,10 @@ Group files by component. Use markdown links with relative paths and detail exac
             });
           }
         } else {
-          preWrapper.querySelector('pre').textContent = typeof response?.result === 'string'
-            ? response.result
-            : JSON.stringify(response?.result, null, 2);
+          const resVal = response?.result !== undefined ? response.result : (response?.error !== undefined ? { error: response.error } : response);
+          preWrapper.querySelector('pre').textContent = typeof resVal === 'string'
+            ? resVal
+            : JSON.stringify(resVal, null, 2);
         }
       }
 
@@ -4486,7 +4522,20 @@ Group files by component. Use markdown links with relative paths and detail exac
         
         const res = await fetch('/api/custom-providers');
         if (res.ok) {
-          state.modelInstances = await res.json();
+          const rawInstances = await res.json();
+          state.modelInstances = rawInstances.map(inst => {
+            let parsedConfig = {};
+            if (typeof inst.config === 'string') {
+              try { parsedConfig = JSON.parse(inst.config); } catch(e) {}
+            } else if (typeof inst.config === 'object' && inst.config !== null) {
+              parsedConfig = inst.config;
+            }
+            return {
+              ...parsedConfig,
+              ...inst,
+              config: parsedConfig
+            };
+          });
           state.customProviders = state.modelInstances;
         }
 
@@ -4565,10 +4614,27 @@ Group files by component. Use markdown links with relative paths and detail exac
       }
     }
 
+    async function loadInstructionsData() {
+      try {
+        const [instRes, topKRes] = await Promise.all([
+          fetch('/api/instruction'),
+          fetch('/api/settings/instruction-top-k')
+        ]);
+        if (instRes.ok) state.instructions = await instRes.json();
+        if (topKRes.ok) {
+          const topKData = await topKRes.json();
+          state.instructionTopK = topKData.top_k || 3;
+        }
+      } catch (err) {
+        console.error('Failed to load instructions data:', err);
+      }
+    }
+
     // Build and navigate to the full-page Settings view
     async function openSettingsModal(initialTab = 'providers', initialSubTab = 'instances') {
       await loadProviderScripts();
       await loadToolData();
+      await loadInstructionsData();
       if (!state.apiKeys) {
         try {
           const kRes = await fetch('/api/key');
@@ -4622,7 +4688,10 @@ Group files by component. Use markdown links with relative paths and detail exac
                       ${!inst.is_default ? `
                         <button onclick="setDefaultModelInstance('${inst.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-xs font-medium transition-colors border border-zinc-700/50">Set Default</button>
                       ` : ''}
-                      <button onclick="deleteModelInstance('${inst.id}')" class="p-1.5 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 rounded-lg transition-colors">
+                      <button onclick="openEditModelInstanceModal('${inst.id}')" class="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors" title="Edit Instance Settings">
+                        <i class="fa-solid fa-pen-to-square text-xs"></i>
+                      </button>
+                      <button onclick="deleteModelInstance('${inst.id}')" class="p-1.5 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 rounded-lg transition-colors" title="Delete Instance">
                         <i class="fa-solid fa-trash text-xs"></i>
                       </button>
                     </div>
@@ -4859,7 +4928,79 @@ Group files by component. Use markdown links with relative paths and detail exac
                 </div>
               </div>
             </div>
-          </div>    </div>
+          </div>
+
+          <!-- INSTRUCTIONS TAB -->
+          <div id="settings-section-instructions" class="settings-tab-section space-y-4 hidden">
+            <div class="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="space-y-1">
+                <div class="text-xs font-semibold text-zinc-100 flex items-center space-x-2">
+                  <i class="fa-solid fa-scroll text-amber-400 text-xs"></i>
+                  <span>Prompt Instructions &amp; Semantic Rules</span>
+                </div>
+                <p class="text-[11px] text-zinc-400">Manage instructions injected into system prompts. Use <b>Always Active</b> for static rules or <b>Conditional</b> for AI-matched rules.</p>
+              </div>
+              <div class="flex items-center space-x-3 shrink-0">
+                <div class="flex items-center space-x-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5" title="Maximum number of matched conditional instructions to include">
+                  <span class="text-[11px] text-zinc-400 font-medium">Top-K:</span>
+                  <input type="number" id="setting-instruction-topk" min="1" max="10" value="${state.instructionTopK || 3}" onchange="updateInstructionTopK(this.value)" class="w-12 bg-zinc-800 border border-zinc-700 text-zinc-100 text-xs rounded px-1.5 py-0.5 text-center font-mono focus:outline-none focus:border-zinc-500" />
+                </div>
+                <button onclick="openCreateInstructionModal()" class="px-3.5 py-1.5 bg-white hover:bg-zinc-200 text-zinc-950 rounded-xl font-semibold text-xs transition-all flex items-center space-x-1.5 shadow-sm">
+                  <i class="fa-solid fa-plus text-[10px]"></i>
+                  <span>New Instruction</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="instructions-list-container" class="space-y-2.5">
+              ${(state.instructions || []).length === 0 ? `
+                <div class="text-center py-10 border border-dashed border-zinc-800 rounded-2xl space-y-2 bg-zinc-900/20">
+                  <i class="fa-solid fa-scroll text-xl text-zinc-600"></i>
+                  <div class="text-zinc-300 font-medium text-xs">No custom instructions yet</div>
+                  <p class="text-zinc-500 text-[11px] max-w-sm mx-auto">Create always-active system instructions or conditional rules that activate based on your prompt.</p>
+                </div>
+              ` : (state.instructions || []).map(inst => `
+                <div class="p-4 bg-zinc-900/50 hover:bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700/80 rounded-xl space-y-3 transition-all">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="space-y-1 min-w-0 pr-2 flex-1">
+                      <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <span class="font-semibold text-zinc-100 text-xs">${escapeHtml(inst.name || inst.title || '')}</span>
+                        ${inst.is_conditional ? `
+                          <span class="bg-violet-500/10 text-violet-400 border border-violet-500/20 text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center space-x-1">
+                            <i class="fa-solid fa-brain text-[9px]"></i>
+                            <span>Conditional</span>
+                          </span>
+                        ` : `
+                          <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center space-x-1">
+                            <i class="fa-solid fa-bolt text-[9px]"></i>
+                            <span>Always Active</span>
+                          </span>
+                        `}
+                      </div>
+                      ${inst.is_conditional && inst.description ? `
+                        <div class="text-[11px] text-zinc-400">
+                          <span class="text-zinc-500 font-medium uppercase text-[9px] mr-1">Condition:</span>
+                          <span>${escapeHtml(inst.description)}</span>
+                        </div>
+                      ` : ''}
+                    </div>
+                    <div class="flex items-center space-x-1.5 shrink-0">
+                      <button onclick="toggleInstructionState('${inst.id}', ${inst.enabled ? 'false' : 'true'})" class="px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${inst.enabled ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-zinc-800 text-zinc-500 border-zinc-700'}">
+                        ${inst.enabled ? 'Enabled' : 'Disabled'}
+                      </button>
+                      <button onclick="openEditInstructionModal('${inst.id}')" class="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors" title="Edit Instruction">
+                        <i class="fa-solid fa-pen-to-square text-xs"></i>
+                      </button>
+                      <button onclick="deleteInstructionAction('${inst.id}')" class="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete Instruction">
+                        <i class="fa-solid fa-trash text-xs"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="bg-zinc-950/80 p-2.5 rounded-lg border border-zinc-800/80 text-[11px] text-zinc-300 font-mono max-h-28 overflow-y-auto whitespace-pre-wrap leading-relaxed">${escapeHtml(inst.text || inst.instruction || '')}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
 
           <!-- DATA CONTROLS TAB -->
           <div id="settings-section-datacontrols" class="settings-tab-section space-y-5 hidden">
@@ -4939,6 +5080,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       const titles = {
         providers: 'Model Providers & Extensions',
         tools: 'Tools & MCP Integration',
+        instructions: 'Custom Instructions & Conditional Rules',
         datacontrols: 'Data Controls & Storage',
         about: 'About nxCoder Studio'
       };
@@ -5093,6 +5235,293 @@ Group files by component. Use markdown links with relative paths and detail exac
       }
     }
 
+    // =========================================================
+    // INSTRUCTIONS & CONDITIONAL SEMANTIC PROMPT MANAGEMENT
+    // =========================================================
+    let currentEditingInstructionId = null;
+    let miniLmEmbeddingPipeline = null;
+
+    async function getEmbeddingPipeline() {
+      if (miniLmEmbeddingPipeline) return miniLmEmbeddingPipeline;
+      try {
+        const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+        env.allowLocalModels = false;
+        miniLmEmbeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { quantized: true });
+        return miniLmEmbeddingPipeline;
+      } catch (e) {
+        console.warn("Transformers.js pipeline not available, using fast local subword semantic vectorizer:", e);
+        return null;
+      }
+    }
+
+    function generateTextVectorJS(text, dim = 384) {
+      const vec = new Float32Array(dim);
+      const clean = (text || '').toLowerCase();
+      const words = clean.split(/[^a-z0-9]+/i).filter(Boolean);
+      if (words.length === 0) return Array.from(vec);
+
+      for (const w of words) {
+        let h = 2166136261;
+        for (let i = 0; i < w.length; i++) {
+          h ^= w.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        const idx = (h >>> 0) % dim;
+        const sign = ((h >>> 16) % 2 === 1) ? -1 : 1;
+        vec[idx] += 2.0 * sign;
+
+        const padded = `<${w}>`;
+        for (let n = 3; n <= 4 && n <= padded.length; n++) {
+          for (let i = 0; i <= padded.length - n; i++) {
+            const ngram = padded.substring(i, i + n);
+            let nh = 2166136261;
+            for (let j = 0; j < ngram.length; j++) {
+              nh ^= ngram.charCodeAt(j);
+              nh = Math.imul(nh, 16777619);
+            }
+            const nidx = (nh >>> 0) % dim;
+            const nsign = ((nh >>> 16) % 2 === 1) ? -1 : 1;
+            vec[nidx] += 1.0 * nsign;
+          }
+        }
+      }
+
+      let norm = 0;
+      for (let i = 0; i < dim; i++) norm += vec[i] * vec[i];
+      if (norm > 0) {
+        const scale = 1.0 / Math.sqrt(norm);
+        for (let i = 0; i < dim; i++) vec[i] *= scale;
+      }
+      return Array.from(vec);
+    }
+
+    async function computeTextEmbedding(text) {
+      try {
+        const pipe = await getEmbeddingPipeline();
+        if (pipe) {
+          const output = await pipe(text, { pooling: 'mean', normalize: true });
+          return Array.from(output.data);
+        }
+      } catch (e) {
+        console.warn("MiniLM inference fallback to subword vectorizer:", e);
+      }
+      return generateTextVectorJS(text, 384);
+    }
+
+    function openCreateInstructionModal() {
+      currentEditingInstructionId = null;
+      renderInstructionEditorModal({
+        title: '',
+        description: '',
+        text: '',
+        is_conditional: false,
+        enabled: true
+      });
+    }
+
+    function openEditInstructionModal(id) {
+      const inst = (state.instructions || []).find(i => i.id === id);
+      if (!inst) return;
+      currentEditingInstructionId = id;
+      renderInstructionEditorModal({
+        title: inst.name || inst.title || '',
+        description: inst.description || '',
+        text: inst.text || inst.instruction || '',
+        is_conditional: !!inst.is_conditional,
+        enabled: inst.enabled !== false
+      });
+    }
+
+    function closeInstructionEditorModal() {
+      const modal = document.getElementById('instruction-editor-modal');
+      if (modal) modal.remove();
+    }
+
+    function renderInstructionEditorModal(data) {
+      closeInstructionEditorModal();
+      const modal = document.createElement('div');
+      modal.id = 'instruction-editor-modal';
+      modal.className = 'fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in select-none';
+      modal.innerHTML = `
+        <div class="bg-[#18181b] border border-zinc-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div class="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <div class="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <i class="fa-solid fa-scroll text-xs"></i>
+              </div>
+              <h3 class="text-sm font-semibold text-zinc-100">${currentEditingInstructionId ? 'Edit Instruction' : 'New Custom Instruction'}</h3>
+            </div>
+            <button onclick="closeInstructionEditorModal()" class="text-zinc-400 hover:text-white w-7 h-7 rounded-lg flex items-center justify-center hover:bg-zinc-800 transition-colors">
+              <i class="fa-solid fa-xmark text-sm"></i>
+            </button>
+          </div>
+
+          <div class="p-5 overflow-y-auto space-y-4 text-xs">
+            <div>
+              <label class="block text-zinc-300 font-medium mb-1">Instruction Title</label>
+              <input type="text" id="inst-input-title" placeholder="e.g. Postgres &amp; SQL Rules, Frontend Expert, Concise Style" value="${escapeHtml(data.title)}"
+                     class="w-full px-3.5 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all" />
+            </div>
+
+            <!-- Conditional Toggle -->
+            <div class="p-3.5 bg-zinc-900/60 border border-zinc-800 rounded-xl space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium text-zinc-200">Semantic Conditional Trigger</div>
+                  <div class="text-[11px] text-zinc-400">Match user prompt against condition keywords/description using AI embeddings</div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" id="inst-input-conditional" class="sr-only peer" ${data.is_conditional ? 'checked' : ''} onchange="toggleConditionalFields(this.checked)" />
+                  <div class="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
+                </label>
+              </div>
+
+              <div id="inst-desc-group" class="${data.is_conditional ? '' : 'hidden'} space-y-1 pt-1 border-t border-zinc-800/80">
+                <label class="block text-zinc-400 text-[11px]">Condition Feature Text (Matched against user prompt)</label>
+                <input type="text" id="inst-input-desc" placeholder="e.g. Triggers when working on database schemas, SQL queries, or migrations" value="${escapeHtml(data.description)}"
+                       class="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-200 placeholder-zinc-500 text-xs focus:outline-none focus:border-violet-500" />
+                <p class="text-[10px] text-zinc-500">The AI embedding model will compare your chat inputs to this text and title to conditionally activate this rule.</p>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-zinc-300 font-medium mb-1">Instruction Content</label>
+              <textarea id="inst-input-text" rows="6" placeholder="The exact system prompt instructions to inject when this rule is active..."
+                        class="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-500 font-mono text-[11px] leading-relaxed focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 resize-none transition-all">${escapeHtml(data.text)}</textarea>
+            </div>
+
+            <div class="flex items-center space-x-2 pt-1">
+              <input type="checkbox" id="inst-input-enabled" class="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0" ${data.enabled ? 'checked' : ''} />
+              <label for="inst-input-enabled" class="text-zinc-300 cursor-pointer">Enable this instruction</label>
+            </div>
+          </div>
+
+          <div class="px-5 py-3.5 bg-zinc-900/60 border-t border-zinc-800 flex items-center justify-end space-x-2.5">
+            <button onclick="closeInstructionEditorModal()" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-medium transition-colors">Cancel</button>
+            <button onclick="submitSaveInstruction()" class="px-4 py-2 bg-white hover:bg-zinc-200 text-zinc-950 font-semibold rounded-xl text-xs shadow-sm transition-all flex items-center space-x-1.5">
+              <i class="fa-solid fa-check text-[11px]"></i>
+              <span>Save Instruction</span>
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function toggleConditionalFields(checked) {
+      const group = document.getElementById('inst-desc-group');
+      if (group) {
+        if (checked) group.classList.remove('hidden');
+        else group.classList.add('hidden');
+      }
+    }
+
+    async function submitSaveInstruction() {
+      const titleInput = document.getElementById('inst-input-title');
+      const descInput = document.getElementById('inst-input-desc');
+      const textInput = document.getElementById('inst-input-text');
+      const condInput = document.getElementById('inst-input-conditional');
+      const enabledInput = document.getElementById('inst-input-enabled');
+
+      const title = titleInput?.value.trim();
+      const desc = descInput?.value.trim() || '';
+      const text = textInput?.value.trim();
+      const is_conditional = !!condInput?.checked;
+      const enabled = !!enabledInput?.checked;
+
+      if (!title || !text) {
+        showToast('Required Fields', 'Please provide a title and instruction content', 'warning');
+        return;
+      }
+
+      // Compute embedding for conditional text
+      let embedding = [];
+      if (is_conditional) {
+        const textToEmbed = `${title} ${desc}`.trim();
+        embedding = await computeTextEmbedding(textToEmbed);
+      }
+
+      const payload = {
+        title,
+        description: desc,
+        instruction: text,
+        is_conditional,
+        enabled,
+        embedding
+      };
+
+      try {
+        const url = currentEditingInstructionId ? `/api/instruction/${currentEditingInstructionId}` : '/api/instruction';
+        const method = currentEditingInstructionId ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          showToast('Saved', `Instruction "${title}" saved successfully`, 'success');
+          closeInstructionEditorModal();
+          await loadInstructionsData();
+          openSettingsModal('instructions');
+        } else {
+          const err = await res.text();
+          showToast('Error', `Failed to save instruction: ${err}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
+    async function toggleInstructionState(id, nextState) {
+      try {
+        const res = await fetch(`/api/instruction/${id}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: nextState })
+        });
+        if (res.ok) {
+          showToast('Updated', `Instruction ${nextState ? 'enabled' : 'disabled'}`, 'info');
+          await loadInstructionsData();
+          openSettingsModal('instructions');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
+    async function deleteInstructionAction(id) {
+      if (!confirm('Are you sure you want to delete this instruction?')) return;
+      try {
+        const res = await fetch(`/api/instruction/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Deleted', 'Instruction removed', 'info');
+          await loadInstructionsData();
+          openSettingsModal('instructions');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
+    async function updateInstructionTopK(val) {
+      const top_k = parseInt(val, 10);
+      if (isNaN(top_k) || top_k <= 0) return;
+      try {
+        const res = await fetch('/api/settings/instruction-top-k', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ top_k })
+        });
+        if (res.ok) {
+          state.instructionTopK = top_k;
+          showToast('Updated', `Conditional Top-K set to ${top_k}`, 'success');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+
     function setupDropzoneEvents(dropzone) {
       if (!dropzone) return;
       ['dragenter', 'dragover'].forEach(eventName => {
@@ -5200,27 +5629,40 @@ Group files by component. Use markdown links with relative paths and detail exac
       );
     }
 
-    // Modal to instantiate a Model Instance from a Provider Script
-    function openInstantiateModelModal(fileName) {
-      const prov = state.providerScripts.find(p => p.fileName === fileName);
+    function openEditModelInstanceModal(instanceId) {
+      const inst = state.modelInstances.find(i => i.id === instanceId);
+      if (!inst) return;
+      const prov = state.providerScripts.find(p => p.id === inst.provider_type || p.fileName === inst.provider_type + '.js') || state.providerScripts[0];
+      openInstantiateModelModal(prov ? prov.fileName : `${inst.provider_type}.js`, instanceId);
+    }
+
+    // Modal to instantiate or edit a Model Instance from a Provider Script
+    function openInstantiateModelModal(fileName, editingInstanceId = null) {
+      const prov = state.providerScripts.find(p => p.fileName === fileName || p.id === fileName.replace('.js', ''));
       if (!prov) return;
+
+      const inst = editingInstanceId ? state.modelInstances.find(i => i.id === editingInstanceId) : null;
+      const isEditing = !!inst;
 
       const modalId = 'instantiate-modal';
       const existing = document.getElementById(modalId);
       if (existing) existing.remove();
 
+      const initialName = isEditing ? inst.name : prov.name;
+      const isDefaultChecked = isEditing ? (inst.is_default === 1) : true;
+
       const modal = document.createElement('div');
       modal.id = modalId;
-      modal.className = 'fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in';
+      modal.className = 'fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in select-none';
       modal.innerHTML = `
         <div class="bg-[#18181b] border border-zinc-800/90 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden p-6 space-y-4 animate-scale-up">
           <div class="flex items-center justify-between border-b border-zinc-800/80 pb-4">
             <div class="flex items-center space-x-3">
               <div class="w-9 h-9 rounded-xl bg-zinc-800/90 border border-zinc-700/50 flex items-center justify-center text-zinc-200">
-                <i class="fa-solid fa-sparkles text-xs"></i>
+                <i class="fa-solid ${isEditing ? 'fa-pen-to-square' : 'fa-sparkles'} text-xs"></i>
               </div>
               <div>
-                <h3 class="text-sm font-semibold text-zinc-100">Instantiate Model: ${prov.name}</h3>
+                <h3 class="text-sm font-semibold text-zinc-100">${isEditing ? `Edit Instance: ${escapeHtml(inst.name)}` : `Instantiate Model: ${prov.name}`}</h3>
                 <p class="text-xs text-zinc-400">Configure parameters from <code class="text-zinc-300 font-mono">${prov.fileName}</code></p>
               </div>
             </div>
@@ -5229,19 +5671,27 @@ Group files by component. Use markdown links with relative paths and detail exac
             </button>
           </div>
 
-          <form id="form-instantiate-model" class="space-y-4 text-xs" onsubmit="submitInstantiateModel(event, '${prov.fileName}')">
+          <form id="form-instantiate-model" class="space-y-4 text-xs" onsubmit="submitInstantiateModel(event, '${prov.fileName}', ${editingInstanceId ? `'${editingInstanceId}'` : 'null'})">
             <div>
               <label class="block text-xs text-zinc-300 font-medium mb-1.5">Instance Display Name</label>
-              <input type="text" id="inst-input-name" placeholder="e.g. ${prov.name} (Active)" value="${prov.name}" required
+              <input type="text" id="inst-input-name" placeholder="e.g. ${prov.name} (Active)" value="${escapeHtml(initialName)}" required
                      class="w-full px-3.5 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all text-xs" />
             </div>
 
             <!-- Dynamic Requirements Form Fields -->
             <div class="space-y-3.5 pt-2 border-t border-zinc-800/60">
               ${(prov.requirements || []).map(req => {
+                let currentVal = req.default;
+                if (isEditing) {
+                  if (req.key === 'model' && inst.model_name) currentVal = inst.model_name;
+                  else if (req.key === 'apiKey' && inst.api_key) currentVal = inst.api_key;
+                  else if (req.key === 'baseUrl' && inst.base_url) currentVal = inst.base_url;
+                  else if (inst[req.key] !== undefined) currentVal = inst[req.key];
+                  else if (inst.config && inst.config[req.key] !== undefined) currentVal = inst.config[req.key];
+                }
                 if (req.type === 'options' || req.type === 'select' || Array.isArray(req.options)) {
                   const opts = req.options || [];
-                  const defVal = req.default || (opts[0] || '');
+                  const selectedVal = currentVal || (opts[0] || '');
                   return `
                     <div>
                       <div class="flex items-center justify-between mb-1.5">
@@ -5254,7 +5704,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                                 ${req.required ? 'required' : ''}
                                 style="background-color: #18181b !important; color: #f4f4f5 !important; color-scheme: dark;"
                                 class="w-full px-3.5 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-100 font-mono text-xs focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 appearance-none cursor-pointer pr-8 shadow-inner transition-all">
-                          ${opts.map(opt => `<option value="${opt}" ${opt === defVal ? 'selected' : ''} class="bg-zinc-900 text-zinc-100" style="background-color: #18181b !important; color: #f4f4f5 !important;">${opt}</option>`).join('')}
+                          ${opts.map(opt => `<option value="${opt}" ${String(opt) === String(selectedVal) ? 'selected' : ''} class="bg-zinc-900 text-zinc-100" style="background-color: #18181b !important; color: #f4f4f5 !important;">${opt}</option>`).join('')}
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400">
                           <i class="fa-solid fa-chevron-down text-[10px]"></i>
@@ -5263,6 +5713,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                     </div>
                   `;
                 }
+                const valStr = currentVal !== undefined && currentVal !== null ? String(currentVal) : '';
                 return `
                   <div>
                     <div class="flex items-center justify-between mb-1.5">
@@ -5272,7 +5723,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                     <input type="${req.type === 'password' ? 'password' : req.type === 'number' ? 'number' : 'text'}"
                            id="req-field-${req.key}"
                            data-req-key="${req.key}"
-                           ${req.default !== undefined ? `value="${req.default}"` : ''}
+                           value="${escapeHtml(valStr)}"
                            placeholder="${req.placeholder || ''}"
                            ${req.required ? 'required' : ''}
                            ${req.min !== undefined ? `min="${req.min}"` : ''}
@@ -5285,7 +5736,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             </div>
 
             <div class="flex items-center space-x-2 pt-2">
-              <input type="checkbox" id="inst-input-default" checked class="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-zinc-200 focus:ring-0 cursor-pointer" />
+              <input type="checkbox" id="inst-input-default" ${isDefaultChecked ? 'checked' : ''} class="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-zinc-200 focus:ring-0 cursor-pointer" />
               <label for="inst-input-default" class="text-xs text-zinc-400 select-none cursor-pointer">Set as default active model</label>
             </div>
 
@@ -5293,7 +5744,7 @@ Group files by component. Use markdown links with relative paths and detail exac
               <button type="button" onclick="document.getElementById('${modalId}').remove()" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 rounded-xl font-medium text-xs transition-colors">Cancel</button>
               <button type="submit" class="px-4 py-2 bg-white hover:bg-zinc-200 text-zinc-950 font-semibold rounded-xl text-xs shadow-sm transition-all flex items-center space-x-1.5">
                 <i class="fa-solid fa-check text-[10px]"></i>
-                <span>Save Model</span>
+                <span>${isEditing ? 'Save Changes' : 'Save Model'}</span>
               </button>
             </div>
           </form>
@@ -5302,9 +5753,9 @@ Group files by component. Use markdown links with relative paths and detail exac
       document.body.appendChild(modal);
     }
 
-    async function submitInstantiateModel(e, fileName) {
+    async function submitInstantiateModel(e, fileName, editingInstanceId = null) {
       e.preventDefault();
-      const prov = state.providerScripts.find(p => p.fileName === fileName);
+      const prov = state.providerScripts.find(p => p.fileName === fileName || p.id === fileName.replace('.js', ''));
       if (!prov) return;
 
       const name = document.getElementById('inst-input-name').value.trim();
@@ -5322,25 +5773,31 @@ Group files by component. Use markdown links with relative paths and detail exac
       const baseUrl = config.baseUrl || '';
       const apiKey = config.apiKey || '';
 
+      const payload = {
+        name,
+        provider_type: prov.id,
+        base_url: baseUrl,
+        model_name: modelName,
+        api_key: apiKey,
+        is_default: isDefault,
+        config: config
+      };
+
       try {
-        const res = await fetch('/api/custom-providers', {
-          method: 'POST',
+        const url = editingInstanceId ? `/api/custom-providers/${editingInstanceId}` : '/api/custom-providers';
+        const method = editingInstanceId ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            provider_type: prov.id,
-            base_url: baseUrl,
-            model_name: modelName,
-            api_key: apiKey,
-            is_default: isDefault
-          })
+          body: JSON.stringify(payload)
         });
 
         if (res.ok) {
-          showToast('Instance Created', `Model "${name}" is now ready!`, 'success');
+          showToast(editingInstanceId ? 'Instance Updated' : 'Instance Created', `Model "${name}" saved successfully!`, 'success');
           document.getElementById('instantiate-modal')?.remove();
-          closeProviderHubModal();
           await loadCustomProviders();
+          openSettingsModal('providers', 'instances');
         } else {
           const err = await res.text();
           showToast('Error', err, 'error');

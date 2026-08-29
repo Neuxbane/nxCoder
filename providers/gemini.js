@@ -20,9 +20,21 @@ export default {
       if (Array.isArray(m.parts)) {
         parts = m.parts.map(p => {
           if (p.functionCall) {
-            return { functionCall: p.functionCall };
+            return {
+              functionCall: {
+                name: p.functionCall.name,
+                args: p.functionCall.args || {}
+              }
+            };
           } else if (p.functionResponse) {
-            return { functionResponse: p.functionResponse };
+            return {
+              functionResponse: {
+                name: p.functionResponse.name,
+                response: typeof p.functionResponse.response === 'object' && p.functionResponse.response !== null
+                  ? p.functionResponse.response
+                  : { result: p.functionResponse.response }
+              }
+            };
           } else if (p.text) {
             return { text: p.text };
           }
@@ -108,6 +120,10 @@ export default {
             } else if (part.text) {
               yield { type: "text", text: part.text };
             }
+          }
+          if (candidate?.finishReason) {
+            try { reader.cancel(); } catch(e) {}
+            return;
           }
         } catch (e) {}
       }

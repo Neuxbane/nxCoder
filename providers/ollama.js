@@ -57,6 +57,10 @@ export default {
           if (data.message?.content) {
             yield { type: "text", text: data.message.content };
           }
+          if (data.done) {
+            try { reader.cancel(); } catch(e) {}
+            return;
+          }
         } catch (e) {}
       }
     }

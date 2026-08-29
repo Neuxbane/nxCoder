@@ -21,10 +21,17 @@ type ApiKey struct {
 }
 
 type Instruction struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Text      string `json:"text"`
-	CreatedAt string `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Title         string    `json:"title,omitempty"`
+	Description   string    `json:"description"`
+	Text          string    `json:"text"`
+	Instruction   string    `json:"instruction,omitempty"`
+	IsConditional bool      `json:"is_conditional"`
+	Enabled       bool      `json:"enabled"`
+	Embedding     []float32 `json:"embedding,omitempty"`
+	CreatedAt     string    `json:"created_at"`
+	UpdatedAt     string    `json:"updated_at,omitempty"`
 }
 
 type Workspace struct {
@@ -133,6 +140,7 @@ type CustomProvider struct {
 	APIKey       string `json:"api_key"`
 	ModelName    string `json:"model_name"`
 	IsDefault    int    `json:"is_default"`
+	Config       string `json:"config,omitempty"`
 	CreatedAt    string `json:"created_at"`
 }
 
@@ -245,7 +253,7 @@ func (d *DB) DeleteApiKey(id string) error {
 
 // Instructions
 func (d *DB) GetInstructions() ([]Instruction, error) {
-	rows, err := d.Query("SELECT id, name, text, created_at FROM instructions ORDER BY created_at DESC")
+	rows, err := d.Query("SELECT id, name, COALESCE(description, ''), text, COALESCE(is_conditional, 0), COALESCE(enabled, 1), COALESCE(embedding, ''), created_at, COALESCE(updated_at, '') FROM instructions ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +262,21 @@ func (d *DB) GetInstructions() ([]Instruction, error) {
 	list := make([]Instruction, 0)
 	for rows.Next() {
 		var item Instruction
-		if err := rows.Scan(&item.ID, &item.Name, &item.Text, &item.CreatedAt); err != nil {
+		var isCond, enabled int
+		var embRaw, updated string
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Text, &isCond, &enabled, &embRaw, &item.CreatedAt, &updated); err != nil {
 			return nil, err
+		}
+		item.Title = item.Name
+		item.Instruction = item.Text
+		item.IsConditional = (isCond == 1)
+		item.Enabled = (enabled == 1)
+		item.UpdatedAt = updated
+		if embRaw != "" {
+			var emb []float32
+			if json.Unmarshal([]byte(embRaw), &emb) == nil {
+				item.Embedding = emb
+			}
 		}
 		list = append(list, item)
 	}
@@ -264,34 +285,117 @@ func (d *DB) GetInstructions() ([]Instruction, error) {
 
 func (d *DB) GetInstructionByID(id string) (*Instruction, error) {
 	var item Instruction
-	err := d.QueryRow("SELECT id, name, text, created_at FROM instructions WHERE id = ?", id).
-		Scan(&item.ID, &item.Name, &item.Text, &item.CreatedAt)
+	var isCond, enabled int
+	var embRaw, updated string
+	err := d.QueryRow("SELECT id, name, COALESCE(description, ''), text, COALESCE(is_conditional, 0), COALESCE(enabled, 1), COALESCE(embedding, ''), created_at, COALESCE(updated_at, '') FROM instructions WHERE id = ?", id).
+		Scan(&item.ID, &item.Name, &item.Description, &item.Text, &isCond, &enabled, &embRaw, &item.CreatedAt, &updated)
 	if err != nil {
 		return nil, err
+	}
+	item.Title = item.Name
+	item.Instruction = item.Text
+	item.IsConditional = (isCond == 1)
+	item.Enabled = (enabled == 1)
+	item.UpdatedAt = updated
+	if embRaw != "" {
+		var emb []float32
+		if json.Unmarshal([]byte(embRaw), &emb) == nil {
+			item.Embedding = emb
+		}
 	}
 	return &item, nil
 }
 
-func (d *DB) CreateInstruction(name, text string) (*Instruction, error) {
+func (d *DB) CreateInstruction(name, description, text string, isConditional, enabled bool, embedding []float32) (*Instruction, error) {
 	id := "inst_" + uuid.New().String()[:8]
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
-	_, err := d.Exec("INSERT INTO instructions (id, name, text, created_at) VALUES (?, ?, ?, ?)",
-		id, name, text, createdAt)
+	embJSON := ""
+	if len(embedding) > 0 {
+		b, _ := json.Marshal(embedding)
+		embJSON = string(b)
+	}
+
+	isCondInt := 0
+	if isConditional {
+		isCondInt = 1
+	}
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+
+	_, err := d.Exec("INSERT INTO instructions (id, name, description, text, is_conditional, enabled, embedding, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, name, description, text, isCondInt, enabledInt, embJSON, createdAt, createdAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Instruction{ID: id, Name: name, Text: text, CreatedAt: createdAt}, nil
+	return &Instruction{
+		ID:            id,
+		Name:          name,
+		Title:         name,
+		Description:   description,
+		Text:          text,
+		Instruction:   text,
+		IsConditional: isConditional,
+		Enabled:       enabled,
+		Embedding:     embedding,
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}, nil
 }
 
-func (d *DB) UpdateInstruction(id, name, text string) error {
-	_, err := d.Exec("UPDATE instructions SET name = ?, text = ? WHERE id = ?", name, text, id)
+func (d *DB) UpdateInstruction(id, name, description, text string, isConditional, enabled bool, embedding []float32) error {
+	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	isCondInt := 0
+	if isConditional {
+		isCondInt = 1
+	}
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+
+	if len(embedding) > 0 {
+		b, _ := json.Marshal(embedding)
+		_, err := d.Exec("UPDATE instructions SET name = ?, description = ?, text = ?, is_conditional = ?, enabled = ?, embedding = ?, updated_at = ? WHERE id = ?",
+			name, description, text, isCondInt, enabledInt, string(b), updatedAt, id)
+		return err
+	}
+
+	_, err := d.Exec("UPDATE instructions SET name = ?, description = ?, text = ?, is_conditional = ?, enabled = ?, updated_at = ? WHERE id = ?",
+		name, description, text, isCondInt, enabledInt, updatedAt, id)
+	return err
+}
+
+func (d *DB) ToggleInstruction(id string, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	_, err := d.Exec("UPDATE instructions SET enabled = ?, updated_at = ? WHERE id = ?", enabledInt, updatedAt, id)
 	return err
 }
 
 func (d *DB) DeleteInstruction(id string) error {
 	_, err := d.Exec("DELETE FROM instructions WHERE id = ?", id)
+	return err
+}
+
+// App Settings
+func (d *DB) GetAppSetting(key string, defaultVal string) string {
+	var val string
+	err := d.QueryRow("SELECT value FROM app_settings WHERE key = ?", key).Scan(&val)
+	if err != nil || val == "" {
+		return defaultVal
+	}
+	return val
+}
+
+func (d *DB) SetAppSetting(key string, val string) error {
+	_, err := d.Exec("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, val)
 	return err
 }
 
@@ -802,7 +906,7 @@ func (d *DB) GetSessionBranchesInfo(sessionID string) (*BranchInfo, error) {
 
 // Custom Model Providers
 func (d *DB) GetCustomProviders() ([]CustomProvider, error) {
-	rows, err := d.Query("SELECT id, name, provider_type, base_url, api_key, model_name, is_default, created_at FROM custom_providers ORDER BY is_default DESC, created_at DESC")
+	rows, err := d.Query("SELECT id, name, provider_type, base_url, api_key, model_name, is_default, COALESCE(config, '{}'), created_at FROM custom_providers ORDER BY is_default DESC, created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +916,7 @@ func (d *DB) GetCustomProviders() ([]CustomProvider, error) {
 	for rows.Next() {
 		var p CustomProvider
 		var bUrl, aKey sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.ProviderType, &bUrl, &aKey, &p.ModelName, &p.IsDefault, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.ProviderType, &bUrl, &aKey, &p.ModelName, &p.IsDefault, &p.Config, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		if bUrl.Valid {
@@ -826,11 +930,11 @@ func (d *DB) GetCustomProviders() ([]CustomProvider, error) {
 	return list, nil
 }
 
-func (d *DB) GetDefaultCustomProvider() (*CustomProvider, error) {
+func (d *DB) GetCustomProviderByID(id string) (*CustomProvider, error) {
 	var p CustomProvider
 	var bUrl, aKey sql.NullString
-	err := d.QueryRow("SELECT id, name, provider_type, base_url, api_key, model_name, is_default, created_at FROM custom_providers WHERE is_default = 1 LIMIT 1").
-		Scan(&p.ID, &p.Name, &p.ProviderType, &bUrl, &aKey, &p.ModelName, &p.IsDefault, &p.CreatedAt)
+	err := d.QueryRow("SELECT id, name, provider_type, base_url, api_key, model_name, is_default, COALESCE(config, '{}'), created_at FROM custom_providers WHERE id = ?", id).
+		Scan(&p.ID, &p.Name, &p.ProviderType, &bUrl, &aKey, &p.ModelName, &p.IsDefault, &p.Config, &p.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -843,7 +947,24 @@ func (d *DB) GetDefaultCustomProvider() (*CustomProvider, error) {
 	return &p, nil
 }
 
-func (d *DB) CreateCustomProvider(name, providerType, baseURL, apiKey, modelName string, isDefault int) (*CustomProvider, error) {
+func (d *DB) GetDefaultCustomProvider() (*CustomProvider, error) {
+	var p CustomProvider
+	var bUrl, aKey sql.NullString
+	err := d.QueryRow("SELECT id, name, provider_type, base_url, api_key, model_name, is_default, COALESCE(config, '{}'), created_at FROM custom_providers WHERE is_default = 1 LIMIT 1").
+		Scan(&p.ID, &p.Name, &p.ProviderType, &bUrl, &aKey, &p.ModelName, &p.IsDefault, &p.Config, &p.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if bUrl.Valid {
+		p.BaseURL = bUrl.String
+	}
+	if aKey.Valid {
+		p.APIKey = aKey.String
+	}
+	return &p, nil
+}
+
+func (d *DB) CreateCustomProvider(name, providerType, baseURL, apiKey, modelName string, isDefault int, config string) (*CustomProvider, error) {
 	id := "prov_" + uuid.New().String()[:8]
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
@@ -851,8 +972,12 @@ func (d *DB) CreateCustomProvider(name, providerType, baseURL, apiKey, modelName
 		_, _ = d.Exec("UPDATE custom_providers SET is_default = 0")
 	}
 
-	_, err := d.Exec("INSERT INTO custom_providers (id, name, provider_type, base_url, api_key, model_name, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		id, name, providerType, baseURL, apiKey, modelName, isDefault, createdAt)
+	if config == "" {
+		config = "{}"
+	}
+
+	_, err := d.Exec("INSERT INTO custom_providers (id, name, provider_type, base_url, api_key, model_name, is_default, config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, name, providerType, baseURL, apiKey, modelName, isDefault, config, createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -865,8 +990,23 @@ func (d *DB) CreateCustomProvider(name, providerType, baseURL, apiKey, modelName
 		APIKey:       apiKey,
 		ModelName:    modelName,
 		IsDefault:    isDefault,
+		Config:       config,
 		CreatedAt:    createdAt,
 	}, nil
+}
+
+func (d *DB) UpdateCustomProvider(id, name, providerType, baseURL, apiKey, modelName string, isDefault int, config string) error {
+	if isDefault == 1 {
+		_, _ = d.Exec("UPDATE custom_providers SET is_default = 0")
+	}
+
+	if config == "" {
+		config = "{}"
+	}
+
+	_, err := d.Exec("UPDATE custom_providers SET name = ?, provider_type = ?, base_url = ?, api_key = ?, model_name = ?, is_default = ?, config = ? WHERE id = ?",
+		name, providerType, baseURL, apiKey, modelName, isDefault, config, id)
+	return err
 }
 
 func (d *DB) DeleteCustomProvider(id string) error {

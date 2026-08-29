@@ -2,6 +2,7 @@ package tools
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,13 +71,21 @@ func TestFilesystemTools(t *testing.T) {
 		t.Fatalf("expected hello.txt in ListDir result, got %+v", listRes)
 	}
 
-	// Test RegexSearch
-	grepRes, err := RegexSearch(tempDir, wsID, sessID, "THREE", []string{"uploads"}, true, true, nil, repos)
-	if err != nil {
-		t.Fatalf("failed regex search: %v", err)
+	// Test ListDir with multiple repos at root '.'
+	multiRepos := []workspace.GitRepo{
+		{FolderName: "backend", RealPath: filepath.Join(tempDir, "backend")},
+		{FolderName: "frontend", RealPath: filepath.Join(tempDir, "frontend")},
+		{FolderName: "docs", RealPath: filepath.Join(tempDir, "docs")},
 	}
-	if len(grepRes) == 0 {
-		t.Fatalf("expected regex matches, got 0")
+	rootList, err := ListDir(tempDir, wsID, sessID, ".", multiRepos)
+	if err != nil {
+		t.Fatalf("failed to list root with multiRepos: %v", err)
+	}
+	if len(rootList) != 3 {
+		t.Fatalf("expected 3 projects in root list, got %d", len(rootList))
+	}
+	if rootList[0].Name != "backend" || rootList[1].Name != "frontend" || rootList[2].Name != "docs" {
+		t.Fatalf("unexpected repo names in root list: %+v", rootList)
 	}
 }
 

@@ -38,20 +38,20 @@ type GeminiBlob struct {
 
 type GeminiPart struct {
 	Text         string        `json:"text,omitempty"`
-	Thought      bool          `json:"thought,omitempty"`
+	Thought      bool          `json:"-"`
 	InlineData   *GeminiBlob   `json:"inlineData,omitempty"`
 	FunctionCall *FunctionCall `json:"functionCall,omitempty"`
 	FunctionResp *FunctionResp `json:"functionResponse,omitempty"`
 }
 
 type FunctionCall struct {
-	ID   string         `json:"id,omitempty"`
+	ID   string         `json:"-"`
 	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
 }
 
 type FunctionResp struct {
-	ID       string         `json:"id,omitempty"`
+	ID       string         `json:"-"`
 	Name     string         `json:"name"`
 	Response map[string]any `json:"response"`
 }

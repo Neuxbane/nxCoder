@@ -113,6 +113,28 @@ func SanitizeToolResult(result any, maxStringLength int) any {
 }
 
 func ListDir(baseDir, workspaceID, sessionID, targetPath string, repos []workspace.GitRepo) ([]FileItem, error) {
+	normPath := strings.TrimSpace(strings.ReplaceAll(targetPath, "\\", "/"))
+	for strings.HasPrefix(normPath, "/") {
+		normPath = normPath[1:]
+	}
+
+	if normPath == "." || normPath == "" || normPath == "workspace_mirror" || normPath == "workspace_mirror/" {
+		if len(repos) > 0 {
+			var items []FileItem
+			seen := make(map[string]bool)
+			for _, r := range repos {
+				if !seen[r.FolderName] {
+					items = append(items, FileItem{
+						Name: r.FolderName,
+						Type: "directory",
+					})
+					seen[r.FolderName] = true
+				}
+			}
+			return items, nil
+		}
+	}
+
 	resolvedPath, err := workspace.ValidateAndResolvePath(baseDir, workspaceID, sessionID, targetPath, repos)
 	if err != nil {
 		return nil, err

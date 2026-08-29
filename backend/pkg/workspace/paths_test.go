@@ -48,6 +48,15 @@ func TestPathsAndSandbox(t *testing.T) {
 		t.Fatalf("expected path inside real repo %s, got %s", repos[0].RealPath, resolvedMirror)
 	}
 
+	// Test direct repo folder name resolution
+	resolvedDirect, err := ValidateAndResolvePath(tempDir, wsID, sessID, "project1/src/main.go", repos)
+	if err != nil {
+		t.Fatalf("unexpected error resolving direct repo path: %v", err)
+	}
+	if !strings.HasPrefix(resolvedDirect, repos[0].RealPath) {
+		t.Fatalf("expected path inside real repo %s, got %s", repos[0].RealPath, resolvedDirect)
+	}
+
 	// Test escape traversal rejection
 	_, err = ValidateAndResolvePath(tempDir, wsID, sessID, "../../../etc/passwd", repos)
 	if err == nil {

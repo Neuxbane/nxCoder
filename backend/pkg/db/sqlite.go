@@ -137,6 +137,17 @@ func (d *DB) Migrate() error {
 			enabled INTEGER DEFAULT 1,
 			created_at TEXT
 		);`,
+		`ALTER TABLE instructions ADD COLUMN description TEXT DEFAULT '';`,
+		`ALTER TABLE instructions ADD COLUMN is_conditional INTEGER DEFAULT 0;`,
+		`ALTER TABLE instructions ADD COLUMN enabled INTEGER DEFAULT 1;`,
+		`ALTER TABLE instructions ADD COLUMN embedding TEXT DEFAULT '';`,
+		`ALTER TABLE instructions ADD COLUMN updated_at TEXT;`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT
+		);`,
+		`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('instruction_top_k', '3');`,
+		`ALTER TABLE custom_providers ADD COLUMN config TEXT DEFAULT '{}';`,
 		`INSERT OR IGNORE INTO workspaces (id, name, folders_path, created_at) VALUES ('ws_general', 'Conversations', '[]', datetime('now'));`,
 	}
 

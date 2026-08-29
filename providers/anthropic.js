@@ -10,11 +10,23 @@ export default {
     { key: "temperature", label: "Temperature", type: "number", required: false, default: 0.7, min: 0, max: 1, step: 0.1 }
   ],
 
-  async *stream({ apiKey, model, temperature, messages, tools, abortSignal }) {
-    const formattedMessages = messages.map(m => ({
+  async *stream({ apiKey, model, temperature, systemInstruction, messages, tools, abortSignal }) {
+    const formattedMessages = (messages || []).filter(m => m.role !== 'system').map(m => ({
       role: m.role === "assistant" || m.role === "model" ? "assistant" : "user",
       content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
     }));
+
+    const reqBody = {
+      model: model || "claude-3-5-sonnet-20241022",
+      messages: formattedMessages,
+      max_tokens: 4096,
+      temperature: temperature !== undefined ? Number(temperature) : 0.7,
+      stream: true
+    };
+
+    if (systemInstruction) {
+      reqBody.system = typeof systemInstruction === 'string' ? systemInstruction : JSON.stringify(systemInstruction);
+    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -24,13 +36,7 @@ export default {
         "anthropic-version": "2023-06-01",
         "dangerously-allow-browser": "true"
       },
-      body: JSON.stringify({
-        model: model || "claude-3-5-sonnet-20241022",
-        messages: formattedMessages,
-        max_tokens: 4096,
-        temperature: temperature !== undefined ? Number(temperature) : 0.7,
-        stream: true
-      }),
+      body: JSON.stringify(reqBody),
       signal: abortSignal
     });
 
@@ -57,6 +63,10 @@ export default {
           const data = JSON.parse(trimmed.slice(6));
           if (data.type === "content_block_delta" && data.delta?.text) {
             yield { type: "text", text: data.delta.text };
+          }
+          if (data.type === "message_stop" || (data.type === "message_delta" && data.delta?.stop_reason)) {
+            try { reader.cancel(); } catch(e) {}
+            return;
           }
         } catch (e) {}
       }

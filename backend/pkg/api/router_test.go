@@ -204,4 +204,43 @@ func TestAPIRouter(t *testing.T) {
 	if len(bPoints) == 0 {
 		t.Fatalf("expected at least 1 branch point after forking thread")
 	}
+
+	// 12. Create Conditional Instruction & Test Matching
+	condBody, _ := json.Marshal(map[string]any{
+		"title":          "SQL Safety",
+		"description":    "Database queries postgres migrations",
+		"instruction":    "Always sanitize SQL inputs",
+		"is_conditional": true,
+		"enabled":        true,
+	})
+	reqCond := httptest.NewRequest("POST", "/api/instruction", bytes.NewReader(condBody))
+	reqCond.Header.Set("Content-Type", "application/json")
+	recCond := httptest.NewRecorder()
+	handler.ServeHTTP(recCond, reqCond)
+	if recCond.Code != http.StatusCreated {
+		t.Fatalf("create conditional instruction failed: %d", recCond.Code)
+	}
+
+	// 13. Test Settings Top-K
+	topKBody, _ := json.Marshal(map[string]any{"top_k": 2})
+	reqTopK := httptest.NewRequest("POST", "/api/settings/instruction-top-k", bytes.NewReader(topKBody))
+	recTopK := httptest.NewRecorder()
+	handler.ServeHTTP(recTopK, reqTopK)
+	if recTopK.Code != http.StatusOK {
+		t.Fatalf("set top_k failed: %d", recTopK.Code)
+	}
+
+	// 14. Test Match Endpoint
+	reqMatch := httptest.NewRequest("GET", "/api/instruction/match?prompt=how+to+run+postgres+migration", nil)
+	recMatch := httptest.NewRecorder()
+	handler.ServeHTTP(recMatch, reqMatch)
+	if recMatch.Code != http.StatusOK {
+		t.Fatalf("match instruction failed: %d", recMatch.Code)
+	}
+	var matchData map[string]any
+	_ = json.Unmarshal(recMatch.Body.Bytes(), &matchData)
+	matchedList, ok := matchData["matched"].([]any)
+	if !ok || len(matchedList) == 0 {
+		t.Fatalf("expected matched instructions, got none")
+	}
 }

@@ -93,11 +93,15 @@ func (s *Server) Routes() http.Handler {
 	r.Put("/api/key/{id}", s.handleUpdateApiKey)
 	r.Delete("/api/key/{id}", s.handleDeleteApiKey)
 
-	// Instructions
+	// Instructions & Conditional Prompt Rules
 	r.Get("/api/instruction", s.handleGetInstructions)
 	r.Post("/api/instruction", s.handleCreateInstruction)
 	r.Put("/api/instruction/{id}", s.handleUpdateInstruction)
+	r.Post("/api/instruction/{id}/toggle", s.handleToggleInstruction)
 	r.Delete("/api/instruction/{id}", s.handleDeleteInstruction)
+	r.Get("/api/instruction/match", s.handleMatchInstructions)
+	r.Get("/api/settings/instruction-top-k", s.handleGetInstructionTopK)
+	r.Post("/api/settings/instruction-top-k", s.handleSetInstructionTopK)
 
 	// Workspaces
 	r.Get("/api/workspace", s.handleGetWorkspaces)
@@ -149,6 +153,7 @@ func (s *Server) Routes() http.Handler {
 	// Custom Model Providers & Provider Extension Files
 	r.Get("/api/custom-providers", s.handleGetCustomProviders)
 	r.Post("/api/custom-providers", s.handleCreateCustomProvider)
+	r.Put("/api/custom-providers/{id}", s.handleUpdateCustomProvider)
 	r.Delete("/api/custom-providers/{id}", s.handleDeleteCustomProvider)
 	r.Put("/api/custom-providers/{id}/default", s.handleSetDefaultCustomProvider)
 	r.Get("/api/providers/files", s.handleGetProviderFiles)
@@ -433,14 +438,40 @@ func (s *Server) handleGetInstructions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateInstruction(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string `json:"name"`
-		Text string `json:"text"`
+		Name          string    `json:"name"`
+		Title         string    `json:"title"`
+		Description   string    `json:"description"`
+		Text          string    `json:"text"`
+		Instruction   string    `json:"instruction"`
+		IsConditional bool      `json:"is_conditional"`
+		Enabled       *bool     `json:"enabled"`
+		Embedding     []float32 `json:"embedding"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Text == "" {
-		http.Error(w, "Missing name or text", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.db.CreateInstruction(body.Name, body.Text)
+
+	name := body.Title
+	if name == "" {
+		name = body.Name
+	}
+	text := body.Instruction
+	if text == "" {
+		text = body.Text
+	}
+
+	if name == "" || text == "" {
+		http.Error(w, "Missing title or instruction content", http.StatusBadRequest)
+		return
+	}
+
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+
+	inst, err := s.db.CreateInstruction(name, body.Description, text, body.IsConditional, enabled, body.Embedding)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -452,18 +483,55 @@ func (s *Server) handleCreateInstruction(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleUpdateInstruction(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var body struct {
-		Name string `json:"name"`
-		Text string `json:"text"`
+		Name          string    `json:"name"`
+		Title         string    `json:"title"`
+		Description   string    `json:"description"`
+		Text          string    `json:"text"`
+		Instruction   string    `json:"instruction"`
+		IsConditional bool      `json:"is_conditional"`
+		Enabled       *bool     `json:"enabled"`
+		Embedding     []float32 `json:"embedding"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.db.UpdateInstruction(id, body.Name, body.Text); err != nil {
+
+	name := body.Title
+	if name == "" {
+		name = body.Name
+	}
+	text := body.Instruction
+	if text == "" {
+		text = body.Text
+	}
+
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+
+	if err := s.db.UpdateInstruction(id, name, body.Description, text, body.IsConditional, enabled, body.Embedding); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
+func (s *Server) handleToggleInstruction(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.db.ToggleInstruction(id, body.Enabled); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": body.Enabled})
 }
 
 func (s *Server) handleDeleteInstruction(w http.ResponseWriter, r *http.Request) {
@@ -473,6 +541,65 @@ func (s *Server) handleDeleteInstruction(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
+func (s *Server) handleMatchInstructions(w http.ResponseWriter, r *http.Request) {
+	prompt := r.URL.Query().Get("prompt")
+	allInsts, err := s.db.GetInstructions()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	topK := 3
+	topKStr := s.db.GetAppSetting("instruction_top_k", "3")
+	if k, err := strconv.Atoi(topKStr); err == nil && k > 0 {
+		topK = k
+	}
+
+	matched := agent.MatchInstructions(allInsts, prompt, topK)
+	var promptSnippet strings.Builder
+	if len(matched) > 0 {
+		promptSnippet.WriteString("\n\n=========================================\n=== ACTIVE INSTRUCTIONS & RULES ===\n=========================================\n")
+		for _, mi := range matched {
+			condTag := "ALWAYS-ON"
+			if mi.IsConditional {
+				condTag = "MATCHED CONDITIONAL"
+			}
+			promptSnippet.WriteString(fmt.Sprintf("\n--- [%s] %s ---\n%s\n", condTag, mi.Name, mi.Text))
+		}
+		promptSnippet.WriteString("=========================================\n")
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"matched": matched,
+		"top_k":   topK,
+		"snippet": promptSnippet.String(),
+	})
+}
+
+func (s *Server) handleGetInstructionTopK(w http.ResponseWriter, r *http.Request) {
+	topKStr := s.db.GetAppSetting("instruction_top_k", "3")
+	topK, _ := strconv.Atoi(topKStr)
+	if topK <= 0 {
+		topK = 3
+	}
+	json.NewEncoder(w).Encode(map[string]any{"top_k": topK})
+}
+
+func (s *Server) handleSetInstructionTopK(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TopK int `json:"top_k"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TopK <= 0 {
+		http.Error(w, "Invalid top_k (must be > 0)", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.SetAppSetting("instruction_top_k", strconv.Itoa(body.TopK)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "top_k": body.TopK})
 }
 
 // Workspaces
@@ -1534,12 +1661,13 @@ func (s *Server) handleGetCustomProviders(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleCreateCustomProvider(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name         string `json:"name"`
-		ProviderType string `json:"provider_type"`
-		BaseURL      string `json:"base_url"`
-		APIKey       string `json:"api_key"`
-		ModelName    string `json:"model_name"`
-		IsDefault    int    `json:"is_default"`
+		Name         string          `json:"name"`
+		ProviderType string          `json:"provider_type"`
+		BaseURL      string          `json:"base_url"`
+		APIKey       string          `json:"api_key"`
+		ModelName    string          `json:"model_name"`
+		IsDefault    int             `json:"is_default"`
+		Config       json.RawMessage `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.ModelName == "" {
 		http.Error(w, "name and model_name are required", http.StatusBadRequest)
@@ -1548,13 +1676,46 @@ func (s *Server) handleCreateCustomProvider(w http.ResponseWriter, r *http.Reque
 	if body.ProviderType == "" {
 		body.ProviderType = "openai_compatible"
 	}
-	p, err := s.db.CreateCustomProvider(body.Name, body.ProviderType, body.BaseURL, body.APIKey, body.ModelName, body.IsDefault)
+	cfgStr := "{}"
+	if len(body.Config) > 0 {
+		cfgStr = string(body.Config)
+	}
+	p, err := s.db.CreateCustomProvider(body.Name, body.ProviderType, body.BaseURL, body.APIKey, body.ModelName, body.IsDefault, cfgStr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(p)
+}
+
+func (s *Server) handleUpdateCustomProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Name         string          `json:"name"`
+		ProviderType string          `json:"provider_type"`
+		BaseURL      string          `json:"base_url"`
+		APIKey       string          `json:"api_key"`
+		ModelName    string          `json:"model_name"`
+		IsDefault    int             `json:"is_default"`
+		Config       json.RawMessage `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.ModelName == "" {
+		http.Error(w, "name and model_name are required", http.StatusBadRequest)
+		return
+	}
+	if body.ProviderType == "" {
+		body.ProviderType = "openai_compatible"
+	}
+	cfgStr := "{}"
+	if len(body.Config) > 0 {
+		cfgStr = string(body.Config)
+	}
+	if err := s.db.UpdateCustomProvider(id, body.Name, body.ProviderType, body.BaseURL, body.APIKey, body.ModelName, body.IsDefault, cfgStr); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
 
 func (s *Server) handleDeleteCustomProvider(w http.ResponseWriter, r *http.Request) {

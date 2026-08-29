@@ -43,10 +43,23 @@ export default {
       ],
       default: "Zephyr",
       required: false
+    },
+    {
+      key: "thinking",
+      label: "Thinking Level",
+      type: "options",
+      options: [
+        "HIGH",
+        "LOW",
+        "MINIMAL",
+        "OFF"
+      ],
+      default: "HIGH",
+      required: false
     }
   ],
 
-  async *stream({ apiKey, model, voice, messages, tools, abortSignal }) {
+  async *stream({ apiKey, model, voice, thinking, systemInstruction, messages, tools, abortSignal }) {
     let targetModel = model || "gemini-3.1-flash-live-preview";
     if (!targetModel.startsWith("models/")) {
       targetModel = `models/${targetModel}`;
@@ -58,10 +71,38 @@ export default {
       throw new Error("Gemini API key is required for Gemini Live connection.");
     }
 
+    // Extract all system instructions from argument & messages
+    let effectiveSystemInstruction = "";
+    if (systemInstruction) {
+      if (typeof systemInstruction === "string") {
+        effectiveSystemInstruction = systemInstruction.trim();
+      } else if (systemInstruction.text) {
+        effectiveSystemInstruction = systemInstruction.text.trim();
+      } else if (Array.isArray(systemInstruction.parts)) {
+        effectiveSystemInstruction = systemInstruction.parts.map(p => p.text || "").join("\n").trim();
+      } else {
+        effectiveSystemInstruction = JSON.stringify(systemInstruction);
+      }
+    }
+
+    if (Array.isArray(messages)) {
+      for (const m of messages) {
+        if (m.role === "system") {
+          const sysText = typeof m.content === "string" ? m.content : (Array.isArray(m.parts) ? m.parts.map(p => p.text || "").join("\n") : "");
+          if (sysText.trim()) {
+            effectiveSystemInstruction = effectiveSystemInstruction ? `${effectiveSystemInstruction}\n\n${sysText.trim()}` : sysText.trim();
+          }
+        }
+      }
+    }
+
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
     console.log(`[Gemini Live] Connecting to WebSocket: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
     console.log(`[Gemini Live] Target model: ${targetModel}`);
+    if (effectiveSystemInstruction) {
+      console.log(`[Gemini Live] System instruction attached (${effectiveSystemInstruction.length} chars)`);
+    }
 
     const ws = new WebSocket(wsUrl);
 
@@ -93,8 +134,8 @@ export default {
     };
 
     // 1. Separate history from the current turn
-    const historyMessages = (messages || []).slice(0, -1);
-    const currentMessage = (messages || [])[messages.length - 1];
+    const historyMessages = (messages || []).filter(m => m.role !== "system").slice(0, -1);
+    const currentMessage = (messages || []).filter(m => m.role !== "system").slice(-1)[0];
 
     // 2. Format history into a compact string (parity with marketplace gemini-live.js)
     let historyString = "";
@@ -139,6 +180,9 @@ export default {
         for (const part of currentMessage.parts) {
           if (part.text) {
             textParts.push(part.text);
+          } else if (part.functionResponse) {
+            const respStr = JSON.stringify(part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response);
+            textParts.push(`\n[Tool Result for ${part.functionResponse.name}]:\n${respStr}\n`);
           } else if (part.inlineData) {
             parts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } });
           }
@@ -164,12 +208,18 @@ export default {
     ws.onopen = () => {
       console.log("[Gemini Live] Connection opened successfully.");
 
-      // For Gemini 3+ models, thinkingLevel ('MINIMAL'/'LOW') is used.
-      // For Gemini 2.5 models, thinkingBudget (-1) is used.
-      const isGemini3 = targetModel.toLowerCase().includes("gemini-3");
-      const thinkingConfig = isGemini3
-        ? { thinkingLevel: "MINIMAL" }
-        : { includeThoughts: true, thinkingBudget: -1 };
+      // Configure thinking level / budget
+      const selectedThinking = (thinking || "HIGH").toUpperCase();
+      let thinkingConfig;
+      if (selectedThinking === "OFF") {
+        thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
+      } else if (targetModel.toLowerCase().includes("gemini-3")) {
+        thinkingConfig = { thinkingLevel: selectedThinking }; // "HIGH", "LOW", "MINIMAL"
+      } else {
+        // For Gemini 2.0 / 2.5 models
+        const budget = selectedThinking === "HIGH" ? -1 : (selectedThinking === "LOW" ? 2048 : 512);
+        thinkingConfig = { includeThoughts: true, thinkingBudget: budget };
+      }
 
       const setupMsg = {
         setup: {
@@ -187,6 +237,12 @@ export default {
           }
         }
       };
+
+      if (effectiveSystemInstruction) {
+        setupMsg.setup.systemInstruction = {
+          parts: [{ text: effectiveSystemInstruction }]
+        };
+      }
 
       if (tools && tools.length > 0) {
         setupMsg.setup.tools = [{
@@ -245,6 +301,7 @@ export default {
         }
 
         // Handle thinking, function calls, and content parts
+        let hasFunctionCall = false;
         if (parsed.serverContent?.modelTurn?.parts) {
           for (const part of parsed.serverContent.modelTurn.parts) {
             if (part.thought) {
@@ -254,6 +311,7 @@ export default {
                 pushChunk({ type: "thought", text: thoughtText });
               }
             } else if (part.functionCall) {
+              hasFunctionCall = true;
               console.log("[Gemini Live] Function call received:", part.functionCall.name);
               pushChunk({
                 type: "functionCall",
@@ -269,6 +327,7 @@ export default {
         }
 
         if (parsed.toolCall?.functionCalls) {
+          hasFunctionCall = true;
           for (const fc of parsed.toolCall.functionCalls) {
             console.log("[Gemini Live] Tool call received:", fc.name);
             pushChunk({
@@ -278,6 +337,13 @@ export default {
               callId: fc.id || ("call_" + Math.random().toString(36).substring(2, 8))
             });
           }
+        }
+
+        if (hasFunctionCall) {
+          console.log("[Gemini Live] Tool call detected, completing current live stream turn.");
+          try { ws.close(); } catch (_) {}
+          finish();
+          return;
         }
 
         // Handle output transcriptions (AUDIO modality text output)

@@ -57,15 +57,31 @@ func ValidateAndResolvePath(baseDir, workspaceID, sessionID, targetPath string, 
 
 	// If path starts with workspace_mirror, resolve to physical folder directly
 	if strings.HasPrefix(normPath, "workspace_mirror/") || normPath == "workspace_mirror" {
-		parts := strings.Split(normPath, "/")
-		if len(parts) > 1 {
-			requestedFolder := parts[1]
+		trimmed := strings.TrimPrefix(normPath, "workspace_mirror/")
+		if trimmed == "workspace_mirror" || trimmed == "" {
+			if len(repos) == 1 {
+				return repos[0].RealPath, nil
+			}
+		} else {
+			parts := strings.Split(trimmed, "/")
+			requestedFolder := parts[0]
 			for _, r := range repos {
 				if r.FolderName == requestedFolder {
-					subPath := filepath.Join(parts[2:]...)
+					subPath := filepath.Join(parts[1:]...)
 					return filepath.Join(r.RealPath, subPath), nil
 				}
 			}
+		}
+	}
+
+	// If path directly starts with a repo folder name, resolve to that repo
+	for _, r := range repos {
+		if normPath == r.FolderName {
+			return r.RealPath, nil
+		}
+		if strings.HasPrefix(normPath, r.FolderName+"/") {
+			subPath := strings.TrimPrefix(normPath, r.FolderName+"/")
+			return filepath.Join(r.RealPath, subPath), nil
 		}
 	}
 

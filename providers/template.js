@@ -80,16 +80,25 @@ export default {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") continue;
+        if (!trimmed) continue;
+        if (trimmed === "data: [DONE]") {
+          try { reader.cancel(); } catch(e) {}
+          return;
+        }
         if (trimmed.startsWith("data: ")) {
           try {
             const data = JSON.parse(trimmed.slice(6));
-            const delta = data.choices?.[0]?.delta;
+            const choice = data.choices?.[0];
+            const delta = choice?.delta;
             if (delta?.reasoning_content) {
               yield { type: "thought", text: delta.reasoning_content };
             }
             if (delta?.content) {
               yield { type: "text", text: delta.content };
+            }
+            if (choice?.finish_reason) {
+              try { reader.cancel(); } catch(e) {}
+              return;
             }
           } catch (e) {}
         }
