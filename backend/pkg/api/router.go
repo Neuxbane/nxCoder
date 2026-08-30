@@ -1701,12 +1701,25 @@ func (s *Server) handleDeleteMarketplaceSource(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleGetMarketplaceProviders(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode([]map[string]any{
-		{"id": "gemini", "name": "Google Gemini", "installed": true},
-		{"id": "openai", "name": "OpenAI", "installed": true},
-		{"id": "ollama", "name": "Ollama", "installed": true},
-		{"id": "gemini-live", "name": "Gemini Live", "installed": true},
-	})
+	pDir := s.getProvidersDir()
+	entries, err := os.ReadDir(pDir)
+	if err != nil {
+		json.NewEncoder(w).Encode([]map[string]any{})
+		return
+	}
+	var list []map[string]any
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".js") {
+			name := strings.TrimSuffix(entry.Name(), ".js")
+			list = append(list, map[string]any{
+				"id":        name,
+				"name":      name,
+				"installed": true,
+				"fileName":  entry.Name(),
+			})
+		}
+	}
+	json.NewEncoder(w).Encode(list)
 }
 
 func (s *Server) handleGetProviderConfigs(w http.ResponseWriter, r *http.Request) {

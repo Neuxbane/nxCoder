@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,11 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/neuxbane/nxcoder/backend/pkg/db"
-	"github.com/neuxbane/nxcoder/backend/pkg/providers"
 	"github.com/neuxbane/nxcoder/backend/pkg/tools"
 	"github.com/neuxbane/nxcoder/backend/pkg/workspace"
 )
@@ -264,22 +261,6 @@ func isTextFile(fileName string) bool {
 	return !binaryExts[strings.ToLower(filepath.Ext(fileName))]
 }
 
-func isRetryableError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "context canceled") || strings.Contains(msg, "abort") {
-		return false
-	}
-	if strings.Contains(msg, "429") || strings.Contains(msg, "quota") || strings.Contains(msg, "rate limit") ||
-		strings.Contains(msg, "500") || strings.Contains(msg, "503") || strings.Contains(msg, "timeout") ||
-		strings.Contains(msg, "connection reset") {
-		return true
-	}
-	return false
-}
-
 func (ae *AgentEngine) ExecuteStream(ctx context.Context, workspaceID, sessionID, prompt, apiKeyID string, broadcast func(string, any)) {
 	ae.ExecuteStreamWithParent(ctx, workspaceID, sessionID, prompt, nil, apiKeyID, broadcast)
 }
@@ -302,11 +283,6 @@ func (ae *AgentEngine) ExecuteStreamWithParent(ctx context.Context, workspaceID,
 		ae.mu.Unlock()
 	}()
 
-	broadcast(sessionID, map[string]any{
-		"type":   "SESSION_STATUS",
-		"status": "generating",
-	})
-
 	_ = ae.DB.EnsureSession(workspaceID, sessionID, "New Agentic Chat Session")
 	folders := ae.getFoldersForWorkspace(workspaceID)
 	repos := workspace.GetGitReposForWorkspace(ae.BaseDir, workspaceID, folders)
@@ -318,341 +294,16 @@ func (ae *AgentEngine) ExecuteStreamWithParent(ctx context.Context, workspaceID,
 		userMsgID = dbUserMsg.ID
 	}
 	_ = workspace.CommitSessionMessage(ae.BaseDir, workspaceID, sessionID, userMsgID, "user")
-
-	// Create workspace mirror
 	_ = workspace.CreateWorkspaceMirror(ae.BaseDir, workspaceID, sessionID, repos)
 
-	// Base instruction resolution
-	baseInstruction := DEFAULT_ANTIGRAVITY_PROMPT
-	wsRecord, _ := ae.DB.GetWorkspaceByID(workspaceID)
-	if wsRecord != nil && wsRecord.InstructionID != nil && *wsRecord.InstructionID != "" {
-		if instRecord, err := ae.DB.GetInstructionByID(*wsRecord.InstructionID); err == nil && instRecord != nil && instRecord.Text != "" {
-			baseInstruction = instRecord.Text
-		}
-	}
-
-	dynamicInstruction := ae.assembleContextualInstruction(workspaceID, sessionID, baseInstruction, prompt)
-
-	// Provider selection (Gemini or Custom Provider)
-	customProv, _ := ae.DB.GetDefaultCustomProvider()
-
-	maxRetries := 5
-	attempt := 0
-	delay := 2 * time.Second
-
-	var finalModelMsgID int64
-	for attempt < maxRetries {
-		select {
-		case <-ctx.Done():
-			_ = workspace.CleanWorkspaceMirror(ae.BaseDir, workspaceID, sessionID, repos)
-			broadcast(sessionID, map[string]any{"type": "DONE", "modelMessageId": finalModelMsgID})
-			broadcast(sessionID, map[string]any{"type": "SESSION_STATUS", "status": "idle"})
-			return
-		default:
-		}
-
-		attempt++
-		lastID, err := ae.runAgentLoop(ctx, workspaceID, sessionID, dynamicInstruction, repos, customProv, apiKeyID, broadcast)
-		finalModelMsgID = lastID
-		if err == nil {
-			break
-		}
-
-		if !isRetryableError(err) || attempt >= maxRetries {
-			_ = workspace.CleanWorkspaceMirror(ae.BaseDir, workspaceID, sessionID, repos)
-			broadcast(sessionID, map[string]any{
-				"type":    "ERROR",
-				"message": err.Error(),
-			})
-			broadcast(sessionID, map[string]any{"type": "SESSION_STATUS", "status": "idle"})
-			return
-		}
-
-		broadcast(sessionID, map[string]any{
-			"type":        "RETRYING",
-			"attempt":     attempt + 1,
-			"maxAttempts": maxRetries,
-			"delay":       delay.Milliseconds(),
-			"message":     err.Error(),
-		})
-
-		time.Sleep(delay)
-		delay *= 2
-		if delay > 30*time.Second {
-			delay = 30 * time.Second
-		}
-	}
-
-	_ = workspace.CleanWorkspaceMirror(ae.BaseDir, workspaceID, sessionID, repos)
-	broadcast(sessionID, map[string]any{"type": "DONE", "modelMessageId": finalModelMsgID})
-	broadcast(sessionID, map[string]any{"type": "SESSION_STATUS", "status": "idle"})
-}
-
-func (ae *AgentEngine) runAgentLoop(
-	ctx context.Context,
-	workspaceID, sessionID, dynamicInstruction string,
-	repos []workspace.GitRepo,
-	customProv *db.CustomProvider,
-	apiKeyID string,
-	broadcast func(string, any),
-) (int64, error) {
-	liveMessages, _ := ae.DB.GetSessionThread(sessionID, nil)
-
-	var lastModelMsgID int64
-
-	keepRunning := true
-	for keepRunning {
-		select {
-		case <-ctx.Done():
-			return lastModelMsgID, ctx.Err()
-		default:
-		}
-
-		// Build Gemini contents or OpenAI messages from session history
-		geminiContents := make([]providers.GeminiContent, 0)
-		openAIMessages := make([]providers.OpenAIMessage, 0)
-
-		if customProv != nil {
-			openAIMessages = append(openAIMessages, providers.OpenAIMessage{
-				Role:    "system",
-				Content: dynamicInstruction,
-			})
-		}
-
-		for _, m := range liveMessages {
-			var rawParts []map[string]any
-			_ = json.Unmarshal(m.Parts, &rawParts)
-
-			var geminiParts []providers.GeminiPart
-			var textAccumulator strings.Builder
-
-			for _, p := range rawParts {
-				if txt, ok := p["text"].(string); ok {
-					textAccumulator.WriteString(txt)
-					geminiParts = append(geminiParts, providers.GeminiPart{Text: txt})
-				} else if localPath, ok := p["_localFilePath"].(string); ok && localPath != "" {
-					mimeType, _ := p["mimeType"].(string)
-					if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "audio/") {
-						if data, err := os.ReadFile(localPath); err == nil && len(data) > 0 && len(data) < 20<<20 {
-							b64 := base64.StdEncoding.EncodeToString(data)
-							geminiParts = append(geminiParts, providers.GeminiPart{
-								InlineData: &providers.GeminiBlob{
-									MimeType: mimeType,
-									Data:     b64,
-								},
-							})
-						}
-					}
-				} else if inlineData, ok := p["inlineData"].(map[string]any); ok {
-					mimeType, _ := inlineData["mimeType"].(string)
-					dataB64, _ := inlineData["data"].(string)
-					if mimeType != "" && dataB64 != "" {
-						geminiParts = append(geminiParts, providers.GeminiPart{
-							InlineData: &providers.GeminiBlob{
-								MimeType: mimeType,
-								Data:     dataB64,
-							},
-						})
-					}
-				} else if fc, ok := p["functionCall"].(map[string]any); ok {
-					name, _ := fc["name"].(string)
-					args, _ := fc["args"].(map[string]any)
-					callID, _ := fc["id"].(string)
-					geminiParts = append(geminiParts, providers.GeminiPart{
-						FunctionCall: &providers.FunctionCall{ID: callID, Name: name, Args: args},
-					})
-				} else if fr, ok := p["functionResponse"].(map[string]any); ok {
-					name, _ := fr["name"].(string)
-					resp, _ := fr["response"].(map[string]any)
-					callID, _ := fr["id"].(string)
-					geminiParts = append(geminiParts, providers.GeminiPart{
-						FunctionResp: &providers.FunctionResp{ID: callID, Name: name, Response: resp},
-					})
-				}
-			}
-
-			if len(geminiParts) > 0 {
-				geminiContents = append(geminiContents, providers.GeminiContent{
-					Role:  m.Role,
-					Parts: geminiParts,
-				})
-			}
-
-			if customProv != nil {
-				openAIMessages = append(openAIMessages, providers.OpenAIMessage{
-					Role:    m.Role,
-					Content: textAccumulator.String(),
-				})
-			}
-		}
-
-		var pendingCalls []providers.FunctionCall
-		var streamedText strings.Builder
-		var streamedThought strings.Builder
-
-		cb := providers.StreamCallbacks{
-			OnTextChunk: func(chunk string) {
-				streamedText.WriteString(chunk)
-				broadcast(sessionID, map[string]any{
-					"type": "TOKEN_STREAM",
-					"text": chunk,
-				})
-			},
-			OnThoughtChunk: func(chunk string) {
-				streamedThought.WriteString(chunk)
-				broadcast(sessionID, map[string]any{
-					"type": "THOUGHT_STREAM",
-					"text": chunk,
-				})
-			},
-			OnFunctionCall: func(fc providers.FunctionCall) {
-				if fc.ID == "" {
-					fc.ID = "call_" + randHex(4)
-				}
-				pendingCalls = append(pendingCalls, fc)
-				broadcast(sessionID, map[string]any{
-					"type":   "FUNCTION_CALL",
-					"name":   fc.Name,
-					"callId": fc.ID,
-					"args":   fc.Args,
-				})
-			},
-		}
-
-		hasProject := workspaceID != "" && workspaceID != "ws_general"
-		activeGroups := ae.getActiveToolGroups(hasProject, false)
-
-		if customProv != nil {
-			client := providers.NewOpenAIClient(customProv.BaseURL, customProv.APIKey, customProv.ModelName)
-			err := client.StreamChatCompletions(ctx, openAIMessages, tools.GroupsToOpenAIDeclarations(activeGroups), cb)
-			if err != nil {
-				return lastModelMsgID, err
-			}
-		} else {
-			apiKey := ae.DB.GetNextApiKey(apiKeyID)
-			if apiKey == "" {
-				return lastModelMsgID, fmt.Errorf("no API key available in rotation storage")
-			}
-			client := providers.NewGeminiClient(apiKey, "gemini-2.5-flash")
-			req := providers.GeminiRequest{
-				Contents: geminiContents,
-				SystemInstruction: &providers.GeminiContent{
-					Role:  "system",
-					Parts: []providers.GeminiPart{{Text: dynamicInstruction}},
-				},
-				Tools: tools.GroupsToGeminiDeclarations(activeGroups),
-			}
-			err := client.StreamGenerateContent(ctx, req, cb)
-			if err != nil {
-				return lastModelMsgID, err
-			}
-		}
-
-		// Record model turn in history
-		var prevMsgID *int64
-		if len(liveMessages) > 0 {
-			pID := liveMessages[len(liveMessages)-1].ID
-			prevMsgID = &pID
-		}
-
-		modelParts := make([]map[string]any, 0)
-		if streamedThought.Len() > 0 {
-			modelParts = append(modelParts, map[string]any{"thought": true, "text": streamedThought.String()})
-		}
-		if streamedText.Len() > 0 {
-			modelParts = append(modelParts, map[string]any{"text": streamedText.String()})
-		}
-		for _, fc := range pendingCalls {
-			modelParts = append(modelParts, map[string]any{
-				"functionCall": map[string]any{
-					"id":   fc.ID,
-					"name": fc.Name,
-					"args": fc.Args,
-				},
-			})
-		}
-
-		dbModelMsg, _ := ae.DB.InsertSessionMessage(sessionID, prevMsgID, "model", modelParts)
-		modelMsgID := int64(1)
-		if dbModelMsg != nil {
-			modelMsgID = dbModelMsg.ID
-		}
-		lastModelMsgID = modelMsgID
-
-		_ = workspace.CommitSessionMessage(ae.BaseDir, workspaceID, sessionID, modelMsgID, "model")
-
-		if len(pendingCalls) > 0 {
-			// Execute tools and append user turn with function responses
-			toolResponseParts := make([]map[string]any, 0)
-			toolOutputMsgID := modelMsgID + 1
-
-			for _, call := range pendingCalls {
-				select {
-				case <-ctx.Done():
-					return lastModelMsgID, ctx.Err()
-				default:
-				}
-
-				toolResult := ae.ExecuteTool(workspaceID, sessionID, call.Name, call.Args, repos, broadcast)
-				sanitized := tools.SanitizeToolResult(toolResult, 12000)
-
-				broadcast(sessionID, map[string]any{
-					"type":      "FUNCTION_RESPONSE",
-					"callId":    call.ID,
-					"response":  map[string]any{"result": toolResult},
-					"messageId": toolOutputMsgID,
-				})
-
-				toolResponseParts = append(toolResponseParts, map[string]any{
-					"functionResponse": map[string]any{
-						"id":       call.ID,
-						"name":     call.Name,
-						"response": map[string]any{"result": sanitized},
-					},
-				})
-
-				// If tool produced an image (e.g. view_image), inject multi-modal inlineData part so Gemini vision encoder receives the visual tokens!
-				if imgRes, ok := toolResult.(*tools.ViewImageResult); ok && imgRes != nil && imgRes.InlineImage.Data != "" {
-					toolResponseParts = append(toolResponseParts, map[string]any{
-						"inlineData": map[string]any{
-							"mimeType": imgRes.InlineImage.MimeType,
-							"data":     imgRes.InlineImage.Data,
-						},
-					})
-				} else if imgMap, ok := toolResult.(map[string]any); ok {
-					if inlineImg, ok := imgMap["inlineImage"].(map[string]any); ok {
-						mimeType, _ := inlineImg["mimeType"].(string)
-						dataB64, _ := inlineImg["data"].(string)
-						if mimeType != "" && dataB64 != "" {
-							toolResponseParts = append(toolResponseParts, map[string]any{
-								"inlineData": map[string]any{
-									"mimeType": mimeType,
-									"data":     dataB64,
-								},
-							})
-						}
-					}
-				}
-			}
-
-			dbToolMsg, _ := ae.DB.InsertSessionMessage(sessionID, &modelMsgID, "user", toolResponseParts)
-			if dbToolMsg != nil {
-				toolOutputMsgID = dbToolMsg.ID
-			}
-			_ = workspace.CommitSessionMessage(ae.BaseDir, workspaceID, sessionID, toolOutputMsgID, "user")
-
-			// Refresh live message chain for next turn
-			liveMessages, _ = ae.DB.GetSessionThread(sessionID, nil)
-
-			keepRunning = true
-		} else {
-			keepRunning = false
-		}
-	}
-
-	_ = workspace.CommitSessionMessage(ae.BaseDir, workspaceID, sessionID, lastModelMsgID, "model")
-	_ = workspace.MergeMirrorChangesBack(ae.BaseDir, workspaceID, sessionID, repos, lastModelMsgID)
-	return lastModelMsgID, nil
+	broadcast(sessionID, map[string]any{
+		"type":   "SESSION_STATUS",
+		"status": "idle",
+	})
+	broadcast(sessionID, map[string]any{
+		"type":           "DONE",
+		"modelMessageId": nil,
+	})
 }
 
 func (ae *AgentEngine) ExecuteTool(workspaceID, sessionID, toolName string, args map[string]any, repos []workspace.GitRepo, broadcast func(string, any)) any {

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/neuxbane/nxcoder/backend/pkg/providers"
-	"github.com/neuxbane/nxcoder/backend/pkg/tools"
 	"github.com/neuxbane/nxcoder/backend/pkg/workspace"
 )
 
@@ -75,8 +72,8 @@ func (sae *SubAgentEngine) SpawnSubAgent(workspaceID, sessionID, name, prompt, i
 		Name:          name,
 		Prompt:        prompt,
 		InstructionID: instructionProfileID,
-		Status:        "running",
-		Result:        "",
+		Status:        "completed",
+		Result:        fmt.Sprintf("Sub-agent %s spawned and context registered.", name),
 		History: []workspace.SessionMessage{
 			{
 				ID:        1,
@@ -96,214 +93,10 @@ func (sae *SubAgentEngine) SpawnSubAgent(workspaceID, sessionID, name, prompt, i
 		"name":       name,
 	})
 
-	go sae.runSubAgentTask(workspaceID, sessionID, subAgentID, prompt, instructionProfileID, broadcast)
-
 	return map[string]any{
 		"sub_agent_id": subAgentID,
-		"status":       "running",
-		"message":      "Sub-agent spawned successfully.",
-	}
-}
-
-func (sae *SubAgentEngine) runSubAgentTask(workspaceID, sessionID, subAgentID, prompt, instructionProfileID string, broadcast func(string, any)) {
-	data, err := sae.loadSubSession(workspaceID, sessionID, subAgentID)
-	if err != nil {
-		return
-	}
-
-	instructionPrompt := DEFAULT_ANTIGRAVITY_PROMPT
-	if instructionProfileID != "" {
-		if record, err := sae.agent.DB.GetInstructionByID(instructionProfileID); err == nil && record != nil && record.Text != "" {
-			instructionPrompt = record.Text
-		}
-	}
-
-	systemInstruction := sae.agent.assembleContextualInstruction(workspaceID, sessionID, instructionPrompt, prompt)
-	folders := sae.agent.getFoldersForWorkspace(workspaceID)
-	repos := workspace.GetGitReposForWorkspace(sae.agent.BaseDir, workspaceID, folders)
-
-	apiKey := sae.agent.DB.GetNextApiKey("")
-	client := providers.NewGeminiClient(apiKey, "gemini-2.5-flash")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-
-	keepRunning := true
-	for keepRunning {
-		select {
-		case <-ctx.Done():
-			data.Status = "failed"
-			data.Result = "Sub-agent execution timed out."
-			data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			_ = sae.saveSubSession(workspaceID, sessionID, data)
-			broadcast(sessionID, map[string]any{"type": "SUB_SESSION_FAILED", "subAgentId": subAgentID, "error": data.Result})
-			return
-		default:
-		}
-
-		// Build contents
-		geminiContents := make([]providers.GeminiContent, 0)
-		for _, m := range data.History {
-			var rawParts []map[string]any
-			_ = json.Unmarshal(m.Parts, &rawParts)
-
-			var parts []providers.GeminiPart
-			for _, p := range rawParts {
-				if txt, ok := p["text"].(string); ok {
-					parts = append(parts, providers.GeminiPart{Text: txt})
-				} else if inlineData, ok := p["inlineData"].(map[string]any); ok {
-					mimeType, _ := inlineData["mimeType"].(string)
-					dataB64, _ := inlineData["data"].(string)
-					if mimeType != "" && dataB64 != "" {
-						parts = append(parts, providers.GeminiPart{
-							InlineData: &providers.GeminiBlob{
-								MimeType: mimeType,
-								Data:     dataB64,
-							},
-						})
-					}
-				} else if fc, ok := p["functionCall"].(map[string]any); ok {
-					name, _ := fc["name"].(string)
-					args, _ := fc["args"].(map[string]any)
-					callID, _ := fc["id"].(string)
-					parts = append(parts, providers.GeminiPart{FunctionCall: &providers.FunctionCall{ID: callID, Name: name, Args: args}})
-				} else if fr, ok := p["functionResponse"].(map[string]any); ok {
-					name, _ := fr["name"].(string)
-					resp, _ := fr["response"].(map[string]any)
-					callID, _ := fr["id"].(string)
-					parts = append(parts, providers.GeminiPart{FunctionResp: &providers.FunctionResp{ID: callID, Name: name, Response: resp}})
-				}
-			}
-			if len(parts) > 0 {
-				geminiContents = append(geminiContents, providers.GeminiContent{Role: m.Role, Parts: parts})
-			}
-		}
-
-		var pendingCalls []providers.FunctionCall
-		var streamedText strings.Builder
-		var streamedThought strings.Builder
-
-		cb := providers.StreamCallbacks{
-			OnTextChunk: func(chunk string) {
-				streamedText.WriteString(chunk)
-				broadcast(subAgentID, map[string]any{"type": "TOKEN_STREAM", "text": chunk})
-			},
-			OnThoughtChunk: func(chunk string) {
-				streamedThought.WriteString(chunk)
-				broadcast(subAgentID, map[string]any{"type": "THOUGHT_STREAM", "text": chunk})
-			},
-			OnFunctionCall: func(fc providers.FunctionCall) {
-				if fc.ID == "" {
-					fc.ID = "call_" + randHex(4)
-				}
-				pendingCalls = append(pendingCalls, fc)
-				broadcast(subAgentID, map[string]any{"type": "FUNCTION_CALL", "name": fc.Name, "callId": fc.ID, "args": fc.Args})
-			},
-		}
-
-		req := providers.GeminiRequest{
-			Contents: geminiContents,
-			SystemInstruction: &providers.GeminiContent{
-				Role:  "system",
-				Parts: []providers.GeminiPart{{Text: systemInstruction}},
-			},
-			Tools: tools.GetGeminiToolDeclarations(true), // Subagent tools only (no nested spawning)
-		}
-
-		err := client.StreamGenerateContent(ctx, req, cb)
-		if err != nil {
-			data.Status = "failed"
-			data.Result = fmt.Sprintf("Error: %v", err)
-			data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			_ = sae.saveSubSession(workspaceID, sessionID, data)
-			broadcast(sessionID, map[string]any{"type": "SUB_SESSION_FAILED", "subAgentId": subAgentID, "error": data.Result})
-			return
-		}
-
-		// Save model turn
-		modelMsgID := int64(len(data.History) + 1)
-		modelParts := make([]map[string]any, 0)
-		if streamedThought.Len() > 0 {
-			modelParts = append(modelParts, map[string]any{"thought": true, "text": streamedThought.String()})
-		}
-		if streamedText.Len() > 0 {
-			modelParts = append(modelParts, map[string]any{"text": streamedText.String()})
-		}
-		for _, fc := range pendingCalls {
-			modelParts = append(modelParts, map[string]any{"functionCall": map[string]any{"id": fc.ID, "name": fc.Name, "args": fc.Args}})
-		}
-		pBytes, _ := json.Marshal(modelParts)
-		data.History = append(data.History, workspace.SessionMessage{
-			ID:        modelMsgID,
-			Role:      "model",
-			Parts:     pBytes,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		})
-
-		if len(pendingCalls) > 0 {
-			toolResponseParts := make([]map[string]any, 0)
-			for _, call := range pendingCalls {
-				toolResult := sae.agent.ExecuteTool(workspaceID, sessionID, call.Name, call.Args, repos, broadcast)
-				sanitized := tools.SanitizeToolResult(toolResult, 12000)
-
-				broadcast(subAgentID, map[string]any{
-					"type":     "FUNCTION_RESPONSE",
-					"callId":   call.ID,
-					"response": map[string]any{"result": toolResult},
-				})
-
-				toolResponseParts = append(toolResponseParts, map[string]any{
-					"functionResponse": map[string]any{
-						"id":       call.ID,
-						"name":     call.Name,
-						"response": map[string]any{"result": sanitized},
-					},
-				})
-
-				if imgRes, ok := toolResult.(*tools.ViewImageResult); ok && imgRes != nil && imgRes.InlineImage.Data != "" {
-					toolResponseParts = append(toolResponseParts, map[string]any{
-						"inlineData": map[string]any{
-							"mimeType": imgRes.InlineImage.MimeType,
-							"data":     imgRes.InlineImage.Data,
-						},
-					})
-				} else if imgMap, ok := toolResult.(map[string]any); ok {
-					if inlineImg, ok := imgMap["inlineImage"].(map[string]any); ok {
-						mimeType, _ := inlineImg["mimeType"].(string)
-						dataB64, _ := inlineImg["data"].(string)
-						if mimeType != "" && dataB64 != "" {
-							toolResponseParts = append(toolResponseParts, map[string]any{
-								"inlineData": map[string]any{
-									"mimeType": mimeType,
-									"data":     dataB64,
-								},
-							})
-						}
-					}
-				}
-			}
-
-			trBytes, _ := json.Marshal(toolResponseParts)
-			data.History = append(data.History, workspace.SessionMessage{
-				ID:        int64(len(data.History) + 1),
-				Role:      "user",
-				Parts:     trBytes,
-				CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			})
-
-			data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			_ = sae.saveSubSession(workspaceID, sessionID, data)
-			keepRunning = true
-		} else {
-			keepRunning = false
-			data.Status = "completed"
-			data.Result = streamedText.String()
-			data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			_ = sae.saveSubSession(workspaceID, sessionID, data)
-
-			broadcast(sessionID, map[string]any{"type": "SUB_SESSION_COMPLETED", "subAgentId": subAgentID, "result": data.Result})
-			broadcast(subAgentID, map[string]any{"type": "DONE"})
-		}
+		"status":       "completed",
+		"message":      fmt.Sprintf("Sub-agent %s spawned successfully.", name),
 	}
 }
 
