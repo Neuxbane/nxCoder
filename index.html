@@ -3259,16 +3259,17 @@ Group files by component. Use markdown links with relative paths and detail exac
           const mediaDiv = document.createElement('div');
           mediaDiv.className = "mt-2.5";
           const mime = data.mimeType || 'application/octet-stream';
+          const srcUrl = (data.localPath.startsWith('http') || data.localPath.startsWith('data:') || data.localPath.startsWith('blob:') || data.localPath.startsWith('/')) ? data.localPath : `/${data.localPath}`;
           
           if (mime.startsWith('image/')) {
-            mediaDiv.innerHTML = `<img src="/${data.localPath}" class="max-w-md max-h-[300px] object-contain rounded-lg border border-zinc-800 shadow-lg">`;
+            mediaDiv.innerHTML = `<img src="${srcUrl}" class="max-w-md max-h-[300px] object-contain rounded-lg border border-zinc-800 shadow-lg">`;
           } else if (mime.startsWith('video/')) {
-            mediaDiv.innerHTML = `<video src="/${data.localPath}" controls class="max-w-md max-h-[300px] rounded-lg border border-zinc-800 shadow-lg"></video>`;
+            mediaDiv.innerHTML = `<video src="${srcUrl}" controls class="max-w-md max-h-[300px] rounded-lg border border-zinc-800 shadow-lg"></video>`;
           } else if (mime.startsWith('audio/')) {
-            mediaDiv.innerHTML = `<audio src="/${data.localPath}" controls class="w-full max-w-sm"></audio>`;
+            mediaDiv.innerHTML = `<audio src="${srcUrl}" controls class="w-full max-w-sm"></audio>`;
           } else {
-            const filename = data.localPath.split('/').pop();
-            mediaDiv.innerHTML = `<a href="/${data.localPath}" download class="inline-flex items-center space-x-1.5 text-[11px] font-mono bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"><i class="fa-solid fa-download"></i><span>Download ${filename}</span></a>`;
+            const filename = data.localPath.split('/').pop() || 'download';
+            mediaDiv.innerHTML = `<a href="${srcUrl}" download class="inline-flex items-center space-x-1.5 text-[11px] font-mono bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"><i class="fa-solid fa-download"></i><span>Download ${filename}</span></a>`;
           }
           chatBodyContent.appendChild(mediaDiv);
           scrollToChatBottom();
@@ -3577,6 +3578,17 @@ Group files by component. Use markdown links with relative paths and detail exac
                   } else {
                     streamParts[streamParts.length - 1].text += chunk.text;
                   }
+                } else if (chunk.type === 'media') {
+                  processWebSocketGatewayPayload({
+                    type: 'MEDIA_STREAM',
+                    localPath: chunk.localPath,
+                    mimeType: chunk.mimeType
+                  });
+                  streamParts.push({
+                    _localFilePath: chunk.localPath,
+                    mimeType: chunk.mimeType
+                  });
+                  currentPartType = 'media';
                 }
               }
 
@@ -3899,16 +3911,17 @@ Group files by component. Use markdown links with relative paths and detail exac
               const mediaDiv = document.createElement('div');
               mediaDiv.className = "mt-2.5";
               const mime = p.mimeType || 'application/octet-stream';
+              const srcUrl = (p._localFilePath.startsWith('http') || p._localFilePath.startsWith('data:') || p._localFilePath.startsWith('blob:') || p._localFilePath.startsWith('/')) ? p._localFilePath : `/${p._localFilePath}`;
               
               if (mime.startsWith('image/')) {
-                mediaDiv.innerHTML = `<img src="/${p._localFilePath}" class="max-w-md max-h-[300px] object-contain rounded-lg border border-zinc-800 shadow-lg">`;
+                mediaDiv.innerHTML = `<img src="${srcUrl}" class="max-w-md max-h-[300px] object-contain rounded-lg border border-zinc-800 shadow-lg">`;
               } else if (mime.startsWith('video/')) {
-                mediaDiv.innerHTML = `<video src="/${p._localFilePath}" controls class="max-w-md max-h-[300px] rounded-lg border border-zinc-800 shadow-lg"></video>`;
+                mediaDiv.innerHTML = `<video src="${srcUrl}" controls class="max-w-md max-h-[300px] rounded-lg border border-zinc-800 shadow-lg"></video>`;
               } else if (mime.startsWith('audio/')) {
-                mediaDiv.innerHTML = `<audio src="/${p._localFilePath}" controls class="w-full max-w-sm"></audio>`;
+                mediaDiv.innerHTML = `<audio src="${srcUrl}" controls class="w-full max-w-sm"></audio>`;
               } else {
-                const filename = p._localFilePath.split('/').pop();
-                mediaDiv.innerHTML = `<a href="/${p._localFilePath}" download class="inline-flex items-center space-x-1.5 text-[11px] font-mono bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"><i class="fa-solid fa-download"></i><span>Download ${filename}</span></a>`;
+                const filename = p._localFilePath.split('/').pop() || 'download';
+                mediaDiv.innerHTML = `<a href="${srcUrl}" download class="inline-flex items-center space-x-1.5 text-[11px] font-mono bg-zinc-950 border border-zinc-800 px-3 py-1.5 rounded-lg hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"><i class="fa-solid fa-download"></i><span>Download ${filename}</span></a>`;
               }
               chatBodyContent.appendChild(mediaDiv);
             } else if (p.functionCall) {

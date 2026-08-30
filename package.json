@@ -21,7 +21,7 @@
   "scripts": {
     "start": "cd backend && go run ./cmd/server",
     "generate-icons": "node src-tauri/generate_icons.js",
-    "prepare:dist": "mkdir -p dist && cp -rf index.html cdn deviceControl.js manifest.json sw.js webfonts assets dist/ 2>/dev/null || true",
+    "prepare:dist": "mkdir -p dist && cp -rf index.html cdn deviceControl.js manifest.json sw.js webfonts assets providers dist/ 2>/dev/null || true",
     "build": "npm run prepare:dist && node src-tauri/generate_icons.js && npm run build:backend",
     "build:backend": "cd backend && go mod tidy && go build -o ../nxcoder-backend ./cmd/server",
     "pretauri:dev": "npm run prepare:dist && node src-tauri/generate_icons.js && npm run build:backend",

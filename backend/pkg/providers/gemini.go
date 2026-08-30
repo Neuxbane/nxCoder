@@ -38,7 +38,7 @@ type GeminiBlob struct {
 
 type GeminiPart struct {
 	Text         string        `json:"text,omitempty"`
-	Thought      bool          `json:"-"`
+	Thought      bool          `json:"thought,omitempty"`
 	InlineData   *GeminiBlob   `json:"inlineData,omitempty"`
 	FunctionCall *FunctionCall `json:"functionCall,omitempty"`
 	FunctionResp *FunctionResp `json:"functionResponse,omitempty"`

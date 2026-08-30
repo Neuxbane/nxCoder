@@ -1,4 +1,63 @@
 // Google Gemini Multimodal Live API (Bidirectional WebSocket)
+
+function writeWavHeader(samplesLength, sampleRate = 24000, numChannels = 1, bitsPerSample = 16) {
+  const buffer = new ArrayBuffer(44);
+  const view = new DataView(buffer);
+  
+  // "RIFF"
+  view.setUint8(0, 0x52); view.setUint8(1, 0x49); view.setUint8(2, 0x46); view.setUint8(3, 0x46);
+  view.setUint32(4, 36 + samplesLength, true);
+  // "WAVE"
+  view.setUint8(8, 0x57); view.setUint8(9, 0x41); view.setUint8(10, 0x56); view.setUint8(11, 0x45);
+  // "fmt "
+  view.setUint8(12, 0x66); view.setUint8(13, 0x6d); view.setUint8(14, 0x74); view.setUint8(15, 0x20);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, (sampleRate * numChannels * bitsPerSample) / 8, true);
+  view.setUint16(32, (numChannels * bitsPerSample) / 8, true);
+  view.setUint16(34, bitsPerSample, true);
+  // "data"
+  view.setUint8(36, 0x64); view.setUint8(37, 0x61); view.setUint8(38, 0x74); view.setUint8(39, 0x61);
+  view.setUint32(40, samplesLength, true);
+  
+  return buffer;
+}
+
+function base64ToUint8Array(base64) {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function createWavBlob(pcmChunks, sampleRate = 24000) {
+  let totalLength = 0;
+  for (const chunk of pcmChunks) {
+    totalLength += chunk.length;
+  }
+  const fullPcm = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of pcmChunks) {
+    fullPcm.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const header = writeWavHeader(fullPcm.length, sampleRate, 1, 16);
+  return new Blob([header, fullPcm], { type: 'audio/wav' });
+}
+
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 export default {
   id: "gemini-live",
   name: "Google Gemini Live (WebSockets)",
@@ -112,6 +171,8 @@ export default {
     let socketError = null;
     let setupCompleted = false;
     let receivedAnyData = false;
+    const audioChunks = [];
+    let audioMimeType = null;
 
     const pushChunk = (chunk) => {
       receivedAnyData = true;
@@ -213,28 +274,28 @@ export default {
       let thinkingConfig;
       if (selectedThinking === "OFF") {
         thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
-      } else if (targetModel.toLowerCase().includes("gemini-3")) {
-        thinkingConfig = { thinkingLevel: selectedThinking }; // "HIGH", "LOW", "MINIMAL"
       } else {
-        // For Gemini 2.0 / 2.5 models
-        const budget = selectedThinking === "HIGH" ? -1 : (selectedThinking === "LOW" ? 2048 : 512);
-        thinkingConfig = { includeThoughts: true, thinkingBudget: budget };
+        // Native audio live models accept includeThoughts with dynamic budget (-1)
+        thinkingConfig = { includeThoughts: true, thinkingBudget: -1 };
       }
+
+      const generationConfig = {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: selectedVoice
+            }
+          }
+        },
+        thinkingConfig
+      };
 
       const setupMsg = {
         setup: {
           model: targetModel,
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: selectedVoice
-                }
-              }
-            },
-            thinkingConfig
-          }
+          generationConfig,
+          outputAudioTranscription: {}
         }
       };
 
@@ -249,7 +310,7 @@ export default {
           functionDeclarations: tools.map(t => ({
             name: t.name,
             description: t.description,
-            parameters: t.inputSchema || t.parameters
+            parameters: t.parameters || t.inputSchema || { type: "object", properties: {} }
           }))
         }];
       }
@@ -322,6 +383,13 @@ export default {
             } else if (part.text) {
               console.log("[Gemini Live] Text chunk:", part.text.substring(0, 40) + "...");
               pushChunk({ type: "text", text: part.text });
+            } else if (part.inlineData) {
+              if (part.inlineData.data) {
+                audioChunks.push(base64ToUint8Array(part.inlineData.data));
+                if (part.inlineData.mimeType) {
+                  audioMimeType = part.inlineData.mimeType;
+                }
+              }
             }
           }
         }
@@ -355,6 +423,27 @@ export default {
 
         if (parsed.serverContent?.turnComplete) {
           console.log("[Gemini Live] Server turnComplete flag received.");
+          if (audioChunks.length > 0) {
+            try {
+              let sampleRate = 24000;
+              if (audioMimeType) {
+                const match = audioMimeType.match(/rate=(\d+)/);
+                if (match) {
+                  sampleRate = parseInt(match[1], 10);
+                }
+              }
+              const wavBlob = createWavBlob(audioChunks, sampleRate);
+              const wavDataUrl = await blobToDataURL(wavBlob);
+              pushChunk({
+                type: "media",
+                localPath: wavDataUrl,
+                mimeType: "audio/wav"
+              });
+            } catch (mediaErr) {
+              console.error("[Gemini Live] Failed to build audio WAV blob:", mediaErr);
+            }
+            audioChunks.length = 0;
+          }
           try { ws.close(); } catch (_) {}
           finish();
         }
