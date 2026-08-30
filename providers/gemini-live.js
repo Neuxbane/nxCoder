@@ -109,15 +109,14 @@ export default {
       label: "Live Model Name",
       type: "options",
       options: [
-        "gemini-3.1-flash-live-preview",
-        "gemini-2.5-flash-native-audio-preview-09-2025",
-        "gemini-2.5-flash-native-audio-preview-12-2025",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-2.0-flash-exp",
-        "gemini-2.0-flash-realtime-exp"
+        "gemini-2.0-flash-realtime-exp",
+        "gemini-2.5-flash-native-audio-preview-12-2025",
+        "gemini-2.5-flash-native-audio-preview-09-2025"
       ],
-      default: "gemini-3.1-flash-live-preview",
+      default: "gemini-2.5-flash",
       required: true
     },
     {
@@ -151,7 +150,7 @@ export default {
   ],
 
   async *stream({ apiKey, model, voice, thinking, systemInstruction, messages, tools, abortSignal }) {
-    let targetModel = model || "gemini-3.1-flash-live-preview";
+    let targetModel = model || "gemini-2.5-flash";
     if (!targetModel.startsWith("models/")) {
       targetModel = `models/${targetModel}`;
     }
@@ -305,10 +304,9 @@ export default {
       const selectedThinking = (thinking || "HIGH").toUpperCase();
       let thinkingConfig;
       if (selectedThinking === "OFF") {
-        thinkingConfig = { includeThoughts: false, thinkingBudget: 0 };
+        thinkingConfig = { includeThoughts: false };
       } else {
-        // Native audio live models accept includeThoughts with dynamic budget (-1)
-        thinkingConfig = { includeThoughts: true, thinkingBudget: -1 };
+        thinkingConfig = { includeThoughts: true };
       }
 
       const generationConfig = {

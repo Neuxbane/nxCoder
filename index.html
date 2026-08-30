@@ -3409,105 +3409,130 @@ Group files by component. Use markdown links with relative paths and detail exac
         // Refresh session list to ensure new sessions appear in the sidebar after first message
         await refreshSessionList();
 
+        await runFrontendAgentLoop({ prompt, userMsgId, parentId });
+
+      } catch(e) {
+        setGeneratingState(false);
+        appendSystemErrorMessage(`Prompt Delivery Failure: ${e.message}`);
+      }
+    }
+
+    async function runFrontendAgentLoop({ prompt = null, userMsgId = null, parentId = null } = {}) {
+      try {
         // 1. Ensure provider scripts and instances are loaded
         if (!state.providerScripts || state.providerScripts.length === 0) {
           await loadProviderScripts();
         }
-        if (!state.activeProvider) {
-          await loadCustomProviders();
-        }
+      if (!state.activeProvider) {
+        await loadCustomProviders();
+      }
 
-        let activeProvScript = null;
-        if (state.activeProvider) {
-          activeProvScript = state.providerScripts.find(p => 
-            p.id === state.activeProvider.provider_type || 
-            p.fileName === state.activeProvider.provider_type ||
-            p.fileName === `${state.activeProvider.provider_type}.js` ||
-            p.name === state.activeProvider.provider_type
-          );
-        }
+      let activeProvScript = null;
+      if (state.activeProvider) {
+        activeProvScript = state.providerScripts.find(p => 
+          p.id === state.activeProvider.provider_type || 
+          p.fileName === state.activeProvider.provider_type ||
+          p.fileName === `${state.activeProvider.provider_type}.js` ||
+          p.name === state.activeProvider.provider_type
+        );
+      }
 
-        if (!activeProvScript && state.providerScripts.length > 0) {
-          activeProvScript = state.providerScripts[0];
-        }
+      if (!activeProvScript && state.providerScripts?.length > 0) {
+        activeProvScript = state.providerScripts[0];
+      }
 
-        if (activeProvScript && typeof activeProvScript.stream === 'function') {
-          setGeneratingState(true);
-          state.activeAbortController = new AbortController();
+      if (activeProvScript && typeof activeProvScript.stream === 'function') {
+        setGeneratingState(true);
+        state.activeAbortController = new AbortController();
 
-          // Fetch full conversation history for model context
-          let conversationHistory = [];
-          try {
-            const histRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`);
-            if (histRes.ok) {
-              const histData = await histRes.json();
-              conversationHistory = (histData.sessionHistory || histData.messages || []).map(m => {
-                let text = "";
-                let parts = [];
-                if (typeof m.parts === 'string') {
-                  try { parts = JSON.parse(m.parts); } catch(e) {}
-                } else if (Array.isArray(m.parts)) {
-                  parts = m.parts;
-                }
-                for (const p of parts) {
-                  if (p.text && !p.thought) text += p.text;
-                }
-                if (!text && parts.length > 0) {
-                  for (const p of parts) {
-                    if (p.text) text += p.text;
-                  }
-                }
-                return {
-                  role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user',
-                  content: text || (typeof m.content === 'string' ? m.content : ''),
-                  parts: parts.length > 0 ? parts : undefined
-                };
-              });
+        // Fetch full conversation history for model context
+        let conversationHistory = [];
+        let currentParentMsgId = userMsgId;
+        try {
+          const histRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`);
+          if (histRes.ok) {
+            const histData = await histRes.json();
+            const rawMessages = histData.sessionHistory || histData.messages || [];
+            if (rawMessages.length > 0 && !currentParentMsgId) {
+              currentParentMsgId = rawMessages[rawMessages.length - 1].id;
             }
-          } catch (e) {
-            console.warn("History fetch error:", e);
-          }
-
-          if (conversationHistory.length === 0 || conversationHistory[conversationHistory.length - 1].content !== prompt) {
-            conversationHistory.push({ role: 'user', content: prompt });
-          }
-
-          // Retrieve tool definitions based on project context
-          let activeTools = [];
-          try {
-            const toolsRes = await fetch('/api/tools');
-            if (toolsRes.ok) {
-              const tData = await toolsRes.json();
-              const hasProject = state.activeWorkspaceId && state.activeWorkspaceId !== 'ws_general';
-              const allGroups = [
-                ...(tData.builtin || []),
-                ...(tData.scripts || []).filter(s => s.enabled),
-                ...(tData.mcp || []).filter(m => m.enabled)
-              ];
-              for (const g of allGroups) {
-                if (g.context === 'project' && !hasProject) continue;
-                for (const t of (g.tools || [])) {
-                  activeTools.push({
-                    name: t.name,
-                    description: t.description,
-                    parameters: t.parameters || { type: 'object', properties: {} }
-                  });
+            conversationHistory = rawMessages.map(m => {
+              let text = "";
+              let parts = [];
+              if (typeof m.parts === 'string') {
+                try { parts = JSON.parse(m.parts); } catch(e) {}
+              } else if (Array.isArray(m.parts)) {
+                parts = m.parts;
+              }
+              for (const p of parts) {
+                if (p.text && !p.thought) text += p.text;
+              }
+              if (!text && parts.length > 0) {
+                for (const p of parts) {
+                  if (p.text) text += p.text;
                 }
               }
+              return {
+                role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user',
+                content: text || (typeof m.content === 'string' ? m.content : ''),
+                parts: parts.length > 0 ? parts : undefined
+              };
+            });
+          }
+        } catch (e) {
+          console.warn("History fetch error:", e);
+        }
+
+        if (prompt && (conversationHistory.length === 0 || conversationHistory[conversationHistory.length - 1].content !== prompt)) {
+          conversationHistory.push({ role: 'user', content: prompt });
+        }
+
+        if (conversationHistory.length === 0) {
+          setGeneratingState(false);
+          appendSystemErrorMessage("No user message history available to retry in this session.");
+          return;
+        }
+
+        // Retrieve tool definitions based on project context
+        let activeTools = [];
+        try {
+          const toolsRes = await fetch('/api/tools');
+          if (toolsRes.ok) {
+            const tData = await toolsRes.json();
+            const hasProject = state.activeWorkspaceId && state.activeWorkspaceId !== 'ws_general';
+            const allGroups = [
+              ...(tData.builtin || []),
+              ...(tData.scripts || []).filter(s => s.enabled),
+              ...(tData.mcp || []).filter(m => m.enabled)
+            ];
+            for (const g of allGroups) {
+              if (g.context === 'project' && !hasProject) continue;
+              for (const t of (g.tools || [])) {
+                activeTools.push({
+                  name: t.name,
+                  description: t.description,
+                  parameters: t.parameters || { type: 'object', properties: {} }
+                });
+              }
             }
-          } catch (e) {
-            console.warn("Could not load tool definitions:", e);
           }
+        } catch (e) {
+          console.warn("Could not load tool definitions:", e);
+        }
 
-          // Retrieve matched custom instructions & conditional rules + global system prompt
-          let systemInstructionText = "";
-          const globalSysPrompt = localStorage.getItem('nx_global_system_prompt') || '';
-          if (globalSysPrompt.trim()) {
-            systemInstructionText = globalSysPrompt.trim();
-          }
+        // Retrieve matched custom instructions & conditional rules + global system prompt
+        let systemInstructionText = "";
+        const globalSysPrompt = localStorage.getItem('nx_global_system_prompt') || '';
+        if (globalSysPrompt.trim()) {
+          systemInstructionText = globalSysPrompt.trim();
+        }
 
+        const lastUserTurn = [...conversationHistory].reverse().find(m => m.role === 'user');
+        const matchPrompt = prompt || lastUserTurn?.content || "";
+
+        if (matchPrompt) {
           try {
-            const matchRes = await fetch(`/api/instruction/match?prompt=${encodeURIComponent(prompt)}`);
+            const matchRes = await fetch(`/api/instruction/match?prompt=${encodeURIComponent(matchPrompt)}`);
             if (matchRes.ok) {
               const matchData = await matchRes.json();
               if (matchData.snippet) {
@@ -3519,215 +3544,216 @@ Group files by component. Use markdown links with relative paths and detail exac
           } catch (e) {
             console.warn("Could not load matched instructions:", e);
           }
+        }
 
-          // Execute provider stream generator in an agent loop (up to max turns)
-          try {
-            let keepRunning = true;
-            let turnCount = 0;
-            let currentParentMsgId = userMsgId;
+        // Execute provider stream generator in an agent loop (up to max turns)
+        try {
+          let keepRunning = true;
+          let turnCount = 0;
 
-            while (keepRunning && turnCount < 15) {
-              turnCount++;
-              const streamGen = activeProvScript.stream({
-                apiKey: state.activeProvider?.api_key || '',
-                baseUrl: state.activeProvider?.base_url || '',
-                model: state.activeProvider?.model_name || '',
-                temperature: 0.7,
-                systemInstruction: systemInstructionText,
-                messages: conversationHistory,
-                tools: activeTools,
-                abortSignal: state.activeAbortController.signal,
-                ...(state.activeProvider || {})
-              });
+          while (keepRunning && turnCount < 15) {
+            turnCount++;
+            const streamGen = activeProvScript.stream({
+              apiKey: state.activeProvider?.api_key || '',
+              baseUrl: state.activeProvider?.base_url || '',
+              model: state.activeProvider?.model_name || '',
+              temperature: 0.7,
+              systemInstruction: systemInstructionText,
+              messages: conversationHistory,
+              tools: activeTools,
+              abortSignal: state.activeAbortController.signal,
+              ...(state.activeProvider || {})
+            });
 
-              const streamParts = [];
-              const pendingCalls = [];
-              let currentPartType = null;
+            const streamParts = [];
+            const pendingCalls = [];
+            let currentPartType = null;
 
-              for await (const chunk of streamGen) {
-                if (chunk.type === 'thought') {
-                  processWebSocketGatewayPayload({ type: 'THOUGHT_STREAM', text: chunk.text });
-                  if (currentPartType !== 'thought') {
-                    streamParts.push({ thought: true, text: chunk.text });
-                    currentPartType = 'thought';
-                  } else {
-                    streamParts[streamParts.length - 1].text += chunk.text;
-                  }
-                } else if (chunk.type === 'functionCall') {
-                  const callId = chunk.callId || ('call_' + Math.random().toString(36).substring(2, 8));
-                  processWebSocketGatewayPayload({
-                    type: 'FUNCTION_CALL',
+            for await (const chunk of streamGen) {
+              if (chunk.type === 'thought') {
+                processWebSocketGatewayPayload({ type: 'THOUGHT_STREAM', text: chunk.text });
+                if (currentPartType !== 'thought') {
+                  streamParts.push({ thought: true, text: chunk.text });
+                  currentPartType = 'thought';
+                } else {
+                  streamParts[streamParts.length - 1].text += chunk.text;
+                }
+              } else if (chunk.type === 'functionCall') {
+                const callId = chunk.callId || ('call_' + Math.random().toString(36).substring(2, 8));
+                processWebSocketGatewayPayload({
+                  type: 'FUNCTION_CALL',
+                  name: chunk.name,
+                  args: chunk.args,
+                  callId: callId
+                });
+                streamParts.push({
+                  functionCall: {
                     name: chunk.name,
                     args: chunk.args,
-                    callId: callId
-                  });
-                  streamParts.push({
-                    functionCall: {
-                      name: chunk.name,
-                      args: chunk.args,
-                      id: callId
-                    }
-                  });
-                  pendingCalls.push({ name: chunk.name, args: chunk.args, id: callId });
-                  currentPartType = 'functionCall';
-                } else if (chunk.type === 'text') {
-                  processWebSocketGatewayPayload({ type: 'TOKEN_STREAM', text: chunk.text });
-                  if (currentPartType !== 'text') {
-                    streamParts.push({ text: chunk.text });
-                    currentPartType = 'text';
-                  } else {
-                    streamParts[streamParts.length - 1].text += chunk.text;
+                    id: callId
                   }
-                } else if (chunk.type === 'media') {
-                  processWebSocketGatewayPayload({
-                    type: 'MEDIA_STREAM',
-                    localPath: chunk.localPath,
-                    mimeType: chunk.mimeType
-                  });
-                  streamParts.push({
-                    _localFilePath: chunk.localPath,
-                    mimeType: chunk.mimeType
-                  });
-                  currentPartType = 'media';
+                });
+                pendingCalls.push({ name: chunk.name, args: chunk.args, id: callId });
+                currentPartType = 'functionCall';
+              } else if (chunk.type === 'text') {
+                processWebSocketGatewayPayload({ type: 'TOKEN_STREAM', text: chunk.text });
+                if (currentPartType !== 'text') {
+                  streamParts.push({ text: chunk.text });
+                  currentPartType = 'text';
+                } else {
+                  streamParts[streamParts.length - 1].text += chunk.text;
                 }
+              } else if (chunk.type === 'media') {
+                processWebSocketGatewayPayload({
+                  type: 'MEDIA_STREAM',
+                  localPath: chunk.localPath,
+                  mimeType: chunk.mimeType
+                });
+                streamParts.push({
+                  _localFilePath: chunk.localPath,
+                  mimeType: chunk.mimeType
+                });
+                currentPartType = 'media';
               }
+            }
 
-              // Save assistant turn to backend database
-              let modelMsgId = null;
-              if (streamParts.length > 0) {
-                const accumulatedThoughts = streamParts.filter(p => p.thought).map(p => p.text).join('\n');
-                const accumulatedText = streamParts.filter(p => !p.thought && p.text).map(p => p.text).join('');
+            // Save assistant turn to backend database
+            let modelMsgId = null;
+            if (streamParts.length > 0) {
+              const accumulatedThoughts = streamParts.filter(p => p.thought).map(p => p.text).join('\n');
+              const accumulatedText = streamParts.filter(p => !p.thought && p.text).map(p => p.text).join('');
 
+              try {
+                const saveRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/assistant`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    text: accumulatedText,
+                    thoughts: accumulatedThoughts,
+                    parts: streamParts,
+                    parentId: currentParentMsgId
+                  })
+                });
+                if (saveRes.ok) {
+                  const sData = await saveRes.json();
+                  modelMsgId = sData.messageId;
+                  currentParentMsgId = modelMsgId;
+                }
+              } catch (saveErr) {
+                console.error("Failed to save assistant message:", saveErr);
+              }
+            }
+
+            if (pendingCalls.length > 0) {
+              // Add assistant turn with functionCalls to conversationHistory
+              conversationHistory.push({
+                role: 'assistant',
+                parts: streamParts
+              });
+
+              // Execute each tool on backend
+              const toolResponseParts = [];
+              for (const call of pendingCalls) {
                 try {
-                  const saveRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/assistant`, {
+                  const execRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/tools/execute`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      text: accumulatedText,
-                      thoughts: accumulatedThoughts,
-                      parts: streamParts,
+                      callId: call.id,
+                      name: call.name,
+                      args: call.args
+                    })
+                  });
+                  const execData = await execRes.json();
+                  const toolResult = execData.result;
+                  const sanitizedResult = execData.sanitized || toolResult;
+                  processWebSocketGatewayPayload({
+                    type: 'FUNCTION_RESPONSE',
+                    callId: call.id,
+                    response: { result: sanitizedResult }
+                  });
+                  toolResponseParts.push({
+                    functionResponse: {
+                      id: call.id,
+                      name: call.name,
+                      response: { result: sanitizedResult }
+                    }
+                  });
+                  if (toolResult?.inlineImage?.data && !toolResult.inlineImage.data.startsWith('[')) {
+                    toolResponseParts.push({
+                      inlineData: {
+                        mimeType: toolResult.inlineImage.mimeType || 'image/jpeg',
+                        data: toolResult.inlineImage.data
+                      }
+                    });
+                  }
+                } catch (toolExecErr) {
+                  console.error("Tool execution failed:", toolExecErr);
+                  processWebSocketGatewayPayload({
+                    type: 'FUNCTION_RESPONSE',
+                    callId: call.id,
+                    response: { error: toolExecErr.message }
+                  });
+                  toolResponseParts.push({
+                    functionResponse: {
+                      id: call.id,
+                      name: call.name,
+                      response: { error: toolExecErr.message }
+                    }
+                  });
+                }
+              }
+
+              // Save tool responses to backend database
+              if (toolResponseParts.length > 0 && state.activeWorkspaceId && state.activeSessionId) {
+                try {
+                  const saveToolRes = await fetch(`/api/workspace/${encodeURIComponent(state.activeWorkspaceId)}/session/${encodeURIComponent(state.activeSessionId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      parts: toolResponseParts,
                       parentId: currentParentMsgId
                     })
                   });
-                  if (saveRes.ok) {
-                    const sData = await saveRes.json();
-                    modelMsgId = sData.messageId;
-                    currentParentMsgId = modelMsgId;
+                  if (saveToolRes.ok) {
+                    const contentType = saveToolRes.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                      const stData = await saveToolRes.json();
+                      if (stData && stData.messageId) {
+                        currentParentMsgId = stData.messageId;
+                      }
+                    }
                   }
-                } catch (saveErr) {
-                  console.error("Failed to save assistant message:", saveErr);
+                } catch (saveToolErr) {
+                  console.warn("Failed to save tool response turn:", saveToolErr);
                 }
               }
 
-              if (pendingCalls.length > 0) {
-                // Add assistant turn with functionCalls to conversationHistory
-                conversationHistory.push({
-                  role: 'assistant',
-                  parts: streamParts
-                });
+              // Add tool responses to conversationHistory for next model turn
+              conversationHistory.push({
+                role: 'user',
+                parts: toolResponseParts
+              });
 
-                // Execute each tool on backend
-                const toolResponseParts = [];
-                for (const call of pendingCalls) {
-                  try {
-                    const execRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/tools/execute`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        callId: call.id,
-                        name: call.name,
-                        args: call.args
-                      })
-                    });
-                    const execData = await execRes.json();
-                    const toolResult = execData.result;
-                    const sanitizedResult = execData.sanitized || toolResult;
-                    processWebSocketGatewayPayload({
-                      type: 'FUNCTION_RESPONSE',
-                      callId: call.id,
-                      response: { result: sanitizedResult }
-                    });
-                    toolResponseParts.push({
-                      functionResponse: {
-                        id: call.id,
-                        name: call.name,
-                        response: { result: sanitizedResult }
-                      }
-                    });
-                    if (toolResult?.inlineImage?.data && !toolResult.inlineImage.data.startsWith('[')) {
-                      toolResponseParts.push({
-                        inlineData: {
-                          mimeType: toolResult.inlineImage.mimeType || 'image/jpeg',
-                          data: toolResult.inlineImage.data
-                        }
-                      });
-                    }
-                  } catch (toolExecErr) {
-                    console.error("Tool execution failed:", toolExecErr);
-                    processWebSocketGatewayPayload({
-                      type: 'FUNCTION_RESPONSE',
-                      callId: call.id,
-                      response: { error: toolExecErr.message }
-                    });
-                    toolResponseParts.push({
-                      functionResponse: {
-                        id: call.id,
-                        name: call.name,
-                        response: { error: toolExecErr.message }
-                      }
-                    });
-                  }
-                }
-
-                // Save tool responses to backend database
-                if (toolResponseParts.length > 0 && state.activeWorkspaceId && state.activeSessionId) {
-                  try {
-                    const saveToolRes = await fetch(`/api/workspace/${encodeURIComponent(state.activeWorkspaceId)}/session/${encodeURIComponent(state.activeSessionId)}`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        parts: toolResponseParts,
-                        parentId: currentParentMsgId
-                      })
-                    });
-                    if (saveToolRes.ok) {
-                      const contentType = saveToolRes.headers.get('content-type') || '';
-                      if (contentType.includes('application/json')) {
-                        const stData = await saveToolRes.json();
-                        if (stData && stData.messageId) {
-                          currentParentMsgId = stData.messageId;
-                        }
-                      }
-                    }
-                  } catch (saveToolErr) {
-                    console.warn("Failed to save tool response turn:", saveToolErr);
-                  }
-                }
-
-                // Add tool responses to conversationHistory for next model turn
-                conversationHistory.push({
-                  role: 'user',
-                  parts: toolResponseParts
-                });
-
-                // Continue loop so the model reads the tool output
-                keepRunning = true;
-              } else {
-                // No more tool calls, we're done!
-                keepRunning = false;
-                processWebSocketGatewayPayload({ type: 'DONE', modelMessageId: modelMsgId });
-              }
+              // Continue loop so the model reads the tool output
+              keepRunning = true;
+            } else {
+              // No more tool calls, we're done!
+              keepRunning = false;
+              processWebSocketGatewayPayload({ type: 'DONE', modelMessageId: modelMsgId });
             }
-          } catch (streamErr) {
-            console.error("Provider stream error:", streamErr);
-            appendSystemErrorMessage(`Model Execution Error: ${streamErr.message}`);
-          } finally {
-            setGeneratingState(false);
           }
+        } catch (streamErr) {
+          console.error("Provider stream error:", streamErr);
+          appendSystemErrorMessage(`Model Execution Error: ${streamErr.message}`);
+        } finally {
+          setGeneratingState(false);
+        }
 
-        } else if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
-          // Push model activation prompts through WS pipeline
-          setGeneratingState(true);
+      } else if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+        // Push model activation prompts through WS pipeline
+        setGeneratingState(true);
+        if (prompt) {
           state.wsConn.send(JSON.stringify({
             type: 'USER_MESSAGE',
             text: prompt,
@@ -3735,9 +3761,14 @@ Group files by component. Use markdown links with relative paths and detail exac
             apiKeyId: null
           }));
         } else {
-          setGeneratingState(false);
-          appendSystemErrorMessage("No active model provider extension found. Please select or instantiate a model from the prompt bar.");
+          state.wsConn.send(JSON.stringify({
+            type: 'RETRY'
+          }));
         }
+      } else {
+        setGeneratingState(false);
+        appendSystemErrorMessage("No active model provider extension found. Please select or instantiate a model from the prompt bar.");
+      }
 
       } catch(e) {
         setGeneratingState(false);
@@ -7200,25 +7231,23 @@ export async function execute({ input }) {
     }
     window.switchSessionBranch = switchSessionBranch;
 
-    function retryActiveSession() {
-      if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
-        currentResponseBubbleEl = null;
-        rawResponseAccumulator = "";
-        activeThinkingNode = null;
-        state.lastHistoryModelTextBubble = null;
-        state.lastHistoryModelText = "";
-
-        // Remove the error card from the DOM if it exists
-        const errCards = elements.sessionChatContainer.querySelectorAll('.exec-halt-card');
-        errCards.forEach(card => card.remove());
-
-        setGeneratingState(true);
-        state.wsConn.send(JSON.stringify({
-          type: 'RETRY'
-        }));
-      } else {
-        showToast('Connection Error', 'WebSocket connection is not active.', 'error');
+    async function retryActiveSession() {
+      if (!state.activeSessionId) {
+        showToast('No Active Session', 'Cannot retry because no session is active.', 'warning');
+        return;
       }
+
+      currentResponseBubbleEl = null;
+      rawResponseAccumulator = "";
+      activeThinkingNode = null;
+      state.lastHistoryModelTextBubble = null;
+      state.lastHistoryModelText = "";
+
+      // Remove the error card from the DOM if it exists
+      const errCards = elements.sessionChatContainer.querySelectorAll('.exec-halt-card');
+      errCards.forEach(card => card.remove());
+
+      await runFrontendAgentLoop();
     }
     window.retryActiveSession = retryActiveSession;
 

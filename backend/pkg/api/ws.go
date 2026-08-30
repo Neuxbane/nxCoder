@@ -214,30 +214,53 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			case "RETRY":
 				go func() {
-					messages, _ := workspace.LoadSessionMessages(h.agentEngine.BaseDir, client.workspaceID, client.sessionID)
+					messages, _ := h.agentEngine.DB.GetSessionThread(client.sessionID, nil)
 					var lastUserPrompt string
-					for i := len(messages) - 1; i >= 0; i-- {
-						if messages[i].Role == "user" {
-							var parts []map[string]any
-							_ = json.Unmarshal(messages[i].Parts, &parts)
-							for _, p := range parts {
-								if txt, ok := p["text"].(string); ok && txt != "" {
-									lastUserPrompt = txt
+					var lastUserParentID *int64
+					if len(messages) > 0 {
+						for i := len(messages) - 1; i >= 0; i-- {
+							if messages[i].Role == "user" {
+								var parts []map[string]any
+								_ = json.Unmarshal(messages[i].Parts, &parts)
+								for _, p := range parts {
+									if txt, ok := p["text"].(string); ok && txt != "" {
+										lastUserPrompt = txt
+										lastUserParentID = messages[i].ParentID
+										break
+									}
+								}
+								if lastUserPrompt != "" {
 									break
 								}
 							}
-							if lastUserPrompt != "" {
-								break
+						}
+					}
+					if lastUserPrompt == "" {
+						fileMsgs, _ := workspace.LoadSessionMessages(h.agentEngine.BaseDir, client.workspaceID, client.sessionID)
+						for i := len(fileMsgs) - 1; i >= 0; i-- {
+							if fileMsgs[i].Role == "user" {
+								var parts []map[string]any
+								_ = json.Unmarshal(fileMsgs[i].Parts, &parts)
+								for _, p := range parts {
+									if txt, ok := p["text"].(string); ok && txt != "" {
+										lastUserPrompt = txt
+										break
+									}
+								}
+								if lastUserPrompt != "" {
+									break
+								}
 							}
 						}
 					}
 
 					if lastUserPrompt != "" {
-						h.agentEngine.ExecuteStream(
+						h.agentEngine.ExecuteStreamWithParent(
 							context.Background(),
 							client.workspaceID,
 							client.sessionID,
 							lastUserPrompt,
+							lastUserParentID,
 							"",
 							h.BroadcastJSON,
 						)
