@@ -104,6 +104,8 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/api/instruction/match", s.handleMatchInstructions)
 	r.Get("/api/settings/instruction-top-k", s.handleGetInstructionTopK)
 	r.Post("/api/settings/instruction-top-k", s.handleSetInstructionTopK)
+	r.Get("/api/settings/tool-output-max-chars", s.handleGetToolOutputMaxChars)
+	r.Post("/api/settings/tool-output-max-chars", s.handleSetToolOutputMaxChars)
 
 	// Workspaces
 	r.Get("/api/workspace", s.handleGetWorkspaces)
@@ -691,6 +693,30 @@ func (s *Server) handleSetInstructionTopK(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "top_k": body.TopK})
 }
 
+func (s *Server) handleGetToolOutputMaxChars(w http.ResponseWriter, r *http.Request) {
+	charsStr := s.db.GetAppSetting("tool_output_max_chars", "2500")
+	chars, _ := strconv.Atoi(charsStr)
+	if chars <= 0 {
+		chars = 2500
+	}
+	json.NewEncoder(w).Encode(map[string]any{"max_chars": chars})
+}
+
+func (s *Server) handleSetToolOutputMaxChars(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		MaxChars int `json:"max_chars"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.MaxChars <= 0 {
+		http.Error(w, "Invalid max_chars (must be > 0)", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.SetAppSetting("tool_output_max_chars", strconv.Itoa(body.MaxChars)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "max_chars": body.MaxChars})
+}
+
 // Workspaces
 func (s *Server) handleGetWorkspaces(w http.ResponseWriter, r *http.Request) {
 	list, err := s.db.GetWorkspaces()
@@ -1229,7 +1255,12 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	toolResult := s.agentEngine.ExecuteTool(workspaceID, sessionID, body.Name, body.Args, repos, broadcast)
-	sanitized := tools.SanitizeToolResult(toolResult, 12000)
+	maxChars := 2500
+	maxStr := s.db.GetAppSetting("tool_output_max_chars", "2500")
+	if n, err := strconv.Atoi(maxStr); err == nil && n > 0 {
+		maxChars = n
+	}
+	sanitized := tools.SanitizeToolResult(toolResult, maxChars)
 
 	if body.CallID != "" {
 		broadcast(sessionID, map[string]any{

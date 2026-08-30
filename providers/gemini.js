@@ -1,6 +1,14 @@
 // Google Gemini Provider Extension
 
-function cleanToolResponse(resp) {
+function truncateMiddle(str, maxLength = 2500) {
+  if (typeof str !== "string" || str.length <= maxLength) return str;
+  const half = Math.floor(maxLength / 2);
+  const tail = maxLength - half;
+  return str.substring(0, half) + `\n... [truncated ${str.length - maxLength} characters] ...\n` + str.substring(str.length - tail);
+}
+
+function cleanToolResponse(resp, maxStringLength = 2500) {
+  if (typeof resp === "string") return truncateMiddle(resp, maxStringLength);
   if (!resp || typeof resp !== "object") return resp;
   try {
     const clone = JSON.parse(JSON.stringify(resp));
@@ -11,6 +19,8 @@ function cleanToolResponse(resp) {
           obj[k] = "[image binary data]";
         } else if (k === "data" && typeof obj[k] === "string" && obj[k].length > 200) {
           obj[k] = "[binary data]";
+        } else if (typeof obj[k] === "string") {
+          obj[k] = truncateMiddle(obj[k], maxStringLength);
         } else if (typeof obj[k] === "object") {
           clean(obj[k]);
         }

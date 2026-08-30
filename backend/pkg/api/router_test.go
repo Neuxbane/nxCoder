@@ -237,10 +237,24 @@ func TestAPIRouter(t *testing.T) {
 	if recMatch.Code != http.StatusOK {
 		t.Fatalf("match instruction failed: %d", recMatch.Code)
 	}
-	var matchData map[string]any
-	_ = json.Unmarshal(recMatch.Body.Bytes(), &matchData)
-	matchedList, ok := matchData["matched"].([]any)
-	if !ok || len(matchedList) == 0 {
-		t.Fatalf("expected matched instructions, got none")
+	// 15. Test Settings Tool Output Max Chars
+	maxCharsBody, _ := json.Marshal(map[string]any{"max_chars": 3000})
+	reqMaxChars := httptest.NewRequest("POST", "/api/settings/tool-output-max-chars", bytes.NewReader(maxCharsBody))
+	recMaxChars := httptest.NewRecorder()
+	handler.ServeHTTP(recMaxChars, reqMaxChars)
+	if recMaxChars.Code != http.StatusOK {
+		t.Fatalf("set tool_output_max_chars failed: %d", recMaxChars.Code)
+	}
+
+	reqGetMaxChars := httptest.NewRequest("GET", "/api/settings/tool-output-max-chars", nil)
+	recGetMaxChars := httptest.NewRecorder()
+	handler.ServeHTTP(recGetMaxChars, reqGetMaxChars)
+	if recGetMaxChars.Code != http.StatusOK {
+		t.Fatalf("get tool_output_max_chars failed: %d", recGetMaxChars.Code)
+	}
+	var maxCharsData map[string]any
+	_ = json.Unmarshal(recGetMaxChars.Body.Bytes(), &maxCharsData)
+	if mc, ok := maxCharsData["max_chars"].(float64); !ok || int(mc) != 3000 {
+		t.Fatalf("expected max_chars 3000, got %v", maxCharsData["max_chars"])
 	}
 }

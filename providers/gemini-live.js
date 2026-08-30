@@ -58,13 +58,20 @@ function blobToDataURL(blob) {
   });
 }
 
-function sanitizeForPrompt(val) {
+function truncateMiddle(str, maxLength = 2500) {
+  if (typeof str !== "string" || str.length <= maxLength) return str;
+  const half = Math.floor(maxLength / 2);
+  const tail = maxLength - half;
+  return str.substring(0, half) + `\n... [truncated ${str.length - maxLength} characters] ...\n` + str.substring(str.length - tail);
+}
+
+function sanitizeForPrompt(val, maxStringLength = 2500) {
   if (val === null || val === undefined) return "";
   if (typeof val === "string") {
     if (val.length > 300 && !val.includes(" ") && (val.startsWith("/9j/") || val.startsWith("iVBORw0KGgo") || val.startsWith("data:image/"))) {
       return "[image binary data]";
     }
-    return val;
+    return truncateMiddle(val, maxStringLength);
   }
   if (typeof val === "object") {
     try {
@@ -76,6 +83,8 @@ function sanitizeForPrompt(val) {
             obj[k] = "[image binary data]";
           } else if (k === "data" && typeof obj[k] === "string" && obj[k].length > 200) {
             obj[k] = "[binary data]";
+          } else if (typeof obj[k] === "string") {
+            obj[k] = truncateMiddle(obj[k], maxStringLength);
           } else if (typeof obj[k] === "object") {
             cleanObj(obj[k]);
           }
@@ -84,10 +93,10 @@ function sanitizeForPrompt(val) {
       cleanObj(clone);
       return JSON.stringify(clone);
     } catch (_) {
-      return String(val);
+      return truncateMiddle(String(val), maxStringLength);
     }
   }
-  return String(val);
+  return truncateMiddle(String(val), maxStringLength);
 }
 
 export default {

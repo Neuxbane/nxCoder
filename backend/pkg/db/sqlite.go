@@ -147,6 +147,7 @@ func (d *DB) Migrate() error {
 			value TEXT
 		);`,
 		`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('instruction_top_k', '3');`,
+		`INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tool_output_max_chars', '2500');`,
 		`ALTER TABLE custom_providers ADD COLUMN config TEXT DEFAULT '{}';`,
 		`INSERT OR IGNORE INTO workspaces (id, name, folders_path, created_at) VALUES ('ws_general', 'Conversations', '[]', datetime('now'));`,
 	}

@@ -66,13 +66,14 @@ type InlineImage struct {
 
 func TruncateOutput(outputStr string, maxLength int) string {
 	if maxLength <= 0 {
-		maxLength = 8000
+		maxLength = 2500
 	}
 	if len(outputStr) <= maxLength {
 		return outputStr
 	}
 	half := maxLength / 2
-	return outputStr[:half] + fmt.Sprintf("\n\n...[OUTPUT TRUNCATED: %d characters omitted to preserve context bounds]...\n\n", len(outputStr)-maxLength) + outputStr[len(outputStr)-half:]
+	tail := maxLength - half
+	return outputStr[:half] + fmt.Sprintf("\n... [truncated %d characters] ...\n", len(outputStr)-maxLength) + outputStr[len(outputStr)-tail:]
 }
 
 func SanitizeToolResult(result any, maxStringLength int) any {
@@ -80,7 +81,7 @@ func SanitizeToolResult(result any, maxStringLength int) any {
 		return nil
 	}
 	if maxStringLength <= 0 {
-		maxStringLength = 12000
+		maxStringLength = 2500
 	}
 
 	if imgRes, ok := result.(*ViewImageResult); ok && imgRes != nil {
@@ -107,7 +108,9 @@ func SanitizeToolResult(result any, maxStringLength int) any {
 	switch v := result.(type) {
 	case string:
 		if len(v) > maxStringLength {
-			return v[:maxStringLength] + fmt.Sprintf("\n... [truncated %d chars]", len(v)-maxStringLength)
+			half := maxStringLength / 2
+			tail := maxStringLength - half
+			return v[:half] + fmt.Sprintf("\n... [truncated %d characters] ...\n", len(v)-maxStringLength) + v[len(v)-tail:]
 		}
 		return v
 	case []any:

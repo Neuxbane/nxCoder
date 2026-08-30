@@ -874,6 +874,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       toolScripts: [],
       mcpServers: [],
       toolGroups: { builtin: [], scripts: [], mcp: [] },
+      toolOutputMaxChars: 2500,
       
       activeWorkspaceId: null,
       activeSessionId: null,
@@ -5359,14 +5360,19 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     async function loadToolData() {
       try {
-        const [toolsRes, scriptsRes, mcpRes] = await Promise.all([
+        const [toolsRes, scriptsRes, mcpRes, maxCharsRes] = await Promise.all([
           fetch('/api/tools'),
           fetch('/api/tool-scripts'),
-          fetch('/api/mcp')
+          fetch('/api/mcp'),
+          fetch('/api/settings/tool-output-max-chars')
         ]);
         if (toolsRes.ok) state.toolGroups = await toolsRes.json();
         if (scriptsRes.ok) state.toolScripts = await scriptsRes.json();
         if (mcpRes.ok) state.mcpServers = await mcpRes.json();
+        if (maxCharsRes && maxCharsRes.ok) {
+          const maxCharsData = await maxCharsRes.json();
+          state.toolOutputMaxChars = maxCharsData.max_chars || 2500;
+        }
       } catch (err) {
         console.error('Failed to load tool data:', err);
       }
@@ -5521,6 +5527,21 @@ Group files by component. Use markdown links with relative paths and detail exac
 
           <!-- TOOLS & MCP TAB -->
           <div id="settings-section-tools" class="settings-tab-section space-y-4 hidden">
+            <!-- Output Truncation Limit Setting Card -->
+            <div class="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="space-y-1">
+                <div class="text-xs font-semibold text-zinc-100 flex items-center space-x-2">
+                  <i class="fa-solid fa-scissors text-amber-400 text-xs"></i>
+                  <span>Function Output Truncation Limit</span>
+                </div>
+                <p class="text-[11px] text-zinc-400">Maximum character threshold for tool/function execution outputs. Excess content is truncated from the middle to preserve context bounds.</p>
+              </div>
+              <div class="flex items-center space-x-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 shrink-0" title="Maximum characters allowed in tool outputs (default: 2500)">
+                <span class="text-[11px] text-zinc-400 font-medium">Max Chars:</span>
+                <input type="number" id="setting-tool-output-max-chars" min="100" max="100000" step="100" value="${state.toolOutputMaxChars || 2500}" onchange="updateToolOutputMaxChars(this.value)" class="w-20 bg-zinc-800 border border-zinc-700 text-zinc-100 text-xs rounded px-2 py-0.5 text-center font-mono focus:outline-none focus:border-zinc-500" />
+              </div>
+            </div>
+
             <!-- Sub Segmented Tabs -->
             <div class="bg-zinc-900/90 p-1 rounded-xl border border-zinc-800/80 flex space-x-1 text-xs">
               <button id="tab-btn-tools-builtin" onclick="switchToolsHubTab('builtin')" class="flex-1 py-1.5 px-3 rounded-lg font-medium flex items-center justify-center space-x-2 transition-all bg-zinc-800 text-white shadow-sm">
@@ -6285,6 +6306,26 @@ Group files by component. Use markdown links with relative paths and detail exac
         showToast('Error', err.message, 'error');
       }
     }
+    window.updateInstructionTopK = updateInstructionTopK;
+
+    async function updateToolOutputMaxChars(val) {
+      const max_chars = parseInt(val, 10);
+      if (isNaN(max_chars) || max_chars <= 0) return;
+      try {
+        const res = await fetch('/api/settings/tool-output-max-chars', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ max_chars })
+        });
+        if (res.ok) {
+          state.toolOutputMaxChars = max_chars;
+          showToast('Updated', `Function output limit set to ${max_chars} characters`, 'success');
+        }
+      } catch (err) {
+        showToast('Error', err.message, 'error');
+      }
+    }
+    window.updateToolOutputMaxChars = updateToolOutputMaxChars;
 
     function setupDropzoneEvents(dropzone) {
       if (!dropzone) return;

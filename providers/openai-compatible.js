@@ -1,3 +1,10 @@
+function truncateMiddle(str, maxLength = 2500) {
+  if (typeof str !== "string" || str.length <= maxLength) return str;
+  const half = Math.floor(maxLength / 2);
+  const tail = maxLength - half;
+  return str.substring(0, half) + `\n... [truncated ${str.length - maxLength} characters] ...\n` + str.substring(str.length - tail);
+}
+
 // OpenAI-Compatible Provider Extension (OpenAI, DeepSeek, Groq, OpenRouter, LM Studio, vLLM)
 export default {
   id: "openai-compatible",
@@ -63,10 +70,11 @@ export default {
           } else if (p.functionResponse) {
             hasToolResp = true;
             const res = p.functionResponse.response?.result !== undefined ? p.functionResponse.response.result : p.functionResponse.response;
+            const rawContent = typeof res === 'string' ? res : JSON.stringify(res);
             formattedMessages.push({
               role: "tool",
               tool_call_id: p.functionResponse.id,
-              content: typeof res === 'string' ? res : JSON.stringify(res)
+              content: truncateMiddle(rawContent)
             });
           }
         }
