@@ -1235,7 +1235,7 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 		broadcast(sessionID, map[string]any{
 			"type":     "FUNCTION_RESPONSE",
 			"callId":   body.CallID,
-			"response": map[string]any{"result": toolResult},
+			"response": map[string]any{"result": sanitized},
 		})
 	}
 

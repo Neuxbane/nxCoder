@@ -22,11 +22,71 @@ export default {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    const formattedMessages = [...(messages || [])];
+    const formattedMessages = [];
     if (systemInstruction) {
       const sysContent = typeof systemInstruction === 'string' ? systemInstruction : JSON.stringify(systemInstruction);
-      if (!formattedMessages.some(m => m.role === 'system')) {
-        formattedMessages.unshift({ role: 'system', content: sysContent });
+      formattedMessages.push({ role: 'system', content: sysContent });
+    }
+
+    for (const m of (messages || [])) {
+      if (m.role === 'system' && systemInstruction) continue;
+      if (typeof m.content === "string") {
+        formattedMessages.push(m);
+        continue;
+      }
+      if (Array.isArray(m.parts)) {
+        let textParts = [];
+        let contentArr = [];
+        let toolCalls = [];
+        let hasToolResp = false;
+
+        for (const p of m.parts) {
+          if (p.text) {
+            textParts.push(p.text);
+            contentArr.push({ type: "text", text: p.text });
+          } else if (p.inlineData) {
+            contentArr.push({
+              type: "image_url",
+              image_url: {
+                url: `data:${p.inlineData.mimeType || 'image/jpeg'};base64,${p.inlineData.data}`
+              }
+            });
+          } else if (p.functionCall) {
+            toolCalls.push({
+              id: p.functionCall.id || ("call_" + Math.random().toString(36).substring(2, 8)),
+              type: "function",
+              function: {
+                name: p.functionCall.name,
+                arguments: JSON.stringify(p.functionCall.args || {})
+              }
+            });
+          } else if (p.functionResponse) {
+            hasToolResp = true;
+            const res = p.functionResponse.response?.result !== undefined ? p.functionResponse.response.result : p.functionResponse.response;
+            formattedMessages.push({
+              role: "tool",
+              tool_call_id: p.functionResponse.id,
+              content: typeof res === 'string' ? res : JSON.stringify(res)
+            });
+          }
+        }
+
+        if (hasToolResp) continue;
+
+        if (toolCalls.length > 0) {
+          formattedMessages.push({
+            role: "assistant",
+            content: textParts.join("") || null,
+            tool_calls: toolCalls
+          });
+        } else if (contentArr.length > 0) {
+          formattedMessages.push({
+            role: m.role === "assistant" || m.role === "model" ? "assistant" : "user",
+            content: contentArr.length === 1 && contentArr[0].type === "text" ? contentArr[0].text : contentArr
+          });
+        }
+      } else {
+        formattedMessages.push(m);
       }
     }
 

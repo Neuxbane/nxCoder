@@ -1,4 +1,28 @@
 // Google Gemini Provider Extension
+
+function cleanToolResponse(resp) {
+  if (!resp || typeof resp !== "object") return resp;
+  try {
+    const clone = JSON.parse(JSON.stringify(resp));
+    const clean = (obj) => {
+      if (!obj || typeof obj !== "object") return;
+      for (const k of Object.keys(obj)) {
+        if (k === "inlineImage" || k === "inlineData") {
+          obj[k] = "[image binary data]";
+        } else if (k === "data" && typeof obj[k] === "string" && obj[k].length > 200) {
+          obj[k] = "[binary data]";
+        } else if (typeof obj[k] === "object") {
+          clean(obj[k]);
+        }
+      }
+    };
+    clean(clone);
+    return clone;
+  } catch (_) {
+    return resp;
+  }
+}
+
 export default {
   id: "gemini",
   name: "Google Gemini",
@@ -27,12 +51,13 @@ export default {
               }
             };
           } else if (p.functionResponse) {
+            const rawResp = typeof p.functionResponse.response === 'object' && p.functionResponse.response !== null
+              ? p.functionResponse.response
+              : { result: p.functionResponse.response };
             return {
               functionResponse: {
                 name: p.functionResponse.name,
-                response: typeof p.functionResponse.response === 'object' && p.functionResponse.response !== null
-                  ? p.functionResponse.response
-                  : { result: p.functionResponse.response }
+                response: cleanToolResponse(rawResp)
               }
             };
           } else if (p.inlineData) {

@@ -82,6 +82,27 @@ func SanitizeToolResult(result any, maxStringLength int) any {
 		maxStringLength = 12000
 	}
 
+	if imgRes, ok := result.(*ViewImageResult); ok && imgRes != nil {
+		return map[string]any{
+			"success": imgRes.Success,
+			"message": imgRes.Message,
+			"inlineImage": map[string]any{
+				"mimeType": imgRes.InlineImage.MimeType,
+				"data":     "[image injected into context]",
+			},
+		}
+	}
+	if imgRes, ok := result.(ViewImageResult); ok {
+		return map[string]any{
+			"success": imgRes.Success,
+			"message": imgRes.Message,
+			"inlineImage": map[string]any{
+				"mimeType": imgRes.InlineImage.MimeType,
+				"data":     "[image injected into context]",
+			},
+		}
+	}
+
 	switch v := result.(type) {
 	case string:
 		if len(v) > maxStringLength {
@@ -98,9 +119,17 @@ func SanitizeToolResult(result any, maxStringLength int) any {
 		sanitized := make(map[string]any)
 		for k, val := range v {
 			if k == "inlineImage" || k == "inlineData" {
-				sanitized[k] = map[string]any{
-					"mimeType": "image/png",
-					"data":     "[binary blob stripped — already injected into context]",
+				if imgMap, ok := val.(map[string]any); ok {
+					mimeType, _ := imgMap["mimeType"].(string)
+					if mimeType == "" {
+						mimeType = "image/png"
+					}
+					sanitized[k] = map[string]any{
+						"mimeType": mimeType,
+						"data":     "[image injected into context]",
+					}
+				} else {
+					sanitized[k] = "[image injected into context]"
 				}
 				continue
 			}
@@ -108,6 +137,18 @@ func SanitizeToolResult(result any, maxStringLength int) any {
 		}
 		return sanitized
 	default:
+		// Convert any arbitrary struct to generic map to deeply sanitize
+		b, err := json.Marshal(result)
+		if err == nil {
+			var generic any
+			if err := json.Unmarshal(b, &generic); err == nil {
+				if m, ok := generic.(map[string]any); ok {
+					return SanitizeToolResult(m, maxStringLength)
+				} else if arr, ok := generic.([]any); ok {
+					return SanitizeToolResult(arr, maxStringLength)
+				}
+			}
+		}
 		return result
 	}
 }

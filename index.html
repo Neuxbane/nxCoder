@@ -3641,19 +3641,20 @@ Group files by component. Use markdown links with relative paths and detail exac
                     });
                     const execData = await execRes.json();
                     const toolResult = execData.result;
+                    const sanitizedResult = execData.sanitized || toolResult;
                     processWebSocketGatewayPayload({
                       type: 'FUNCTION_RESPONSE',
                       callId: call.id,
-                      response: { result: toolResult }
+                      response: { result: sanitizedResult }
                     });
                     toolResponseParts.push({
                       functionResponse: {
                         id: call.id,
                         name: call.name,
-                        response: { result: execData.sanitized || toolResult }
+                        response: { result: sanitizedResult }
                       }
                     });
-                    if (toolResult?.inlineImage?.data) {
+                    if (toolResult?.inlineImage?.data && !toolResult.inlineImage.data.startsWith('[')) {
                       toolResponseParts.push({
                         inlineData: {
                           mimeType: toolResult.inlineImage.mimeType || 'image/jpeg',

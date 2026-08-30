@@ -58,6 +58,38 @@ function blobToDataURL(blob) {
   });
 }
 
+function sanitizeForPrompt(val) {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "string") {
+    if (val.length > 300 && !val.includes(" ") && (val.startsWith("/9j/") || val.startsWith("iVBORw0KGgo") || val.startsWith("data:image/"))) {
+      return "[image binary data]";
+    }
+    return val;
+  }
+  if (typeof val === "object") {
+    try {
+      const clone = JSON.parse(JSON.stringify(val));
+      const cleanObj = (obj) => {
+        if (!obj || typeof obj !== "object") return;
+        for (const k of Object.keys(obj)) {
+          if (k === "inlineImage" || k === "inlineData") {
+            obj[k] = "[image binary data]";
+          } else if (k === "data" && typeof obj[k] === "string" && obj[k].length > 200) {
+            obj[k] = "[binary data]";
+          } else if (typeof obj[k] === "object") {
+            cleanObj(obj[k]);
+          }
+        }
+      };
+      cleanObj(clone);
+      return JSON.stringify(clone);
+    } catch (_) {
+      return String(val);
+    }
+  }
+  return String(val);
+}
+
 export default {
   id: "gemini-live",
   name: "Google Gemini Live (WebSockets)",
@@ -217,7 +249,7 @@ export default {
               msgText += `\n[Tool Executed: ${part.functionCall.name} with parameters ${JSON.stringify(part.functionCall.args || {})}]\n`;
             } else if (part.functionResponse) {
               const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
-              msgText += `\n[Tool Output for ${part.functionResponse.name}]:\n${typeof res === 'string' ? res : JSON.stringify(res)}\n`;
+              msgText += `\n[Tool Output for ${part.functionResponse.name}]:\n${sanitizeForPrompt(res)}\n`;
             }
           }
         } else if (typeof msg.content === "string") {
@@ -246,7 +278,7 @@ export default {
             textParts.push(part.text);
           } else if (part.functionResponse) {
             const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
-            textParts.push(`\n[Tool Output for ${part.functionResponse.name}]:\n${typeof res === 'string' ? res : JSON.stringify(res)}\n\nUse this tool output to proceed with your work. Call the next tool if needed, or output your final response.`);
+            textParts.push(`\n[Tool Output for ${part.functionResponse.name}]:\n${sanitizeForPrompt(res)}\n\nUse this tool output to proceed with your work. Call the next tool if needed, or output your final response.`);
           } else if (part.inlineData) {
             parts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } });
           }
