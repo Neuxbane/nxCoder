@@ -213,9 +213,12 @@ export default {
       }
     }
 
-    // Append anti-echo directive to system instruction
-    const antiEchoDirective = "\n\nImportant: You have access to real tools. When you receive [Tool Output], examine the data and proceed with your reasoning or next action. Do not echo internal '[Tool Executed]' or '[Tool Output]' tags in your final conversational response.";
-    effectiveSystemInstruction = effectiveSystemInstruction ? (effectiveSystemInstruction + antiEchoDirective) : antiEchoDirective.trim();
+    // Append voice response directive to system instruction
+    const voiceDirective = "\n\nImportant Voice Interaction Guidelines:\n" +
+      "1. You are communicating via live voice. Always provide a spoken voice response answering the user or explaining your findings. Never complete a turn silently after thinking.\n" +
+      "2. When inspecting images or tool outputs, explain what you observe in the image/data and answer the user's question directly. If image processing, asset editing, or code modifications are required, write and run scripts via `execute_command` (e.g. Python Pillow/OpenCV/ImageMagick) or guide the user on code edits.\n" +
+      "3. Do not echo internal '[Tool Executed]' or '[Tool Output]' tags in your spoken response.";
+    effectiveSystemInstruction = effectiveSystemInstruction ? (effectiveSystemInstruction + voiceDirective) : voiceDirective.trim();
 
     // Check if the current message contains tool responses
     const lastMessage = (messages || []).slice(-1)[0];
