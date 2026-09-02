@@ -3563,6 +3563,8 @@ Group files by component. Use markdown links with relative paths and detail exac
               messages: conversationHistory,
               tools: activeTools,
               abortSignal: state.activeAbortController.signal,
+              sessionId: state.activeSessionId,
+              workspaceId: state.activeWorkspaceId,
               ...(state.activeProvider || {})
             });
 
