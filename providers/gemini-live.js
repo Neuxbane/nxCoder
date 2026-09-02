@@ -182,6 +182,7 @@ export default {
       label: "Live Model Name",
       type: "options",
       options: [
+        "gemini-3.1-flash-live-preview",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-2.0-flash-exp",
