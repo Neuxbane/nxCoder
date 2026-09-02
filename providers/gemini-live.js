@@ -220,6 +220,7 @@ export default {
     // Check if the current message contains tool responses
     const lastMessage = (messages || []).slice(-1)[0];
     const functionResponses = [];
+    const inlineImages = [];
 
     if (lastMessage && Array.isArray(lastMessage.parts)) {
       for (const part of lastMessage.parts) {
@@ -233,6 +234,8 @@ export default {
               result: cleanToolResponse(rawResp)
             }
           });
+        } else if (part.inlineData) {
+          inlineImages.push(part.inlineData);
         }
       }
     }
@@ -543,7 +546,26 @@ export default {
     await session.setupPromise;
 
     if (isToolResponseTurn) {
-      // Send official toolResponse payload matching call IDs over the persistent WebSocket
+      // 1. If any visual assets were returned (e.g. view_image), stream the image frame into the active session
+      for (const img of inlineImages) {
+        if (img.data) {
+          console.log(`[Gemini Live] Sending image frame via realtimeInput.video (${img.mimeType || 'image/png'})`);
+          try {
+            session.ws.send(JSON.stringify({
+              realtimeInput: {
+                video: {
+                  data: img.data,
+                  mimeType: img.mimeType || "image/png"
+                }
+              }
+            }));
+          } catch (e) {
+            console.warn("[Gemini Live] Failed to send realtime video frame:", e);
+          }
+        }
+      }
+
+      // 2. Send official toolResponse payload matching call IDs over the persistent WebSocket
       const toolResponseMsg = {
         toolResponse: {
           functionResponses
