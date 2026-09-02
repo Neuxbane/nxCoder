@@ -91,6 +91,53 @@ function cleanToolResponse(resp, maxStringLength = 4000) {
   }
 }
 
+// Convert any image data (PNG/WEBP/etc.) to standard JPEG Base64 with max dimension 1024 for Gemini Live visual streaming
+async function toJpegBase64(data, mimeType = "image/jpeg", maxDimension = 1024) {
+  if (!data || typeof data !== "string") return { mimeType: "image/jpeg", data: "" };
+  const cleanB64 = data.includes(",") ? data.split(",")[1] : data;
+  return new Promise((resolve) => {
+    try {
+      const src = data.startsWith("data:") ? data : `data:${mimeType || "image/jpeg"};base64,${cleanB64}`;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const jpegUrl = canvas.toDataURL("image/jpeg", 0.85);
+          const convertedB64 = jpegUrl.split(",")[1] || jpegUrl;
+          resolve({ mimeType: "image/jpeg", data: convertedB64 });
+        } catch (e) {
+          console.warn("[Gemini Live] Canvas JPEG conversion fallback:", e);
+          resolve({ mimeType: "image/jpeg", data: cleanB64 });
+        }
+      };
+      img.onerror = () => {
+        resolve({ mimeType: "image/jpeg", data: cleanB64 });
+      };
+      img.src = src;
+    } catch (_) {
+      resolve({ mimeType: "image/jpeg", data: cleanB64 });
+    }
+  });
+}
+
 // Module-level persistent WebSocket live session
 let activeLiveSession = null;
 
@@ -216,7 +263,7 @@ export default {
     // Append voice response directive to system instruction
     const voiceDirective = "\n\nImportant Voice Interaction Guidelines:\n" +
       "1. You are communicating via live voice. Always provide a spoken voice response answering the user or explaining your findings. Never complete a turn silently after thinking.\n" +
-      "2. When inspecting images or tool outputs, explain what you observe in the image/data and answer the user's question directly. If image processing, asset editing, or code modifications are required, write and run scripts via `execute_command` (e.g. Python Pillow/OpenCV/ImageMagick) or guide the user on code edits.\n" +
+      "2. When inspecting images or tool outputs, describe and explain what you observe in the image/data and answer the user's question directly. If image processing, asset editing, or code modifications are required, write and run scripts via `execute_command` (e.g. Python Pillow/OpenCV/ImageMagick) or guide the user on code edits.\n" +
       "3. Do not echo internal '[Tool Executed]' or '[Tool Output]' tags in your spoken response.";
     effectiveSystemInstruction = effectiveSystemInstruction ? (effectiveSystemInstruction + voiceDirective) : voiceDirective.trim();
 
@@ -549,32 +596,42 @@ export default {
     await session.setupPromise;
 
     if (isToolResponseTurn) {
-      // 1. If any visual assets were returned (e.g. view_image), stream the image frame into the active session
-      for (const img of inlineImages) {
-        if (img.data) {
-          console.log(`[Gemini Live] Sending image frame via realtimeInput.video (${img.mimeType || 'image/png'})`);
+      // 1. Process and stream visual frames via realtimeInput.mediaChunks
+      for (const rawImg of inlineImages) {
+        if (rawImg.data) {
+          const jpegImg = await toJpegBase64(rawImg.data, rawImg.mimeType, 1024);
+          console.log(`[Gemini Live] Streaming visual frame via realtimeInput.mediaChunks (${jpegImg.mimeType}, ${jpegImg.data.length} chars)`);
           try {
             session.ws.send(JSON.stringify({
               realtimeInput: {
-                video: {
-                  data: img.data,
-                  mimeType: img.mimeType || "image/png"
-                }
+                mediaChunks: [
+                  {
+                    mimeType: "image/jpeg",
+                    data: jpegImg.data
+                  }
+                ]
               }
             }));
           } catch (e) {
-            console.warn("[Gemini Live] Failed to send realtime video frame:", e);
+            console.warn("[Gemini Live] Failed to send realtime mediaChunks:", e);
           }
         }
       }
 
-      // 2. Send official toolResponse payload matching call IDs over the persistent WebSocket
+      // 2. Prepare clean standard functionResponses payload (strictly id, name, response)
+      const processedFunctionResponses = functionResponses.map(fr => ({
+        id: fr.id,
+        name: fr.name,
+        response: fr.response
+      }));
+
+      // 3. Send official toolResponse payload matching call IDs over the persistent WebSocket
       const toolResponseMsg = {
         toolResponse: {
-          functionResponses
+          functionResponses: processedFunctionResponses
         }
       };
-      console.log(`[Gemini Live] Outgoing toolResponse frame (${functionResponses.length} calls):`, JSON.stringify(toolResponseMsg).substring(0, 200) + "...");
+      console.log(`[Gemini Live] Outgoing toolResponse frame (${processedFunctionResponses.length} calls):`, JSON.stringify(toolResponseMsg).substring(0, 200) + "...");
       session.ws.send(JSON.stringify(toolResponseMsg));
 
       for (const fr of functionResponses) {
@@ -633,7 +690,20 @@ export default {
               } else if (part.functionResponse) {
                 textParts.push(`\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(part.functionResponse.response?.result || part.functionResponse.response)}]\n`);
               } else if (part.inlineData) {
-                parts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } });
+                const jpegImg = await toJpegBase64(part.inlineData.data, part.inlineData.mimeType);
+                parts.push({ inlineData: { mimeType: "image/jpeg", data: jpegImg.data } });
+                try {
+                  session.ws.send(JSON.stringify({
+                    realtimeInput: {
+                      mediaChunks: [
+                        {
+                          mimeType: "image/jpeg",
+                          data: jpegImg.data
+                        }
+                      ]
+                    }
+                  }));
+                } catch (_) {}
               }
             }
           } else if (typeof currentMessage.content === "string") {
@@ -672,7 +742,20 @@ export default {
               if (part.text) {
                 parts.push({ text: part.text });
               } else if (part.inlineData) {
-                parts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } });
+                const jpegImg = await toJpegBase64(part.inlineData.data, part.inlineData.mimeType);
+                parts.push({ inlineData: { mimeType: "image/jpeg", data: jpegImg.data } });
+                try {
+                  session.ws.send(JSON.stringify({
+                    realtimeInput: {
+                      mediaChunks: [
+                        {
+                          mimeType: "image/jpeg",
+                          data: jpegImg.data
+                        }
+                      ]
+                    }
+                  }));
+                } catch (_) {}
               }
             }
           } else if (typeof currentMessage.content === "string") {
