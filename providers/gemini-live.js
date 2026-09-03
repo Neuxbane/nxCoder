@@ -91,13 +91,34 @@ function cleanToolResponse(resp, maxStringLength = 4000) {
   }
 }
 
+// Module-level persistent WebSocket live session to prevent quota exhaustion and duplicate context transfers
+let activeLiveSession = null;
+
+function closeActiveSession() {
+  if (activeLiveSession) {
+    console.log("[Gemini Live] Closing active WebSocket session.");
+    try {
+      const ws = activeLiveSession.ws;
+      activeLiveSession.ws = null;
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try { ws.close(); } catch (_) {}
+      }
+    } catch (_) {}
+    activeLiveSession = null;
+  }
+}
+
 export default {
   id: "gemini-live",
   name: "Google Gemini Live (WebSockets)",
   description: "Gemini Multimodal Live API for ultra-low latency bidirectional text, audio, and reasoning streams.",
   
   cleanup() {
-    // Episodic per-turn WebSocket requires no persistent state cleanup
+    closeActiveSession();
   },
 
   requirements: [
@@ -200,85 +221,270 @@ export default {
       "3. Do not echo internal '[Tool Executed]' or '[Tool Output]' tags in your spoken response.";
     effectiveSystemInstruction = effectiveSystemInstruction ? (effectiveSystemInstruction + voiceDirective) : voiceDirective.trim();
 
-    // Separate history from current turn (stable logic from branch main)
-    const historyMessages = (messages || []).filter(m => m.role !== "system").slice(0, -1);
-    const currentMessage = (messages || []).filter(m => m.role !== "system").slice(-1)[0];
+    // Check if recent messages contain tool responses (inspect last 3 messages to handle synthetic turn pairs)
+    const recentMessages = (messages || []).slice(-3);
+    const functionResponses = [];
+    const inlineImages = [];
 
-    // Format history into a compact string context (no blobs in history)
-    let historyString = "";
-    if (historyMessages.length > 0) {
-      historyString += "\n\n=========================================\n=== CONVERSATION HISTORY ===\n=========================================\n";
-      for (const msg of historyMessages) {
-        const role = (msg.role === "model" || msg.role === "assistant") ? "Assistant" : "User";
-        let msgText = "";
-        const parts = Array.isArray(msg.parts) ? msg.parts : (typeof msg.content === "string" ? [{ text: msg.content }] : []);
-        for (const part of parts) {
-          if (part.text) {
-            msgText += part.text;
-          } else if (part.thought) {
-            // skip internal thinking from history
-          } else if (part.functionCall) {
-            msgText += `\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args || {})}]\n`;
-          } else if (part.functionResponse) {
-            const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
-            msgText += `\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(cleanToolResponse(res))}]\n`;
-          } else if (part.inlineData) {
-            msgText += `\n[Inline ${part.inlineData.mimeType || 'media'} data provided]\n`;
+    for (const msg of recentMessages) {
+      if (Array.isArray(msg.parts)) {
+        for (const part of msg.parts) {
+          if (part.functionResponse) {
+            const fr = part.functionResponse;
+            const rawResp = fr.response?.result !== undefined ? fr.response.result : fr.response;
+            functionResponses.push({
+              id: fr.id,
+              name: fr.name,
+              response: {
+                result: cleanToolResponse(rawResp)
+              }
+            });
+          } else if (part.inlineData && part.inlineData.data) {
+            inlineImages.push(part.inlineData);
           }
         }
-        if (msgText.trim()) {
-          historyString += `${role}: ${msgText.trim()}\n`;
-        }
       }
     }
+    const isToolResponseTurn = functionResponses.length > 0;
 
-    // Pre-build liveTurns using ONLY currentMessage, supporting native multimodal inlineData parts
-    const liveTurns = [];
-    if (currentMessage) {
-      const parts = [];
-      const textParts = [];
-      if (historyString.trim()) {
-        textParts.push(historyString.trim() + "\n\n=== CURRENT PROMPT ===\n");
-      }
+    // Check if we can reuse the existing active open WebSocket connection
+    const canReuseSession =
+      activeLiveSession &&
+      activeLiveSession.ws &&
+      activeLiveSession.ws.readyState === WebSocket.OPEN &&
+      activeLiveSession.apiKey === apiKey &&
+      activeLiveSession.model === targetModel &&
+      activeLiveSession.voice === selectedVoice &&
+      activeLiveSession.thinking === selectedThinking &&
+      (!sessionId || !activeLiveSession.sessionId || activeLiveSession.sessionId === sessionId);
 
-      const currentParts = Array.isArray(currentMessage.parts) ? currentMessage.parts : (typeof currentMessage.content === "string" ? [{ text: currentMessage.content }] : (typeof currentMessage.text === "string" ? [{ text: currentMessage.text }] : []));
-      for (const part of currentParts) {
-        if (part.text) {
-          textParts.push(part.text);
-        } else if (part.functionCall) {
-          textParts.push(`\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args || {})}]\n`);
-        } else if (part.functionResponse) {
-          const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
-          textParts.push(`\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(cleanToolResponse(res))}]\n`);
-        } else if (part.inlineData && part.inlineData.data) {
-          // Multimodal: image or media asset passed as native inlineData part
-          parts.push({
-            inlineData: {
-              mimeType: part.inlineData.mimeType || "image/jpeg",
-              data: part.inlineData.data
+    if (!canReuseSession) {
+      closeActiveSession();
+
+      const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+      console.log(`[Gemini Live] Connecting to WebSocket: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
+      console.log(`[Gemini Live] Target model: ${targetModel}`);
+
+      const ws = new WebSocket(wsUrl);
+
+      let setupResolve, setupReject;
+      const setupPromise = new Promise((resolve, reject) => {
+        setupResolve = resolve;
+        setupReject = reject;
+      });
+
+      const sessionState = {
+        ws,
+        apiKey,
+        model: targetModel,
+        voice: selectedVoice,
+        thinking: selectedThinking,
+        sessionId: sessionId || null,
+        setupPromise,
+        setupResolve,
+        setupReject,
+        currentConsumer: null,
+        audioChunks: [],
+        audioMimeType: null,
+        pendingToolCalls: new Map()
+      };
+      activeLiveSession = sessionState;
+
+      ws.onopen = () => {
+        console.log("[Gemini Live] Connection opened successfully.");
+
+        const setupMsg = {
+          setup: {
+            model: targetModel,
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: selectedVoice
+                  }
+                }
+              },
+              thinkingConfig: {
+                includeThoughts: selectedThinking !== "OFF",
+                thinkingBudget: -1
+              }
             }
-          });
+          }
+        };
+
+        if (effectiveSystemInstruction) {
+          setupMsg.setup.systemInstruction = {
+            parts: [{ text: effectiveSystemInstruction }]
+          };
         }
-      }
 
-      if (textParts.length > 0) {
-        parts.unshift({ text: textParts.join("") });
-      }
+        if (tools && tools.length > 0) {
+          setupMsg.setup.tools = [{
+            functionDeclarations: tools.map(t => ({
+              name: t.name,
+              description: t.description,
+              parameters: t.parameters || t.inputSchema || { type: "object", properties: {} }
+            }))
+          }];
+        }
 
-      if (parts.length > 0) {
-        const role = (currentMessage.role === "model" || currentMessage.role === "assistant") ? "model" : "user";
-        liveTurns.push({ role, parts });
-      }
+        console.log("[Gemini Live] Outgoing setup frame:", JSON.stringify(setupMsg));
+        ws.send(JSON.stringify(setupMsg));
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          let raw = "";
+          if (typeof event.data === "string") raw = event.data;
+          else if (event.data instanceof Blob) raw = await event.data.text();
+          else if (event.data instanceof ArrayBuffer) raw = new TextDecoder().decode(event.data);
+          else if (event.data) raw = event.data.toString();
+          if (!raw) return;
+
+          const parsed = JSON.parse(raw);
+
+          // Setup confirmation from server
+          if (parsed.setupComplete !== undefined) {
+            console.log("[Gemini Live] Setup complete confirmed by server.");
+            sessionState.setupResolve();
+            return;
+          }
+
+          if (parsed.error) {
+            console.error("[Gemini Live] Server error received:", parsed.error);
+            const socketErr = new Error(`Gemini Live Error (${parsed.error.code || 'API'}): ${parsed.error.message || JSON.stringify(parsed.error)}`);
+            sessionState.setupReject?.(socketErr);
+            sessionState.currentConsumer?.setError(socketErr);
+            closeActiveSession();
+            return;
+          }
+
+          const consumer = sessionState.currentConsumer;
+          let hasFunctionCall = false;
+
+          // Handle thoughts, function calls, text, and pcm audio in modelTurn
+          if (parsed.serverContent?.modelTurn?.parts) {
+            for (const part of parsed.serverContent.modelTurn.parts) {
+              if (part.thought) {
+                const thoughtText = typeof part.thought === "string" ? part.thought : part.text;
+                if (thoughtText && consumer) {
+                  consumer.pushChunk({ type: "thought", text: thoughtText });
+                }
+              } else if (part.functionCall) {
+                hasFunctionCall = true;
+                const callId = part.functionCall.id || ("call_" + Math.random().toString(36).substring(2, 8));
+                sessionState.pendingToolCalls.set(callId, { name: part.functionCall.name, args: part.functionCall.args });
+                if (consumer) {
+                  consumer.pushChunk({
+                    type: "functionCall",
+                    name: part.functionCall.name,
+                    args: part.functionCall.args,
+                    callId
+                  });
+                }
+              } else if (part.text) {
+                if (consumer) {
+                  consumer.pushChunk({ type: "text", text: part.text });
+                }
+              } else if (part.inlineData?.data) {
+                if (part.inlineData.mimeType && part.inlineData.mimeType.startsWith("audio/pcm")) {
+                  sessionState.audioChunks.push(base64ToUint8Array(part.inlineData.data));
+                  sessionState.audioMimeType = part.inlineData.mimeType;
+                }
+              }
+            }
+          }
+
+          // Top-level toolCall payload
+          if (parsed.toolCall?.functionCalls) {
+            hasFunctionCall = true;
+            for (const fc of parsed.toolCall.functionCalls) {
+              const callId = fc.id || ("call_" + Math.random().toString(36).substring(2, 8));
+              sessionState.pendingToolCalls.set(callId, { name: fc.name, args: fc.args });
+              if (consumer) {
+                consumer.pushChunk({
+                  type: "functionCall",
+                  name: fc.name,
+                  args: fc.args,
+                  callId
+                });
+              }
+            }
+          }
+
+          // Handle speech transcription
+          if (parsed.serverContent?.outputTranscription?.text) {
+            if (consumer) {
+              consumer.pushChunk({ type: "text", text: parsed.serverContent.outputTranscription.text });
+            }
+          }
+
+          // When a function call is requested: flush audio, complete current consumer turn, KEEP WebSocket OPEN!
+          if (hasFunctionCall) {
+            console.log("[Gemini Live] Tool call detected, completing current turn (keeping WebSocket OPEN).");
+            await sessionState.flushAudio();
+            consumer?.finish();
+            return;
+          }
+
+          // When turn completes: flush audio, complete current consumer turn, KEEP WebSocket OPEN!
+          if (parsed.serverContent?.turnComplete) {
+            console.log("[Gemini Live] Server turnComplete flag received.");
+            await sessionState.flushAudio();
+            consumer?.finish();
+          }
+        } catch (err) {
+          console.error("[Gemini Live] Error handling incoming socket frame:", err);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error("[Gemini Live] WebSocket client error:", err);
+        const socketErr = new Error("Gemini Live WebSocket connection failed. Please check your Gemini API key and network.");
+        sessionState.setupReject?.(socketErr);
+        sessionState.currentConsumer?.setError(socketErr);
+        closeActiveSession();
+      };
+
+      ws.onclose = async (event) => {
+        console.log(`[Gemini Live] WebSocket closed (Code: ${event.code}, Reason: ${event.reason || 'none'}).`);
+        await sessionState.flushAudio();
+        if (activeLiveSession === sessionState) {
+          activeLiveSession = null;
+        }
+        if (sessionState.currentConsumer) {
+          if (event.code !== 1000) {
+            sessionState.currentConsumer.setError(new Error(`Gemini Live connection closed (Code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`));
+          } else {
+            sessionState.currentConsumer.finish();
+          }
+        }
+      };
+
+      sessionState.flushAudio = async () => {
+        if (sessionState.audioChunks.length === 0) return;
+        const consumer = sessionState.currentConsumer;
+        if (!consumer) return;
+        try {
+          let sampleRate = 24000;
+          if (sessionState.audioMimeType) {
+            const match = sessionState.audioMimeType.match(/rate=(\d+)/);
+            if (match) sampleRate = parseInt(match[1], 10);
+          }
+          const wavBlob = createWavBlob(sessionState.audioChunks, sampleRate);
+          const wavDataUrl = await blobToDataURL(wavBlob);
+          consumer.pushChunk({ type: "media", localPath: wavDataUrl, mimeType: "audio/wav" });
+        } catch (mediaErr) {
+          console.error("[Gemini Live] Failed to build audio WAV blob:", mediaErr);
+        }
+        sessionState.audioChunks = [];
+      };
     }
 
-    // Per-turn episodic WebSocket connection
-    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
-    console.log(`[Gemini Live] Connecting to WebSocket: wss://generativelanguage.googleapis.com/... (Key length: ${apiKey.length})`);
-    console.log(`[Gemini Live] Target model: ${targetModel}`);
+    const session = activeLiveSession;
 
-    const ws = new WebSocket(wsUrl);
-
-    // Generator queue bridging push-based WebSocket events to async iterable
+    // Set up this turn's generator consumer
     const messageQueue = [];
     let resolveNext = null;
     let isFinished = false;
@@ -309,206 +515,169 @@ export default {
       finish();
     };
 
+    const consumer = { pushChunk, finish, setError };
+    session.currentConsumer = consumer;
+
     if (abortSignal) {
       if (abortSignal.aborted) {
-        try { ws.close(); } catch (_) {}
+        closeActiveSession();
         throw new Error("Stream aborted by user");
       }
       abortSignal.addEventListener("abort", () => {
         console.log("[Gemini Live] Abort signal received, closing socket.");
-        try { ws.close(); } catch (_) {}
+        closeActiveSession();
         setError(new Error("Generation aborted by user"));
       }, { once: true });
     }
 
-    const audioChunks = [];
-    let audioMimeType = null;
-    let isWavSaved = false;
+    // Wait for setup frame confirmation if session was just opened
+    await session.setupPromise;
 
-    async function flushAudio() {
-      if (audioChunks.length === 0 || isWavSaved) return;
-      isWavSaved = true;
-      try {
-        let sampleRate = 24000;
-        if (audioMimeType) {
-          const match = audioMimeType.match(/rate=(\d+)/);
-          if (match) sampleRate = parseInt(match[1], 10);
-        }
-        const wavBlob = createWavBlob(audioChunks, sampleRate);
-        const wavDataUrl = await blobToDataURL(wavBlob);
-        pushChunk({ type: "media", localPath: wavDataUrl, mimeType: "audio/wav" });
-      } catch (mediaErr) {
-        console.error("[Gemini Live] Failed to build audio WAV blob:", mediaErr);
-      }
-      audioChunks.length = 0;
-    }
-
-    ws.onopen = () => {
-      console.log("[Gemini Live] Connection opened successfully.");
-
-      const setupMsg = {
-        setup: {
-          model: targetModel,
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: selectedVoice
-                }
+    if (isToolResponseTurn) {
+      // Stream any inline images via realtimeInput.mediaChunks
+      for (const img of inlineImages) {
+        if (img.data) {
+          const cleanB64 = img.data.includes(",") ? img.data.split(",")[1] : img.data;
+          console.log(`[Gemini Live] Sending image frame via realtimeInput.mediaChunks (${img.mimeType || 'image/jpeg'})`);
+          try {
+            session.ws.send(JSON.stringify({
+              realtimeInput: {
+                mediaChunks: [
+                  {
+                    mimeType: img.mimeType || "image/jpeg",
+                    data: cleanB64
+                  }
+                ]
               }
-            },
-            thinkingConfig: {
-              includeThoughts: selectedThinking !== "OFF",
-              thinkingBudget: -1
-            }
+            }));
+          } catch (e) {
+            console.warn("[Gemini Live] Failed to send realtime mediaChunks:", e);
           }
+        }
+      }
+
+      // Send official toolResponse payload over the existing open WebSocket
+      const toolResponseMsg = {
+        toolResponse: {
+          functionResponses
         }
       };
+      console.log(`[Gemini Live] Outgoing toolResponse frame (${functionResponses.length} calls):`, JSON.stringify(toolResponseMsg).substring(0, 200) + "...");
+      session.ws.send(JSON.stringify(toolResponseMsg));
 
-      if (effectiveSystemInstruction) {
-        setupMsg.setup.systemInstruction = {
-          parts: [{ text: effectiveSystemInstruction }]
-        };
+      for (const fr of functionResponses) {
+        session.pendingToolCalls.delete(fr.id);
       }
+    } else {
+      // User message turn
+      if (!canReuseSession) {
+        // Initial setup for this session: format conversation history and initial user message
+        const historyMessages = (messages || []).filter(m => m.role !== "system").slice(0, -1);
+        const currentMessage = (messages || []).filter(m => m.role !== "system").slice(-1)[0];
 
-      if (tools && tools.length > 0) {
-        setupMsg.setup.tools = [{
-          functionDeclarations: tools.map(t => ({
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters || t.inputSchema || { type: "object", properties: {} }
-          }))
-        }];
-      }
-
-      console.log("[Gemini Live] Outgoing setup frame:", JSON.stringify(setupMsg));
-      ws.send(JSON.stringify(setupMsg));
-    };
-
-    ws.onmessage = async (event) => {
-      try {
-        let raw = "";
-        if (typeof event.data === "string") raw = event.data;
-        else if (event.data instanceof Blob) raw = await event.data.text();
-        else if (event.data instanceof ArrayBuffer) raw = new TextDecoder().decode(event.data);
-        else if (event.data) raw = event.data.toString();
-        if (!raw) return;
-
-        const parsed = JSON.parse(raw);
-
-        // Send user content turn only AFTER server confirms setup is complete
-        if (parsed.setupComplete !== undefined) {
-          console.log("[Gemini Live] Setup complete confirmed by server.");
-          if (liveTurns.length > 0) {
-            const clientContentMsg = {
-              clientContent: {
-                turns: liveTurns,
-                turnComplete: true
+        let historyString = "";
+        if (historyMessages.length > 0) {
+          historyString += "\n\n=========================================\n=== CONVERSATION HISTORY ===\n=========================================\n";
+          for (const msg of historyMessages) {
+            const role = msg.role === "model" || msg.role === "assistant" ? "Assistant" : "User";
+            let msgText = "";
+            const parts = Array.isArray(msg.parts) ? msg.parts : (typeof msg.content === "string" ? [{ text: msg.content }] : []);
+            for (const part of parts) {
+              if (part.text) {
+                msgText += part.text;
+              } else if (part.thought) {
+                // skip internal thinking from history
+              } else if (part.functionCall) {
+                msgText += `\n[Called Tool: ${part.functionCall.name} with arguments: ${JSON.stringify(part.functionCall.args || {})}]\n`;
+              } else if (part.functionResponse) {
+                const res = part.functionResponse.response?.result !== undefined ? part.functionResponse.response.result : part.functionResponse.response;
+                msgText += `\n[Tool Response for ${part.functionResponse.name}: ${JSON.stringify(cleanToolResponse(res))}]\n`;
+              } else if (part.inlineData) {
+                msgText += `\n[Inline ${part.inlineData.mimeType || 'media'} data provided]\n`;
               }
-            };
-            console.log("[Gemini Live] Outgoing clientContent frame:", JSON.stringify(clientContentMsg).substring(0, 200) + "...");
-            ws.send(JSON.stringify(clientContentMsg));
-          } else {
-            finish();
-          }
-          return;
-        }
-
-        if (parsed.error) {
-          console.error("[Gemini Live] Server error received:", parsed.error);
-          const socketErr = new Error(`Gemini Live Error (${parsed.error.code || 'API'}): ${parsed.error.message || JSON.stringify(parsed.error)}`);
-          setError(socketErr);
-          try { ws.close(); } catch (_) {}
-          return;
-        }
-
-        let hasFunctionCall = false;
-
-        // Handle thoughts, function calls, text, and pcm audio in modelTurn
-        if (parsed.serverContent?.modelTurn?.parts) {
-          for (const part of parsed.serverContent.modelTurn.parts) {
-            if (part.thought) {
-              const thoughtText = typeof part.thought === "string" ? part.thought : part.text;
-              if (thoughtText) {
-                pushChunk({ type: "thought", text: thoughtText });
-              }
-            } else if (part.functionCall) {
-              hasFunctionCall = true;
-              const callId = part.functionCall.id || ("call_" + Math.random().toString(36).substring(2, 8));
-              pushChunk({
-                type: "functionCall",
-                name: part.functionCall.name,
-                args: part.functionCall.args,
-                callId
-              });
-            } else if (part.text) {
-              pushChunk({ type: "text", text: part.text });
-            } else if (part.inlineData?.data) {
-              if (part.inlineData.mimeType && part.inlineData.mimeType.startsWith("audio/pcm")) {
-                audioChunks.push(base64ToUint8Array(part.inlineData.data));
-                audioMimeType = part.inlineData.mimeType;
-              }
+            }
+            if (msgText.trim()) {
+              historyString += `${role}: ${msgText.trim()}\n`;
             }
           }
         }
 
-        // Top-level toolCall payload
-        if (parsed.toolCall?.functionCalls) {
-          hasFunctionCall = true;
-          for (const fc of parsed.toolCall.functionCalls) {
-            const callId = fc.id || ("call_" + Math.random().toString(36).substring(2, 8));
-            pushChunk({
-              type: "functionCall",
-              name: fc.name,
-              args: fc.args,
-              callId
-            });
+        const liveTurns = [];
+        if (currentMessage) {
+          const parts = [];
+          const textParts = [];
+          if (historyString.trim()) {
+            textParts.push(historyString.trim() + "\n\n=== CURRENT PROMPT ===\n");
+          }
+
+          const currentParts = Array.isArray(currentMessage.parts) ? currentMessage.parts : (typeof currentMessage.content === "string" ? [{ text: currentMessage.content }] : (typeof currentMessage.text === "string" ? [{ text: currentMessage.text }] : []));
+          for (const part of currentParts) {
+            if (part.text) {
+              textParts.push(part.text);
+            } else if (part.inlineData && part.inlineData.data) {
+              const cleanB64 = part.inlineData.data.includes(",") ? part.inlineData.data.split(",")[1] : part.inlineData.data;
+              parts.push({
+                inlineData: {
+                  mimeType: part.inlineData.mimeType || "image/jpeg",
+                  data: cleanB64
+                }
+              });
+            }
+          }
+
+          if (textParts.length > 0) {
+            parts.unshift({ text: textParts.join("") });
+          }
+
+          if (parts.length > 0) {
+            const role = currentMessage.role === "model" || currentMessage.role === "assistant" ? "model" : "user";
+            liveTurns.push({ role, parts });
           }
         }
 
-        // Handle speech transcription
-        if (parsed.serverContent?.outputTranscription?.text) {
-          pushChunk({ type: "text", text: parsed.serverContent.outputTranscription.text });
+        if (liveTurns.length > 0) {
+          const clientContentMsg = {
+            clientContent: {
+              turns: liveTurns,
+              turnComplete: true
+            }
+          };
+          console.log("[Gemini Live] Outgoing initial clientContent frame:", JSON.stringify(clientContentMsg).substring(0, 200) + "...");
+          session.ws.send(JSON.stringify(clientContentMsg));
         }
-
-        // When a function call is requested, flush any spoken audio, complete current turn and close socket.
-        // The outer execution loop in index.html will execute the tool and invoke stream() for the next turn.
-        if (hasFunctionCall) {
-          console.log("[Gemini Live] Tool call detected, completing current turn.");
-          await flushAudio();
-          try { ws.close(); } catch (_) {}
-          finish();
-          return;
-        }
-
-        // Turn completed normally
-        if (parsed.serverContent?.turnComplete) {
-          console.log("[Gemini Live] Server turnComplete flag received.");
-          await flushAudio();
-          try { ws.close(); } catch (_) {}
-          finish();
-        }
-      } catch (err) {
-        console.error("[Gemini Live] Error handling incoming socket frame:", err);
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error("[Gemini Live] WebSocket client error:", err);
-      const socketErr = new Error("Gemini Live WebSocket connection failed. Please check your Gemini API key and network.");
-      setError(socketErr);
-    };
-
-    ws.onclose = async (event) => {
-      console.log(`[Gemini Live] WebSocket closed (Code: ${event.code}, Reason: ${event.reason || 'none'}).`);
-      await flushAudio();
-      if (event.code !== 1000 && !isFinished) {
-        setError(new Error(`Gemini Live connection closed (Code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`));
       } else {
-        finish();
+        // Continuing open session: send only the new user turn
+        const currentMessage = (messages || []).filter(m => m.role !== "system").slice(-1)[0];
+        const parts = [];
+        if (currentMessage) {
+          const currentParts = Array.isArray(currentMessage.parts) ? currentMessage.parts : (typeof currentMessage.content === "string" ? [{ text: currentMessage.content }] : (typeof currentMessage.text === "string" ? [{ text: currentMessage.text }] : []));
+          for (const part of currentParts) {
+            if (part.text) {
+              parts.push({ text: part.text });
+            } else if (part.inlineData && part.inlineData.data) {
+              const cleanB64 = part.inlineData.data.includes(",") ? part.inlineData.data.split(",")[1] : part.inlineData.data;
+              parts.push({
+                inlineData: {
+                  mimeType: part.inlineData.mimeType || "image/jpeg",
+                  data: cleanB64
+                }
+              });
+            }
+          }
+        }
+
+        if (parts.length > 0) {
+          const clientContentMsg = {
+            clientContent: {
+              turns: [{ role: "user", parts }],
+              turnComplete: true
+            }
+          };
+          console.log("[Gemini Live] Outgoing follow-up user turn frame:", JSON.stringify(clientContentMsg).substring(0, 200) + "...");
+          session.ws.send(JSON.stringify(clientContentMsg));
+        }
       }
-    };
+    }
 
     try {
       while (true) {
@@ -526,15 +695,9 @@ export default {
         }
       }
     } finally {
-      try {
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onerror = null;
-        ws.onclose = null;
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      } catch (_) {}
+      if (session && session.currentConsumer === consumer) {
+        session.currentConsumer = null;
+      }
     }
   }
 };
