@@ -1181,6 +1181,7 @@ async function getOrCreateWorkspaceSecurity(workspaceId) {
     denied_commands: JSON.parse(settings.denied_commands || '[]'),
     harmless_commands: JSON.parse(settings.harmless_commands || '[]'),
     allowed_tools: JSON.parse(settings.allowed_tools || '[]'),
+    ask_tools: JSON.parse(settings.ask_tools || '[]'),
     denied_tools: JSON.parse(settings.denied_tools || '[]'),
     harmless_tools: JSON.parse(settings.harmless_tools || '[]')
   };
@@ -1309,15 +1310,14 @@ async function verifyToolPermission(workspaceId, sessionId, toolName, args) {
   }
 
   let shouldPrompt = true;
-  if (security.security_mode === 'relax') {
+  if (security.ask_tools && security.ask_tools.includes(toolName)) {
+    shouldPrompt = true;
+  } else if (security.allowed_tools && security.allowed_tools.includes(toolName)) {
+    shouldPrompt = false;
+  } else if (security.security_mode === 'relax') {
     shouldPrompt = false;
   } else if (security.security_mode === 'auto_harmless') {
-    if ((security.allowed_tools && security.allowed_tools.includes(toolName)) || 
-        (security.harmless_tools && security.harmless_tools.includes(toolName))) {
-      shouldPrompt = false;
-    }
-  } else { // 'ask'
-    if (security.allowed_tools && security.allowed_tools.includes(toolName)) {
+    if (security.harmless_tools && security.harmless_tools.includes(toolName)) {
       shouldPrompt = false;
     }
   }
@@ -2734,10 +2734,10 @@ app.get('/api/workspace/:id/security', async (req, res) => {
 app.put('/api/workspace/:id/security', async (req, res) => {
   try {
     const { id } = req.params;
-    const { security_mode, allowed_commands, denied_commands, harmless_commands, allowed_tools, denied_tools, harmless_tools } = req.body;
+    const { security_mode, allowed_commands, denied_commands, harmless_commands, allowed_tools, ask_tools, denied_tools, harmless_tools } = req.body;
     if (!security_mode || 
-        !Array.isArray(allowed_commands) || !Array.isArray(denied_commands) || !Array.isArray(harmless_commands) ||
-        !Array.isArray(allowed_tools) || !Array.isArray(denied_tools) || !Array.isArray(harmless_tools)) {
+        !Array.isArray(allowed_commands) || !Array.isArray(denied_commands) ||
+        !Array.isArray(allowed_tools) || !Array.isArray(denied_tools)) {
       return res.status(400).json({ error: 'Missing security settings fields' });
     }
     
@@ -2746,9 +2746,9 @@ app.put('/api/workspace/:id/security', async (req, res) => {
     
     await dbRun(
       `UPDATE workspace_security 
-       SET security_mode = ?, allowed_commands = ?, denied_commands = ?, harmless_commands = ?, allowed_tools = ?, denied_tools = ?, harmless_tools = ? 
+       SET security_mode = ?, allowed_commands = ?, denied_commands = ?, harmless_commands = ?, allowed_tools = ?, ask_tools = ?, denied_tools = ?, harmless_tools = ? 
        WHERE workspace_id = ?`,
-      [security_mode, JSON.stringify(allowed_commands), JSON.stringify(denied_commands), JSON.stringify(harmless_commands), JSON.stringify(allowed_tools), JSON.stringify(denied_tools), JSON.stringify(harmless_tools), id]
+      [security_mode, JSON.stringify(allowed_commands), JSON.stringify(denied_commands), JSON.stringify(harmless_commands || []), JSON.stringify(allowed_tools), JSON.stringify(ask_tools || []), JSON.stringify(denied_tools), JSON.stringify(harmless_tools || []), id]
     );
     
     res.json({ message: 'Security settings updated' });

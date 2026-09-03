@@ -759,10 +759,9 @@
                 </div>
 
                 <!-- Tabs for rules types -->
-                <div class="flex border-b border-zinc-800">
+                <div id="security-rule-subtabs-container" class="flex border-b border-zinc-800 select-none">
                   <button type="button" onclick="switchSecurityRuleTab('allowed')" id="btn-security-tab-allowed" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-brand-accent border-b-2 border-brand-accent transition-all">Allowed</button>
                   <button type="button" onclick="switchSecurityRuleTab('denied')" id="btn-security-tab-denied" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b-2 border-transparent hover:text-zinc-300 transition-all">Denied</button>
-                  <button type="button" onclick="switchSecurityRuleTab('harmless')" id="btn-security-tab-harmless" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b-2 border-transparent hover:text-zinc-300 transition-all">Harmless</button>
                 </div>
 
                 <!-- Add rule input -->
@@ -3331,12 +3330,11 @@ Group files by component. Use markdown links with relative paths and detail exac
       securityMode: "auto_harmless",
       allowedCommands: [],
       deniedCommands: [],
-      harmlessCommands: [],
       allowedTools: [],
+      askTools: [],
       deniedTools: [],
-      harmlessTools: [],
       activeRuleType: "commands", // 'commands' | 'tools'
-      activeRuleTab: "allowed" // 'allowed' | 'denied' | 'harmless'
+      activeRuleTab: "allowed" // 'allowed' | 'ask' | 'denied'
     };
 
     let editExplorerState = {
@@ -3376,10 +3374,9 @@ Group files by component. Use markdown links with relative paths and detail exac
         editWorkspaceState.securityMode = security.security_mode || "auto_harmless";
         editWorkspaceState.allowedCommands = security.allowed_commands || [];
         editWorkspaceState.deniedCommands = security.denied_commands || [];
-        editWorkspaceState.harmlessCommands = security.harmless_commands || [];
         editWorkspaceState.allowedTools = security.allowed_tools || [];
+        editWorkspaceState.askTools = security.ask_tools || [];
         editWorkspaceState.deniedTools = security.denied_tools || [];
-        editWorkspaceState.harmlessTools = security.harmless_tools || [];
         editWorkspaceState.activeRuleType = "commands";
         editWorkspaceState.activeRuleTab = "allowed";
 
@@ -3395,20 +3392,11 @@ Group files by component. Use markdown links with relative paths and detail exac
 
         document.getElementById('edit-ws-security-mode').value = editWorkspaceState.securityMode;
 
-        // Reset and show rules type toggle
-        const btnCmd = document.getElementById('btn-security-type-commands');
-        const btnTools = document.getElementById('btn-security-type-tools');
-        if (btnCmd && btnTools) {
-          btnCmd.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all";
-          btnTools.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all";
-          document.getElementById('security-rule-input').placeholder = "e.g. git status, npm test";
-        }
-
         // Render folders list
         renderEditWorkspaceFoldersList();
         
-        // Render security tab and rules list
-        switchSecurityRuleTab('allowed');
+        // Initialize rule type & subtabs
+        switchSecurityRuleType('commands');
 
         // Set up and load edit directory explorer starting at first workspace folder path
         editExplorerState.currentPath = ws.folders_path[0] || '/';
@@ -3459,32 +3447,51 @@ Group files by component. Use markdown links with relative paths and detail exac
       
       const btnCmd = document.getElementById('btn-security-type-commands');
       const btnTools = document.getElementById('btn-security-type-tools');
+      const tabsContainer = document.getElementById('security-rule-subtabs-container');
       
       if (type === 'commands') {
         btnCmd.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all";
         btnTools.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all";
         document.getElementById('security-rule-input').placeholder = "e.g. git status, npm test";
+        
+        if (tabsContainer) {
+          tabsContainer.innerHTML = `
+            <button type="button" onclick="switchSecurityRuleTab('allowed')" id="btn-security-tab-allowed" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider transition-all">Allowed</button>
+            <button type="button" onclick="switchSecurityRuleTab('denied')" id="btn-security-tab-denied" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider transition-all">Denied</button>
+          `;
+        }
+
+        if (editWorkspaceState.activeRuleTab !== 'allowed' && editWorkspaceState.activeRuleTab !== 'denied') {
+          editWorkspaceState.activeRuleTab = 'allowed';
+        }
       } else {
         btnTools.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded bg-brand-accent text-white transition-all";
         btnCmd.className = "flex-1 text-center py-1.5 text-[10px] font-bold uppercase rounded text-zinc-500 hover:text-zinc-300 transition-all";
-        document.getElementById('security-rule-input').placeholder = "e.g. write_file, edit_file";
+        document.getElementById('security-rule-input').placeholder = "e.g. write_file, edit_file, execute_command";
+        
+        if (tabsContainer) {
+          tabsContainer.innerHTML = `
+            <button type="button" onclick="switchSecurityRuleTab('allowed')" id="btn-security-tab-allowed" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider transition-all">Allowed</button>
+            <button type="button" onclick="switchSecurityRuleTab('ask')" id="btn-security-tab-ask" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider transition-all">Ask</button>
+            <button type="button" onclick="switchSecurityRuleTab('denied')" id="btn-security-tab-denied" class="flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider transition-all">Denied</button>
+          `;
+        }
       }
       
-      renderSecurityRulesList();
+      switchSecurityRuleTab(editWorkspaceState.activeRuleTab || 'allowed');
     };
 
     window.switchSecurityRuleTab = function(tabName) {
       editWorkspaceState.activeRuleTab = tabName;
       
-      const tabs = ['allowed', 'denied', 'harmless'];
-      tabs.forEach(tab => {
+      const allTabs = ['allowed', 'ask', 'denied'];
+      allTabs.forEach(tab => {
         const btn = document.getElementById(`btn-security-tab-${tab}`);
+        if (!btn) return;
         if (tab === tabName) {
-          btn.classList.add('text-brand-accent', 'border-brand-accent');
-          btn.classList.remove('text-zinc-500', 'border-transparent');
+          btn.className = "flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-brand-accent border-b-2 border-brand-accent transition-all";
         } else {
-          btn.classList.remove('text-brand-accent', 'border-brand-accent');
-          btn.classList.add('text-zinc-500', 'border-transparent');
+          btn.className = "flex-1 text-center py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b-2 border-transparent hover:text-zinc-300 transition-all";
         }
       });
       
@@ -3502,14 +3509,13 @@ Group files by component. Use markdown links with relative paths and detail exac
       if (type === 'commands') {
         if (tab === 'allowed') list = editWorkspaceState.allowedCommands;
         else if (tab === 'denied') list = editWorkspaceState.deniedCommands;
-        else list = editWorkspaceState.harmlessCommands;
       } else {
         if (tab === 'allowed') list = editWorkspaceState.allowedTools;
+        else if (tab === 'ask') list = editWorkspaceState.askTools;
         else if (tab === 'denied') list = editWorkspaceState.deniedTools;
-        else list = editWorkspaceState.harmlessTools;
       }
       
-      if (list.length === 0) {
+      if (!list || list.length === 0) {
         container.innerHTML = `<div class="text-[10px] text-zinc-600 italic py-4 text-center">No rules configured in this tab.</div>`;
         return;
       }
@@ -3518,7 +3524,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         const row = document.createElement('div');
         row.className = "flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded p-1.5 px-2.5 text-[10px] font-mono text-zinc-300";
         row.innerHTML = `
-          <span class="truncate pr-4">${rule}</span>
+          <span class="truncate pr-4">${escapeHtml(rule)}</span>
           <button onclick="removeSecurityRule(${index})" class="text-zinc-600 hover:text-red-400 p-0.5"><i class="fa-solid fa-trash text-[9px]"></i></button>
         `;
         container.appendChild(row);
@@ -3529,19 +3535,20 @@ Group files by component. Use markdown links with relative paths and detail exac
       const type = editWorkspaceState.activeRuleType;
       const tab = editWorkspaceState.activeRuleTab;
       
-      let list = [];
+      let list = null;
       if (type === 'commands') {
         if (tab === 'allowed') list = editWorkspaceState.allowedCommands;
         else if (tab === 'denied') list = editWorkspaceState.deniedCommands;
-        else list = editWorkspaceState.harmlessCommands;
       } else {
         if (tab === 'allowed') list = editWorkspaceState.allowedTools;
+        else if (tab === 'ask') list = editWorkspaceState.askTools;
         else if (tab === 'denied') list = editWorkspaceState.deniedTools;
-        else list = editWorkspaceState.harmlessTools;
       }
       
-      list.splice(index, 1);
-      renderSecurityRulesList();
+      if (list) {
+        list.splice(index, 1);
+        renderSecurityRulesList();
+      }
     };
 
     window.addSecurityRuleFromInput = function() {
@@ -3552,17 +3559,18 @@ Group files by component. Use markdown links with relative paths and detail exac
       const type = editWorkspaceState.activeRuleType;
       const tab = editWorkspaceState.activeRuleTab;
       
-      let list = [];
+      let list = null;
       if (type === 'commands') {
         if (tab === 'allowed') list = editWorkspaceState.allowedCommands;
         else if (tab === 'denied') list = editWorkspaceState.deniedCommands;
-        else list = editWorkspaceState.harmlessCommands;
       } else {
         if (tab === 'allowed') list = editWorkspaceState.allowedTools;
+        else if (tab === 'ask') list = editWorkspaceState.askTools;
         else if (tab === 'denied') list = editWorkspaceState.deniedTools;
-        else list = editWorkspaceState.harmlessTools;
       }
       
+      if (!list) return;
+
       if (list.includes(val)) {
         showToast('Duplicate Rule', 'This rule already exists.', 'info');
         return;
@@ -3696,10 +3704,9 @@ Group files by component. Use markdown links with relative paths and detail exac
             security_mode,
             allowed_commands: editWorkspaceState.allowedCommands,
             denied_commands: editWorkspaceState.deniedCommands,
-            harmless_commands: editWorkspaceState.harmlessCommands,
             allowed_tools: editWorkspaceState.allowedTools,
-            denied_tools: editWorkspaceState.deniedTools,
-            harmless_tools: editWorkspaceState.harmlessTools
+            ask_tools: editWorkspaceState.askTools,
+            denied_tools: editWorkspaceState.deniedTools
           })
         });
         
