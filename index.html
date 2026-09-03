@@ -3656,6 +3656,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
               // Execute each tool on backend
               const toolResponseParts = [];
+              const collectedInlineImages = [];
               for (const call of pendingCalls) {
                 try {
                   const execRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/tools/execute`, {
@@ -3683,7 +3684,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                     }
                   });
                   if (toolResult?.inlineImage?.data && !toolResult.inlineImage.data.startsWith('[')) {
-                    toolResponseParts.push({
+                    collectedInlineImages.push({
                       inlineData: {
                         mimeType: toolResult.inlineImage.mimeType || 'image/jpeg',
                         data: toolResult.inlineImage.data
@@ -3737,6 +3738,43 @@ Group files by component. Use markdown links with relative paths and detail exac
                 role: 'user',
                 parts: toolResponseParts
               });
+
+              // If tools returned inline images (e.g. screenshots, visual inspection), inject synthetic turn pair (matching branch main)
+              if (collectedInlineImages.length > 0) {
+                const paddingText = "padding for image";
+                conversationHistory.push({
+                  role: 'assistant',
+                  parts: [{ text: paddingText }]
+                });
+                conversationHistory.push({
+                  role: 'user',
+                  parts: collectedInlineImages
+                });
+
+                if (state.activeWorkspaceId && state.activeSessionId) {
+                  try {
+                    const saveImgRes = await fetch(`/api/workspace/${encodeURIComponent(state.activeWorkspaceId)}/session/${encodeURIComponent(state.activeSessionId)}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        parts: collectedInlineImages,
+                        parentId: currentParentMsgId
+                      })
+                    });
+                    if (saveImgRes.ok) {
+                      const contentType = saveImgRes.headers.get('content-type') || '';
+                      if (contentType.includes('application/json')) {
+                        const stData = await saveImgRes.json();
+                        if (stData && stData.messageId) {
+                          currentParentMsgId = stData.messageId;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    console.warn("Failed to save synthetic image turn:", e);
+                  }
+                }
+              }
 
               // Continue loop so the model reads the tool output
               keepRunning = true;
