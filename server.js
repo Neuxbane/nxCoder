@@ -693,9 +693,12 @@ async function initDatabase() {
     harmless_commands TEXT DEFAULT '["npm test", "git status", "git diff", "ls", "pwd", "echo", "node -v", "npm -v"]',
     allowed_tools TEXT DEFAULT '[]',
     denied_tools TEXT DEFAULT '[]',
-    harmless_tools TEXT DEFAULT '["list_dir", "read_file", "regex_search", "view_image", "wait", "wait_terminal", "get_sub_agent_status", "wait_sub_agent", "set_session_name"]',
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
   )`);
+
+  try {
+    await dbRun(`ALTER TABLE workspace_security ADD COLUMN ask_tools TEXT DEFAULT '[]'`);
+  } catch (e) {}
 
   await dbRun(`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -1153,6 +1156,10 @@ async function editFileTool(workspaceId, sessionId, filePath, search, replace, o
 }
 
 const pendingApprovals = new Map();
+const sessionAllowedTools = new Map();
+const sessionAllowedCommands = new Map();
+const globalAllowedTools = new Set();
+const globalAllowedCommands = new Set();
 
 async function getOrCreateWorkspaceSecurity(workspaceId) {
   let settings = await dbGet("SELECT * FROM workspace_security WHERE workspace_id = ?", [workspaceId]);
@@ -1289,6 +1296,11 @@ async function verifyToolPermission(workspaceId, sessionId, toolName, args) {
   if (!workspaceId) return; // Skip if no workspace is active
   if (toolName === 'execute_command') return; // Command has its own permission handler
 
+  // Check if allowed globally or in this session
+  if (globalAllowedTools.has(toolName) || (sessionId && sessionAllowedTools.get(sessionId)?.has(toolName))) {
+    return;
+  }
+
   const security = await getOrCreateWorkspaceSecurity(workspaceId);
 
   // Check if tool is denied
@@ -1311,16 +1323,40 @@ async function verifyToolPermission(workspaceId, sessionId, toolName, args) {
   }
 
   if (shouldPrompt) {
-    const approvalAction = await promptUserForToolApproval(workspaceId, sessionId, toolName, args);
-    if (approvalAction === 'deny') {
-      throw new Error(`Tool execution denied by user: "${toolName}"`);
-    } else if (approvalAction === 'always_allow') {
-      const updatedAllowed = [...(security.allowed_tools || []), toolName];
+    const approvalResult = await promptUserForToolApproval(workspaceId, sessionId, toolName, args);
+    let action = 'allow_once';
+    let feedback = '';
+    if (typeof approvalResult === 'object' && approvalResult !== null) {
+      action = approvalResult.action || 'allow_once';
+      feedback = approvalResult.feedback || '';
+    } else {
+      action = approvalResult || 'allow_once';
+    }
+
+    if (action === 'deny' || action === 'skip') {
+      const msg = feedback ? `Tool execution denied by user: "${toolName}". User instruction: ${feedback}` : `Tool execution denied by user: "${toolName}"`;
+      throw new Error(msg);
+    } else if (action === 'always_allow_session') {
+      if (sessionId) {
+        if (!sessionAllowedTools.has(sessionId)) sessionAllowedTools.set(sessionId, new Set());
+        sessionAllowedTools.get(sessionId).add(toolName);
+      }
+      console.log(`Tool "${toolName}" added to sessionAllowedTools for session ${sessionId}`);
+    } else if (action === 'always_allow_project' || action === 'always_allow') {
+      const updatedAllowed = Array.from(new Set([...(security.allowed_tools || []), toolName]));
       await dbRun(
         "UPDATE workspace_security SET allowed_tools = ? WHERE workspace_id = ?",
         [JSON.stringify(updatedAllowed), workspaceId]
       );
       console.log(`Tool "${toolName}" added to allowed_tools for workspace ${workspaceId}`);
+    } else if (action === 'always_allow_global') {
+      globalAllowedTools.add(toolName);
+      const updatedAllowed = Array.from(new Set([...(security.allowed_tools || []), toolName]));
+      await dbRun(
+        "UPDATE workspace_security SET allowed_tools = ? WHERE workspace_id = ?",
+        [JSON.stringify(updatedAllowed), workspaceId]
+      );
+      console.log(`Tool "${toolName}" added to globalAllowedTools`);
     }
   }
 }
@@ -1333,37 +1369,65 @@ async function executeMcpToolWithSecurity(toolName, enrichedArgs) {
 
 async function executeCommandTool(workspaceId, sessionId, command, targetPath, name) {
   try {
-    const security = await getOrCreateWorkspaceSecurity(workspaceId);
-    
-    if (isCommandMatched(command, security.denied_commands)) {
-      return { error: `Access Denied: Command "${command}" is denied by security settings of this workspace.` };
-    }
-    
-    let shouldPrompt = true;
-    if (security.security_mode === 'relax') {
-      shouldPrompt = false;
-    } else if (security.security_mode === 'auto_harmless') {
-      if (isCommandMatched(command, security.allowed_commands) || isCommandMatched(command, security.harmless_commands)) {
-        shouldPrompt = false;
+    // Check if allowed globally or in this session
+    if (isCommandMatched(command, Array.from(globalAllowedCommands)) || (sessionId && isCommandMatched(command, Array.from(sessionAllowedCommands.get(sessionId) || [])))) {
+      // Allowed via session or global
+    } else {
+      const security = await getOrCreateWorkspaceSecurity(workspaceId);
+      
+      if (isCommandMatched(command, security.denied_commands)) {
+        return { error: `Access Denied: Command "${command}" is denied by security settings of this workspace.` };
       }
-    } else { // 'ask'
-      if (isCommandMatched(command, security.allowed_commands)) {
+      
+      let shouldPrompt = true;
+      if (security.security_mode === 'relax') {
         shouldPrompt = false;
+      } else if (security.security_mode === 'auto_harmless') {
+        if (isCommandMatched(command, security.allowed_commands) || isCommandMatched(command, security.harmless_commands)) {
+          shouldPrompt = false;
+        }
+      } else { // 'ask'
+        if (isCommandMatched(command, security.allowed_commands)) {
+          shouldPrompt = false;
+        }
       }
-    }
-    
-    if (shouldPrompt) {
-      const approvalAction = await promptUserForCommandApproval(workspaceId, sessionId, command);
-      if (approvalAction === 'deny') {
-        return { error: `Permission Denied: Execution of "${command}" was rejected by the user.` };
-      } else if (approvalAction === 'always_allow') {
-        // Add to allowed_commands
-        const updatedAllowed = [...security.allowed_commands, command.trim()];
-        await dbRun(
-          "UPDATE workspace_security SET allowed_commands = ? WHERE workspace_id = ?",
-          [JSON.stringify(updatedAllowed), workspaceId]
-        );
-        console.log(`Command "${command}" added to allowed_commands for workspace ${workspaceId}`);
+      
+      if (shouldPrompt) {
+        const approvalResult = await promptUserForCommandApproval(workspaceId, sessionId, command);
+        let action = 'allow_once';
+        let feedback = '';
+        if (typeof approvalResult === 'object' && approvalResult !== null) {
+          action = approvalResult.action || 'allow_once';
+          feedback = approvalResult.feedback || '';
+        } else {
+          action = approvalResult || 'allow_once';
+        }
+
+        if (action === 'deny' || action === 'skip') {
+          const msg = feedback ? `Permission Denied: Execution of "${command}" was rejected by the user. User instruction: ${feedback}` : `Permission Denied: Execution of "${command}" was rejected by the user.`;
+          return { error: msg };
+        } else if (action === 'always_allow_session') {
+          if (sessionId) {
+            if (!sessionAllowedCommands.has(sessionId)) sessionAllowedCommands.set(sessionId, new Set());
+            sessionAllowedCommands.get(sessionId).add(command.trim());
+          }
+          console.log(`Command "${command}" added to sessionAllowedCommands for session ${sessionId}`);
+        } else if (action === 'always_allow_project' || action === 'always_allow') {
+          const updatedAllowed = Array.from(new Set([...security.allowed_commands, command.trim()]));
+          await dbRun(
+            "UPDATE workspace_security SET allowed_commands = ? WHERE workspace_id = ?",
+            [JSON.stringify(updatedAllowed), workspaceId]
+          );
+          console.log(`Command "${command}" added to allowed_commands for workspace ${workspaceId}`);
+        } else if (action === 'always_allow_global') {
+          globalAllowedCommands.add(command.trim());
+          const updatedAllowed = Array.from(new Set([...security.allowed_commands, command.trim()]));
+          await dbRun(
+            "UPDATE workspace_security SET allowed_commands = ? WHERE workspace_id = ?",
+            [JSON.stringify(updatedAllowed), workspaceId]
+          );
+          console.log(`Command "${command}" added to globalAllowedCommands`);
+        }
       }
     }
 
@@ -4664,18 +4728,18 @@ wss.on('connection', (ws) => {
         sessionAbortFlags.set(ws.sessionId, true);
         sendToSession(ws.sessionId, { type: 'DONE' });
       } else if (payload.type === 'COMMAND_APPROVAL_RESPONSE') {
-        const { approvalId, action } = payload;
+        const { approvalId, action, feedback } = payload;
         const approval = pendingApprovals.get(approvalId);
         if (approval) {
           pendingApprovals.delete(approvalId);
-          approval.resolve(action);
+          approval.resolve({ action, feedback });
         }
       } else if (payload.type === 'TOOL_APPROVAL_RESPONSE') {
-        const { approvalId, action } = payload;
+        const { approvalId, action, feedback } = payload;
         const approval = pendingApprovals.get(approvalId);
         if (approval) {
           pendingApprovals.delete(approvalId);
-          approval.resolve(action);
+          approval.resolve({ action, feedback });
         }
       }
     } catch (err) {

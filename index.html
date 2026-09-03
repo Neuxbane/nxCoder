@@ -457,67 +457,7 @@
       </div>
     </section>
 
-    <!-- Command Security Approval Overlay Modal -->
-    <div id="command-approval-modal" class="fixed inset-0 bg-brand-black/95 backdrop-blur-md z-[100] hidden items-center justify-center p-4">
-      <div class="bg-brand-dark border-2 border-brand-accent/30 rounded-xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative">
-        
-        <!-- Header -->
-        <div class="flex items-center space-x-3 text-brand-accent">
-          <i class="fa-solid fa-shield-halved text-xl"></i>
-          <h3 id="approval-header-label" class="text-sm font-bold text-white uppercase tracking-wider">Agent Permission Required</h3>
-        </div>
-        
-        <!-- Warning/Context -->
-        <p id="approval-description-text" class="text-[10px] text-zinc-400 font-sans leading-normal">
-          The coding agent is requesting permission to execute the following terminal command on your local system:
-        </p>
 
-        <!-- Command Display Box -->
-        <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-4 font-mono text-xs text-brand-accent overflow-x-auto shadow-inner leading-relaxed">
-          <span id="approval-command-prefix" class="text-zinc-600 select-none mr-2">$</span><code id="approval-command-display">npm run dev</code>
-        </div>
-
-        <!-- Selection Action Options -->
-        <div class="space-y-2">
-          <!-- Allow Once Option -->
-          <label class="flex items-start space-x-3 p-3 rounded-lg border border-zinc-800 bg-brand-black/40 hover:bg-zinc-900/60 cursor-pointer select-none transition-all group">
-            <input type="radio" name="approval-action" value="allow_once" checked class="mt-0.5 text-brand-accent focus:ring-brand-accent bg-zinc-900 border-zinc-700">
-            <div class="space-y-0.5">
-              <span class="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">Allow Once <span class="text-[9px] bg-zinc-800 text-zinc-400 px-1 py-0.2 rounded ml-1.5 font-mono">default (Enter)</span></span>
-              <p class="text-[9px] text-zinc-500">Run this command once. Agent must ask again for any future commands.</p>
-            </div>
-          </label>
-
-          <!-- Always Allow Option -->
-          <label class="flex items-start space-x-3 p-3 rounded-lg border border-zinc-800 bg-brand-black/40 hover:bg-zinc-900/60 cursor-pointer select-none transition-all group">
-            <input type="radio" name="approval-action" value="always_allow" class="mt-0.5 text-brand-accent focus:ring-brand-accent bg-zinc-900 border-zinc-700">
-            <div class="space-y-0.5">
-              <span id="approval-always-allow-label" class="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">Always Allow</span>
-              <p id="approval-always-allow-description" class="text-[9px] text-zinc-500">Add this command prefix to Allowed list. Runs automatically without future prompts.</p>
-            </div>
-          </label>
-
-          <!-- Deny Option -->
-          <label class="flex items-start space-x-3 p-3 rounded-lg border border-zinc-800 bg-brand-black/40 hover:bg-zinc-900/60 cursor-pointer select-none transition-all group">
-            <input type="radio" name="approval-action" value="deny" class="mt-0.5 text-brand-accent focus:ring-brand-accent bg-zinc-900 border-zinc-700">
-            <div class="space-y-0.5">
-              <span class="text-xs font-semibold text-zinc-200 group-hover:text-white transition-colors">Deny Execution</span>
-              <p class="text-[9px] text-zinc-500">Abort this command. nxCoder will receive a security error response.</p>
-            </div>
-          </label>
-        </div>
-
-        <!-- Bottom Actions -->
-        <div class="flex items-center justify-between border-t border-zinc-800 pt-4">
-          <span class="text-[9px] text-zinc-500 font-mono">Press <kbd class="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300">Enter</kbd> to confirm</span>
-          <button id="btn-submit-command-approval" class="bg-brand-accent hover:bg-brand-accent/90 text-white text-xs font-bold px-5 py-2.5 rounded-lg shadow-lg transition-all flex items-center space-x-2">
-            <i class="fa-solid fa-check"></i>
-            <span>Confirm & Resume</span>
-          </button>
-        </div>
-
-      </div>
-    </div>
 
     <!-- ========================================== -->
     <!-- VIEW D: MARKETPLACE HUB VIEW               -->
@@ -902,16 +842,6 @@
             <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-zinc-500"></i>
           </button>
 
-          <button onclick="toggleSourceControlView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
-            <span class="flex items-center"><i class="fa-solid fa-code-branch mr-2 text-zinc-500"></i> Source Control</span>
-            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
-          </button>
-
-          <button onclick="toggleArtifactsView(true)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
-            <span class="flex items-center"><i class="fa-solid fa-cube mr-2 text-zinc-500"></i> Artifacts</span>
-            <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
-          </button>
-
           <button onclick="openEditWorkspacePanel(state.activeWorkspaceId)" class="w-full text-left py-1 px-2 rounded hover:bg-brand-gray/30 text-xs text-zinc-400 hover:text-zinc-200 flex items-center justify-between transition-colors">
             <span class="flex items-center"><i class="fa-solid fa-sliders mr-2 text-zinc-500"></i> Security & Settings</span>
             <i class="fa-solid fa-chevron-right text-[9px] text-zinc-500"></i>
@@ -928,137 +858,155 @@
       <div class="flex-1 flex flex-col bg-brand-darker overflow-hidden min-w-0 relative">
         
         <!-- Live Run Headers / Active configuration logs -->
-        <div class="px-5 py-2.5 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between text-xs text-zinc-400 select-none shrink-0">
+        <div class="px-5 py-2 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between text-xs text-zinc-400 select-none shrink-0">
           <div class="flex items-center space-x-2">
             <i class="fa-solid fa-terminal text-brand-accent mr-1"></i>
             <span id="session-running-model" class="font-mono text-zinc-300">gemma-4-31b-it</span>
             <span class="text-zinc-700">|</span>
             <span class="text-[11px] text-zinc-400" id="session-turn-counter">Loading Turn history bounds...</span>
           </div>
-          <div class="flex items-center">
-            <span id="executing-loader" class="hidden items-center text-brand-accent font-medium space-x-2">
+          <div class="flex items-center space-x-2">
+            <span id="executing-loader" class="hidden items-center text-brand-accent font-medium space-x-2 mr-3">
               <i class="fa-solid fa-spinner animate-spin text-[11px]"></i>
               <span class="text-[11px]">Agent thinking...</span>
             </span>
+
+            <!-- Antigravity-style Action Icons -->
+            <div class="flex items-center space-x-1 border-l border-zinc-800 pl-3">
+              <button id="btn-header-artifacts" onclick="toggleArtifactsSplitPanel()" title="Toggle Artifacts" class="p-1.5 px-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors flex items-center space-x-1">
+                <i class="fa-regular fa-file-lines text-xs"></i>
+              </button>
+              <button id="btn-header-source-control" onclick="toggleSourceControlSplitPanel()" title="Toggle Source Control" class="p-1.5 px-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors flex items-center space-x-1">
+                <i class="fa-solid fa-code-compare text-xs"></i>
+              </button>
+              <button id="btn-header-split-toggle" onclick="toggleSideSplitPanel()" title="Toggle Side Panel" class="p-1.5 px-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors flex items-center space-x-1">
+                <i class="fa-solid fa-table-columns text-xs"></i>
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- Chat Interface Wrapper -->
-        <div id="chat-interface-wrapper" class="flex-1 flex flex-col overflow-hidden">
-          <!-- Chat History Scroll Target Box -->
-          <div id="session-chat-container" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-            <!-- Dynamic bubble inputs appended here -->
-          </div>
+        <!-- Main Session Body: Split View (Chat on left, Side Panel on right) -->
+        <div class="flex-1 flex overflow-hidden min-w-0 relative">
+          
+          <!-- Chat Interface Wrapper (Left Pane) -->
+          <div id="chat-interface-wrapper" class="flex-1 flex flex-col overflow-hidden min-w-0 transition-all duration-200">
+            <!-- Chat History Scroll Target Box -->
+            <div id="session-chat-container" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+              <!-- Dynamic bubble inputs appended here -->
+            </div>
 
-          <!-- Chat Prompt & Configuration Input Box -->
-          <div class="p-4 bg-brand-black border-t border-brand-gray/40 shrink-0">
-            <div class="max-w-4xl mx-auto space-y-3">
-              
-              <!-- Upload Attachment chips -->
-              <div id="chat-upload-indicator" class="hidden flex flex-wrap gap-2 py-1.5 border-b border-zinc-800"></div>
-
-              <!-- Main Input Bar Box Container -->
-              <div id="chat-input-container" class="bg-brand-dark border border-brand-gray/60 rounded-xl p-3 focus-within:border-brand-accent/80 transition-colors shadow-lg">
-                <textarea id="chat-prompt-input" rows="2" placeholder="Describe instructions, execute tasks, or invoke terminal commands..." class="w-full bg-transparent border-0 outline-none resize-none text-xs text-zinc-100 placeholder-zinc-500 focus:ring-0" disabled></textarea>
+            <!-- Chat Prompt & Configuration Input Box -->
+            <div class="p-4 bg-brand-black border-t border-brand-gray/40 shrink-0">
+              <div class="max-w-4xl mx-auto space-y-3">
                 
-                <div class="flex items-center justify-between border-t border-zinc-800/60 pt-2.5 mt-2 select-none">
-                  <div class="flex items-center space-x-3">
-                    
-                    <!-- File attachment trigger -->
-                    <button onclick="document.getElementById('file-upload-input').click()" class="text-zinc-500 hover:text-zinc-200 transition-colors" title="Attach multi-modal files (Max 25MB)">
-                      <i class="fa-solid fa-paperclip text-sm"></i>
-                    </button>
-                    <input type="file" id="file-upload-input" class="hidden" multiple onchange="handleChatFileUpload(event)">
+                <!-- Upload Attachment chips -->
+                <div id="chat-upload-indicator" class="hidden flex flex-wrap gap-2 py-1.5 border-b border-zinc-800"></div>
 
-                    <!-- Dynamic Instruction Behavior Selector -->
-                    <div class="flex items-center space-x-1.5">
-                      <span class="text-[10px] text-zinc-500 font-medium">Agent Profile:</span>
-                      <select id="chat-instruction-selector" class="bg-brand-black text-[11px] text-zinc-300 border border-brand-gray/50 rounded-md py-1 px-2 focus:outline-none focus:border-brand-accent cursor-pointer">
-                        <option value="">Default Profile</option>
-                      </select>
+                <!-- Main Input Bar Box Container -->
+                <div id="chat-input-container" class="bg-brand-dark border border-brand-gray/60 rounded-xl p-3 focus-within:border-brand-accent/80 transition-colors shadow-lg">
+                  <textarea id="chat-prompt-input" rows="2" placeholder="Describe instructions, execute tasks, or invoke terminal commands..." class="w-full bg-transparent border-0 outline-none resize-none text-xs text-zinc-100 placeholder-zinc-500 focus:ring-0" disabled></textarea>
+                  
+                  <div class="flex items-center justify-between border-t border-zinc-800/60 pt-2.5 mt-2 select-none">
+                    <div class="flex items-center space-x-3">
+                      
+                      <!-- File attachment trigger -->
+                      <button onclick="document.getElementById('file-upload-input').click()" class="text-zinc-500 hover:text-zinc-200 transition-colors" title="Attach multi-modal files (Max 25MB)">
+                        <i class="fa-solid fa-paperclip text-sm"></i>
+                      </button>
+                      <input type="file" id="file-upload-input" class="hidden" multiple onchange="handleChatFileUpload(event)">
+
+                      <!-- Dynamic Instruction Behavior Selector -->
+                      <div class="flex items-center space-x-1.5">
+                        <span class="text-[10px] text-zinc-500 font-medium">Agent Profile:</span>
+                        <select id="chat-instruction-selector" class="bg-brand-black text-[11px] text-zinc-300 border border-brand-gray/50 rounded-md py-1 px-2 focus:outline-none focus:border-brand-accent cursor-pointer">
+                          <option value="">Default Profile</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                      <span class="text-[10px] text-zinc-500 hidden sm:inline" id="send-hint">Press Ctrl+Enter to run</span>
+                      <!-- Send button (shown when idle) -->
+                      <button id="btn-chat-submit" onclick="submitActivePrompt()" class="bg-brand-accent/20 hover:bg-brand-accent text-brand-accent hover:text-white border border-brand-accent/30 py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center space-x-2 disabled:opacity-50" disabled>
+                        <span>Send</span>
+                        <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                      </button>
+                      <!-- Stop / Interrupt button (shown when generating) -->
+                      <button id="btn-chat-stop" onclick="cancelActiveGeneration()" class="hidden bg-red-500/15 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center space-x-2">
+                        <i class="fa-solid fa-stop text-[9px]"></i>
+                        <span>Stop</span>
+                      </button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
+          <!-- Antigravity-Style Side Split Panel (Right Pane) -->
+          <div id="side-split-panel" class="hidden w-1/2 min-w-[380px] max-w-[60%] border-l border-brand-gray/40 bg-brand-darker flex flex-col overflow-hidden transition-all duration-200 z-10 select-none">
+            
+            <!-- Tab Bar Header -->
+            <div class="px-3 py-1.5 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
+              <!-- Tabs list -->
+              <div id="side-panel-tabs-list" class="flex items-center space-x-1 overflow-x-auto py-0.5 max-w-[calc(100%-80px)]">
+                <!-- Dynamically generated tab pills -->
+              </div>
+              
+              <!-- Tab Bar Right Controls -->
+              <div class="flex items-center space-x-1 shrink-0">
+                <button onclick="refreshActiveSidePanelTab()" title="Refresh" class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors text-xs">
+                  <i class="fa-solid fa-arrows-rotate text-[11px]"></i>
+                </button>
+                <button onclick="toggleSideSplitPanel(false)" title="Close Panel" class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors text-xs">
+                  <i class="fa-solid fa-xmark text-[11px]"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Panel Content Area -->
+            <div id="side-panel-content-area" class="flex-1 overflow-hidden flex flex-col relative">
+              
+              <!-- Sub-View A: Artifacts Viewer -->
+              <div id="split-artifacts-view" class="flex-1 flex flex-col overflow-hidden">
+                <!-- Artifact Top Bar (Breadcrumb / Title & Quick Switcher) -->
+                <div class="px-4 py-2 border-b border-brand-gray/20 bg-zinc-950/40 flex items-center justify-between shrink-0 text-xs font-mono">
+                  <div class="flex items-center space-x-2 truncate">
+                    <i id="split-artifact-file-icon" class="fa-regular fa-file-lines text-sky-400"></i>
+                    <span id="split-artifact-title" class="font-semibold text-zinc-200 truncate font-sans text-xs">Artifact Viewer</span>
+                    <span id="split-artifact-badge" class="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono"></span>
+                  </div>
                   <div class="flex items-center space-x-2">
-                    <span class="text-[10px] text-zinc-500 hidden sm:inline" id="send-hint">Press Ctrl+Enter to run</span>
-                    <!-- Send button (shown when idle) -->
-                    <button id="btn-chat-submit" onclick="submitActivePrompt()" class="bg-brand-accent/20 hover:bg-brand-accent text-brand-accent hover:text-white border border-brand-accent/30 py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center space-x-2 disabled:opacity-50" disabled>
-                      <span>Send</span>
-                      <i class="fa-solid fa-chevron-right text-[9px]"></i>
-                    </button>
-                    <!-- Stop / Interrupt button (shown when generating) -->
-                    <button id="btn-chat-stop" onclick="cancelActiveGeneration()" class="hidden bg-red-500/15 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center space-x-2">
-                      <i class="fa-solid fa-stop text-[9px]"></i>
-                      <span>Stop</span>
-                    </button>
+                    <select id="split-artifact-picker" onchange="handleArtifactPickerSelect(this.value)" class="bg-brand-black text-[10px] text-zinc-300 border border-zinc-800 rounded px-2 py-1 focus:outline-none focus:border-brand-accent cursor-pointer max-w-[150px]">
+                      <option value="">Artifacts...</option>
+                    </select>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <!-- Source Control Interface Container -->
-        <div id="source-control-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
-          <!-- Tabs Header -->
-          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
-            <div class="flex items-center space-x-1">
-              <button id="btn-sc-files" onclick="setScTab('files')" class="text-xs font-semibold px-3 py-1.5 rounded transition-all text-brand-accent bg-brand-accent/10 border border-brand-accent/20">Files Explorer</button>
-              <button id="btn-sc-timeline" onclick="setScTab('timeline')" class="text-xs font-semibold px-3 py-1.5 rounded transition-all text-zinc-400 hover:text-zinc-200">Timeline</button>
-            </div>
-            <!-- Close button to go back to chat -->
-            <button onclick="toggleSourceControlView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
-              <i class="fa-solid fa-xmark mr-1"></i> Close
-            </button>
-          </div>
-          
-          <!-- Content Area -->
-          <div id="source-control-content" class="flex-1 overflow-y-auto p-5 space-y-4">
-            <!-- Dynamically rendered content goes here -->
-          </div>
-        </div>
+                <!-- Artifact Body View -->
+                <div id="split-artifact-body" class="flex-1 overflow-y-auto p-6 font-sans text-sm text-zinc-300">
+                  <div id="split-artifact-placeholder" class="h-full flex flex-col items-center justify-center text-zinc-500 italic space-y-2">
+                    <i class="fa-solid fa-file-lines text-3xl text-zinc-600"></i>
+                    <span>Select or generate an artifact to preview</span>
+                  </div>
+                  <div id="split-artifact-content" class="hidden"></div>
+                </div>
+              </div>
 
-        <!-- Artifacts Interface Container -->
-        <div id="artifacts-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
-          <!-- Header -->
-          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
-            <div class="flex items-center space-x-2">
-              <i class="fa-solid fa-cube text-brand-accent"></i>
-              <span class="text-xs font-semibold text-zinc-200">Artifacts Explorer</span>
-            </div>
-            <!-- Close button to go back to chat -->
-            <button onclick="toggleArtifactsView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
-              <i class="fa-solid fa-xmark mr-1"></i> Close
-            </button>
-          </div>
-          
-          <!-- Split Layout for File List and File Preview -->
-          <div class="flex-1 flex overflow-hidden">
-            <!-- Left Side: Artifact File List -->
-            <div class="w-64 border-r border-brand-gray/30 overflow-y-auto p-4 space-y-2 bg-brand-dark/40 shrink-0">
-              <div id="artifacts-list" class="space-y-1">
-                <!-- Dynamically loaded artifact files -->
-              </div>
-            </div>
-            <!-- Right Side: Artifact File Preview -->
-            <div id="artifacts-preview-panel" class="flex-1 overflow-y-auto p-5 bg-brand-darker font-sans text-sm text-zinc-300">
-              <div id="artifacts-preview-placeholder" class="h-full flex flex-col items-center justify-center text-zinc-500 italic space-y-2">
-                <i class="fa-solid fa-file text-3xl text-zinc-600"></i>
-                <span>Select an artifact file to preview</span>
-              </div>
-              <div id="artifacts-preview-content" class="hidden h-full flex flex-col">
-                <!-- File header/metadata -->
-                <div class="pb-3 border-b border-brand-gray/30 mb-4 flex items-center justify-between shrink-0">
-                  <div>
-                    <h3 id="artifacts-preview-filename" class="text-sm font-bold text-zinc-100 font-mono"></h3>
-                    <span id="artifacts-preview-size" class="text-[10px] text-zinc-500 font-mono"></span>
+              <!-- Sub-View B: Source Control Viewer -->
+              <div id="split-source-control-view" class="hidden flex-1 flex flex-col overflow-hidden">
+                <div class="px-4 py-2 bg-zinc-950/40 border-b border-brand-gray/20 flex items-center justify-between shrink-0 select-none">
+                  <div class="flex items-center space-x-1">
+                    <button id="btn-sc-files" onclick="setScTab('files')" class="text-xs font-semibold px-2.5 py-1 rounded transition-all text-brand-accent bg-brand-accent/10 border border-brand-accent/20">Files Explorer</button>
+                    <button id="btn-sc-timeline" onclick="setScTab('timeline')" class="text-xs font-semibold px-2.5 py-1 rounded transition-all text-zinc-400 hover:text-zinc-200">Timeline</button>
                   </div>
                 </div>
-                <!-- Preview area -->
-                <div id="artifacts-preview-body" class="flex-1 min-h-0 overflow-auto">
-                  <!-- Dynamically rendered file content preview -->
+                <div id="source-control-content" class="flex-1 overflow-y-auto p-4 space-y-4">
+                  <!-- Dynamically rendered git files/timeline -->
                 </div>
               </div>
+
             </div>
           </div>
         </div>
@@ -1858,57 +1806,10 @@ Group files by component. Use markdown links with relative paths and detail exac
           
           <div class="flex items-center justify-end pt-3">
             ${hasFolders ? `
-              <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
+              <button onclick="wizardState.step = 3; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
             ` : `
-              <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Skip</button>
+              <button onclick="wizardState.step = 3; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Skip</button>
             `}
-          </div>
-        `;
-        
-      } else if (wizardState.step === 2) {
-        content.innerHTML = `
-          <div>
-            <h3 class="text-sm font-semibold text-zinc-200">Agent Security Settings</h3>
-            
-            <div class="space-y-2 mt-4">
-              <!-- Default -->
-              <div onclick="wizardState.securitySetting = 'default'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'default' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
-                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
-                  <i class="fa-solid fa-shield-halved text-xs"></i>
-                </div>
-                <div>
-                  <h4 class="text-xs font-semibold text-zinc-200">Default</h4>
-                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Requires manual review for all terminal commands and file accesses outside of the working folders.</p>
-                </div>
-              </div>
-              
-              <!-- Full Machine -->
-              <div onclick="wizardState.securitySetting = 'full_machine'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'full_machine' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
-                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
-                  <i class="fa-solid fa-unlock-keyhole text-xs"></i>
-                </div>
-                <div>
-                  <h4 class="text-xs font-semibold text-zinc-200">Full machine</h4>
-                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">All terminal commands require review. The agent can read or write to any file in the machine.</p>
-                </div>
-              </div>
-              
-              <!-- Turbo Mode -->
-              <div onclick="wizardState.securitySetting = 'turbo'; renderConstructWizardStep();" class="p-3 rounded-lg border ${wizardState.securitySetting === 'turbo' ? 'border-brand-accent bg-brand-accent/5' : 'border-zinc-800 bg-zinc-900/40'} cursor-pointer hover:border-brand-accent/50 transition-all flex items-start space-x-3">
-                <div class="p-1.5 bg-zinc-800/80 text-zinc-400 rounded-md mt-0.5">
-                  <i class="fa-solid fa-circle-exclamation text-xs"></i>
-                </div>
-                <div>
-                  <h4 class="text-xs font-semibold text-zinc-200">Turbo mode</h4>
-                  <p class="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Disables all safety barriers for maximal iteration velocity.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="flex items-center justify-between pt-3">
-            <button onclick="wizardState.step = 1; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
-            <button onclick="wizardState.step = 3; renderConstructWizardStep();" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Next</button>
           </div>
         `;
         
@@ -1924,7 +1825,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           </div>
           
           <div class="flex items-center justify-between pt-3">
-            <button onclick="wizardState.step = 2; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
+            <button onclick="wizardState.step = 1; renderConstructWizardStep();" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all">Back</button>
             <button id="btn-wizard-create" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-all">Create</button>
           </div>
         `;
@@ -4965,6 +4866,21 @@ Group files by component. Use markdown links with relative paths and detail exac
       const statusMarker = stepEl.querySelector('.status-marker');
       if (statusMarker) {
         statusMarker.innerHTML = '<span class="text-emerald-500 font-bold">Completed</span>';
+        
+        const targetPath = stepEl.querySelector('summary strong')?.innerText || '';
+        if (targetPath.startsWith('artifact/') || targetPath.includes('implementation_plan.md') || targetPath.includes('task.md') || targetPath.includes('walkthrough.md')) {
+          const fileName = targetPath.split('/').pop();
+          const viewBtn = document.createElement('button');
+          viewBtn.setAttribute('onclick', `openArtifactTab('${fileName}', '${targetPath}'); event.stopPropagation();`);
+          viewBtn.className = "text-sky-400 hover:text-sky-300 font-mono text-[9px] border border-sky-900/50 bg-sky-950/40 px-2 py-0.5 rounded transition-all ml-2 inline-flex items-center space-x-1";
+          viewBtn.innerHTML = `<i class="fa-regular fa-file-lines text-[8px] mr-1"></i><span>Open Panel</span>`;
+          statusMarker.appendChild(viewBtn);
+
+          if (state.sidePanelOpen && (state.sidePanelActiveTab?.path === targetPath || state.sidePanelActiveTab?.fileName === fileName)) {
+            renderSidePanelTab(state.sidePanelActiveTab);
+          }
+        }
+
         if (messageId) {
           const rollbackBtn = document.createElement('button');
           rollbackBtn.setAttribute('onclick', `confirmRollback(${messageId}); event.stopPropagation();`);
@@ -5428,37 +5344,284 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
     window.confirmRollback = confirmRollback;
 
-    function toggleSourceControlView(show) {
-      const chatWrapper = document.getElementById('chat-interface-wrapper');
-      const scContainer = document.getElementById('source-control-container');
-      const artContainer = document.getElementById('artifacts-container');
-      if (show) {
-        chatWrapper.classList.add('hidden');
-        artContainer.classList.add('hidden');
-        scContainer.classList.remove('hidden');
-        setScTab('files');
-      } else {
-        chatWrapper.classList.remove('hidden');
-        scContainer.classList.add('hidden');
-      }
-    }
-    window.toggleSourceControlView = toggleSourceControlView;
+    // ==========================================
+    // ANTIGRAVITY-STYLE SIDE SPLIT PANEL & TABS
+    // ==========================================
+    state.sidePanelOpen = false;
+    state.sidePanelActiveTab = null; // { type: 'artifact'|'source_control', id: string, name: string, path?: string, size?: number, fileName?: string }
+    state.sidePanelTabs = []; // Array of tab objects
 
-    function toggleArtifactsView(show) {
-      const chatWrapper = document.getElementById('chat-interface-wrapper');
-      const scContainer = document.getElementById('source-control-container');
-      const artContainer = document.getElementById('artifacts-container');
-      if (show) {
-        chatWrapper.classList.add('hidden');
-        scContainer.classList.add('hidden');
-        artContainer.classList.remove('hidden');
-        loadArtifactsList();
+    function toggleSideSplitPanel(forceOpen = null) {
+      const panel = document.getElementById('side-split-panel');
+      const btnToggle = document.getElementById('btn-header-split-toggle');
+      if (!panel) return;
+
+      const shouldOpen = forceOpen === true || (forceOpen === null && panel.classList.contains('hidden'));
+
+      if (shouldOpen) {
+        panel.classList.remove('hidden');
+        panel.classList.add('flex');
+        state.sidePanelOpen = true;
+        if (btnToggle) btnToggle.classList.add('text-brand-accent', 'bg-zinc-800/80');
+
+        // If no active tab, default to Implementation Plan or first artifact or source control
+        if (!state.sidePanelActiveTab && state.sidePanelTabs.length === 0) {
+          openArtifactTab('implementation_plan.md', 'artifact/implementation_plan.md');
+        } else if (state.sidePanelActiveTab) {
+          renderSidePanelTab(state.sidePanelActiveTab);
+        }
       } else {
-        artContainer.classList.add('hidden');
-        chatWrapper.classList.remove('hidden');
+        panel.classList.add('hidden');
+        panel.classList.remove('flex');
+        state.sidePanelOpen = false;
+        if (btnToggle) btnToggle.classList.remove('text-brand-accent', 'bg-zinc-800/80');
       }
     }
-    window.toggleArtifactsView = toggleArtifactsView;
+    window.toggleSideSplitPanel = toggleSideSplitPanel;
+
+    function toggleArtifactsSplitPanel(forceShow = null) {
+      const panel = document.getElementById('side-split-panel');
+      const isVisible = panel && !panel.classList.contains('hidden') && state.sidePanelActiveTab?.type === 'artifact';
+      
+      if (forceShow === false || (forceShow === null && isVisible)) {
+        toggleSideSplitPanel(false);
+      } else {
+        const existingArtTab = state.sidePanelTabs.find(t => t.type === 'artifact');
+        if (existingArtTab) {
+          selectSidePanelTab(existingArtTab.id);
+        } else {
+          openArtifactTab('implementation_plan.md', 'artifact/implementation_plan.md');
+        }
+        toggleSideSplitPanel(true);
+      }
+    }
+    window.toggleArtifactsSplitPanel = toggleArtifactsSplitPanel;
+
+    function toggleSourceControlSplitPanel(forceShow = null) {
+      const panel = document.getElementById('side-split-panel');
+      const isVisible = panel && !panel.classList.contains('hidden') && state.sidePanelActiveTab?.type === 'source_control';
+      
+      if (forceShow === false || (forceShow === null && isVisible)) {
+        toggleSideSplitPanel(false);
+      } else {
+        openSourceControlTab();
+        toggleSideSplitPanel(true);
+      }
+    }
+    window.toggleSourceControlSplitPanel = toggleSourceControlSplitPanel;
+
+    // Backward compatibility aliases
+    window.toggleArtifactsView = (show) => {
+      if (show) toggleArtifactsSplitPanel(true);
+      else toggleSideSplitPanel(false);
+    };
+    window.toggleSourceControlView = (show) => {
+      if (show) toggleSourceControlSplitPanel(true);
+      else toggleSideSplitPanel(false);
+    };
+
+    function renderSidePanelTabsList() {
+      const container = document.getElementById('side-panel-tabs-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      state.sidePanelTabs.forEach(tab => {
+        const isActive = state.sidePanelActiveTab && state.sidePanelActiveTab.id === tab.id;
+        const tabEl = document.createElement('div');
+        tabEl.className = `flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-medium cursor-pointer transition-all border shrink-0 ${
+          isActive 
+            ? 'bg-zinc-800 text-zinc-100 border-zinc-700/80 shadow-sm' 
+            : 'bg-zinc-900/60 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 border-transparent'
+        }`;
+        
+        let icon = tab.type === 'source_control' ? 'fa-solid fa-code-compare text-teal-400' : 'fa-regular fa-file-lines text-sky-400';
+        if (tab.name.endsWith('.md')) icon = 'fa-regular fa-file-lines text-sky-400';
+        else if (tab.name.endsWith('.json')) icon = 'fa-solid fa-braces text-yellow-500';
+        
+        tabEl.onclick = () => selectSidePanelTab(tab.id);
+
+        tabEl.innerHTML = `
+          <i class="${icon} text-[11px]"></i>
+          <span class="truncate max-w-[140px] select-none">${tab.name}</span>
+          <button onclick="closeSidePanelTab('${tab.id}', event)" class="p-0.5 ml-1 rounded hover:bg-zinc-700/80 text-zinc-500 hover:text-zinc-200 transition-colors">
+            <i class="fa-solid fa-xmark text-[9px]"></i>
+          </button>
+        `;
+        container.appendChild(tabEl);
+      });
+    }
+
+    function selectSidePanelTab(tabId) {
+      const tab = state.sidePanelTabs.find(t => t.id === tabId);
+      if (!tab) return;
+      state.sidePanelActiveTab = tab;
+      renderSidePanelTabsList();
+      renderSidePanelTab(tab);
+      toggleSideSplitPanel(true);
+    }
+    window.selectSidePanelTab = selectSidePanelTab;
+
+    function closeSidePanelTab(tabId, event) {
+      if (event) event.stopPropagation();
+      const idx = state.sidePanelTabs.findIndex(t => t.id === tabId);
+      if (idx === -1) return;
+
+      const wasActive = state.sidePanelActiveTab && state.sidePanelActiveTab.id === tabId;
+      state.sidePanelTabs.splice(idx, 1);
+
+      if (wasActive) {
+        if (state.sidePanelTabs.length > 0) {
+          const nextTab = state.sidePanelTabs[Math.max(0, idx - 1)];
+          selectSidePanelTab(nextTab.id);
+        } else {
+          state.sidePanelActiveTab = null;
+          toggleSideSplitPanel(false);
+        }
+      } else {
+        renderSidePanelTabsList();
+      }
+    }
+    window.closeSidePanelTab = closeSidePanelTab;
+
+    function openArtifactTab(fileName, relPath = null, size = 0) {
+      const cleanPath = relPath || (fileName.startsWith('artifact/') ? fileName : `artifact/${fileName}`);
+      const cleanName = fileName.replace(/^artifact\//, '');
+      const tabId = 'art_' + cleanName;
+
+      let displayName = cleanName;
+      if (cleanName === 'implementation_plan.md') displayName = 'Implementation Plan';
+      else if (cleanName === 'task.md') displayName = 'Task Checklist';
+      else if (cleanName === 'walkthrough.md') displayName = 'Walkthrough';
+
+      let existing = state.sidePanelTabs.find(t => t.id === tabId);
+      if (!existing) {
+        existing = {
+          id: tabId,
+          type: 'artifact',
+          name: displayName,
+          fileName: cleanName,
+          path: cleanPath,
+          size: size
+        };
+        state.sidePanelTabs.push(existing);
+      }
+
+      selectSidePanelTab(existing.id);
+      loadArtifactsDropdownPicker();
+    }
+    window.openArtifactTab = openArtifactTab;
+
+    function openSourceControlTab() {
+      const tabId = 'source_control';
+      let existing = state.sidePanelTabs.find(t => t.id === tabId);
+      if (!existing) {
+        existing = {
+          id: tabId,
+          type: 'source_control',
+          name: 'Source Control'
+        };
+        state.sidePanelTabs.push(existing);
+      }
+      selectSidePanelTab(existing.id);
+    }
+    window.openSourceControlTab = openSourceControlTab;
+
+    async function loadArtifactsDropdownPicker() {
+      const select = document.getElementById('split-artifact-picker');
+      if (!select || !state.activeWorkspaceId || !state.activeSessionId) return;
+
+      try {
+        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/artifacts`);
+        const data = await res.json();
+        if (res.ok && data.items) {
+          select.innerHTML = '<option value="">Artifacts...</option>';
+          data.items.sort((a, b) => a.name.localeCompare(b.name));
+          data.items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.path;
+            let label = item.name;
+            if (item.name === 'implementation_plan.md') label = 'Implementation Plan';
+            else if (item.name === 'task.md') label = 'Task Checklist';
+            else if (item.name === 'walkthrough.md') label = 'Walkthrough';
+            opt.innerText = label;
+            if (state.sidePanelActiveTab?.fileName === item.name) opt.selected = true;
+            select.appendChild(opt);
+          });
+        }
+      } catch (e) {}
+    }
+
+    function handleArtifactPickerSelect(path) {
+      if (!path) return;
+      const fileName = path.split('/').pop();
+      openArtifactTab(fileName, path);
+    }
+    window.handleArtifactPickerSelect = handleArtifactPickerSelect;
+
+    function refreshActiveSidePanelTab() {
+      if (!state.sidePanelActiveTab) return;
+      if (state.sidePanelActiveTab.type === 'artifact') {
+        renderSidePanelTab(state.sidePanelActiveTab);
+        loadArtifactsDropdownPicker();
+      } else {
+        if (state.scActiveTab === 'files') loadScFiles(state.scCurrentPath);
+        else loadScTimeline();
+      }
+    }
+    window.refreshActiveSidePanelTab = refreshActiveSidePanelTab;
+
+    async function renderSidePanelTab(tab) {
+      const artView = document.getElementById('split-artifacts-view');
+      const scView = document.getElementById('split-source-control-view');
+
+      if (tab.type === 'source_control') {
+        if (artView) artView.classList.add('hidden');
+        if (scView) scView.classList.remove('hidden');
+        setScTab(state.scActiveTab || 'files');
+      } else {
+        if (scView) scView.classList.add('hidden');
+        if (artView) artView.classList.remove('hidden');
+
+        const titleEl = document.getElementById('split-artifact-title');
+        const badgeEl = document.getElementById('split-artifact-badge');
+        const iconEl = document.getElementById('split-artifact-file-icon');
+        const placeholder = document.getElementById('split-artifact-placeholder');
+        const contentEl = document.getElementById('split-artifact-content');
+
+        if (titleEl) titleEl.innerText = tab.name;
+        if (badgeEl) badgeEl.innerText = tab.fileName || 'artifact';
+        
+        let icon = 'fa-regular fa-file-lines text-sky-400';
+        const ext = (tab.fileName || tab.path || '').split('.').pop().toLowerCase();
+        if (ext === 'json') icon = 'fa-solid fa-braces text-yellow-500';
+        else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) icon = 'fa-solid fa-file-image text-emerald-500';
+        if (iconEl) iconEl.className = `${icon} text-xs`;
+
+        placeholder.classList.add('hidden');
+        contentEl.classList.remove('hidden');
+        contentEl.innerHTML = `<div class="text-xs text-zinc-500 italic py-8 text-center"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading ${tab.name}...</div>`;
+
+        try {
+          const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}/artifacts/read?path=${encodeURIComponent(tab.path)}`);
+          const data = await res.json();
+          if (!res.ok) {
+            contentEl.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Failed to load artifact: ${data.error || 'File not found'}</div>`;
+            return;
+          }
+
+          if (ext === 'md' || ext === 'typ' || ext === '') {
+            const html = state.markdownParser.render(data.content);
+            contentEl.innerHTML = `<div class="artifact-markdown-content max-w-none text-zinc-300 leading-relaxed">${html}</div>`;
+          } else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico'].includes(ext)) {
+            contentEl.innerHTML = `<div class="flex items-center justify-center p-4"><img src="data:image/${ext};base64,${data.content}" class="max-w-full max-h-[70vh] rounded-lg border border-zinc-800 shadow-md"></div>`;
+          } else {
+            contentEl.innerHTML = `<pre class="bg-zinc-950 p-4 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-300 overflow-auto max-h-full whitespace-pre-wrap leading-relaxed">${escapeHtml(data.content)}</pre>`;
+          }
+        } catch (err) {
+          contentEl.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Error rendering artifact: ${err.message}</div>`;
+        }
+      }
+    }
 
     function toggleAgentProfilesView(show) {
       const chatWrapper = document.getElementById('chat-interface-wrapper');
@@ -6185,135 +6348,377 @@ Group files by component. Use markdown links with relative paths and detail exac
     // ==========================================
     let currentApprovalId = null;
     let currentApprovalType = null; // 'command' | 'tool'
+    let currentApprovalTarget = '';
+    let selectedApprovalOptionValue = 'allow_once';
+    const APPROVAL_OPTIONS = ['allow_once', 'always_allow_session', 'always_allow_project', 'always_allow_global', 'deny'];
 
-    function showCommandApprovalModal(approvalId, command) {
-      currentApprovalId = approvalId;
-      currentApprovalType = 'command';
-      
-      document.getElementById('approval-header-label').innerText = "Agent Command Permission Required";
-      document.getElementById('approval-description-text').innerText = "The coding agent is requesting permission to execute the following terminal command on your local system:";
-      document.getElementById('approval-command-prefix').style.display = 'inline';
-      document.getElementById('approval-command-display').innerText = command;
-      
-      document.getElementById('approval-always-allow-label').innerText = "Always Allow Command";
-      document.getElementById('approval-always-allow-description').innerText = "Add this command prefix to Allowed list. Runs automatically without future prompts.";
+    function selectApprovalOption(val) {
+      if (!APPROVAL_OPTIONS.includes(val)) return;
+      selectedApprovalOptionValue = val;
 
-      const radios = document.getElementsByName('approval-action');
-      radios.forEach(r => {
-        if (r.value === 'allow_once') r.checked = true;
+      const card = document.getElementById('chat-inline-approval-card');
+      if (!card) return;
+
+      const items = card.querySelectorAll('.approval-option-item');
+      items.forEach(item => {
+        const itemVal = item.getAttribute('data-value');
+        const badge = item.querySelector('span:first-child');
+        if (itemVal === val) {
+          item.className = 'approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all bg-zinc-800/80 text-zinc-100 border border-zinc-700/60 shadow-sm';
+          if (badge) badge.className = 'w-5 h-5 rounded bg-zinc-700/80 text-zinc-200 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3';
+        } else {
+          item.className = 'approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all hover:bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-transparent';
+          if (badge) badge.className = 'w-5 h-5 rounded bg-zinc-800 text-zinc-500 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3';
+        }
       });
 
-      const modal = document.getElementById('command-approval-modal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+      const denyContainer = document.getElementById('approval-deny-feedback-container');
+      const denyInput = document.getElementById('approval-deny-feedback');
+      if (denyContainer) {
+        if (val === 'deny') {
+          denyContainer.classList.remove('hidden');
+          if (denyInput) setTimeout(() => denyInput.focus(), 50);
+        } else {
+          denyContainer.classList.add('hidden');
+        }
+      }
+    }
+    window.selectApprovalOption = selectApprovalOption;
+
+    function renderInlineApprovalCard(approvalId, type, headerIcon, headerTitle, displayTarget, isCommand) {
+      currentApprovalId = approvalId;
+      currentApprovalType = type;
+      currentApprovalTarget = displayTarget;
+      selectedApprovalOptionValue = 'allow_once';
+
+      // Remove any existing inline approval card
+      const existing = document.getElementById('chat-inline-approval-card');
+      if (existing) existing.remove();
+
+      const card = document.createElement('div');
+      card.id = 'chat-inline-approval-card';
+      card.className = "bg-[#18181b] border border-[#27272a] rounded-xl max-w-2xl w-full p-5 space-y-4 shadow-xl text-zinc-200 my-4 mx-auto transition-all animate-fadeIn select-none";
+
+      card.innerHTML = `
+        <!-- Header -->
+        <div class="flex items-center space-x-2.5">
+          <i id="approval-header-icon" class="${headerIcon} text-zinc-400 text-sm"></i>
+          <h3 id="approval-header-label" class="text-sm font-medium text-zinc-100">${escapeHtml(headerTitle)}</h3>
+        </div>
+
+        <!-- Resource / Path / Command Display Box -->
+        <div id="approval-resource-container" class="bg-zinc-950/70 border border-zinc-800/80 rounded-lg px-3.5 py-2.5 font-mono text-xs text-zinc-300 overflow-x-auto shadow-inner select-all whitespace-pre-wrap break-all">
+          ${isCommand ? '<span class="text-zinc-600 select-none mr-2">$</span>' : ''}<code id="approval-command-display">${escapeHtml(displayTarget)}</code>
+        </div>
+
+        <!-- Selection Action Options -->
+        <div class="space-y-1" id="approval-options-list">
+          <div data-value="allow_once" onclick="selectApprovalOption('allow_once')" class="approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all bg-zinc-800/80 text-zinc-100 border border-zinc-700/60 shadow-sm">
+            <span class="w-5 h-5 rounded bg-zinc-700/80 text-zinc-200 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3">1</span>
+            <span class="text-xs font-normal">Yes, allow this time</span>
+          </div>
+
+          <div data-value="always_allow_session" onclick="selectApprovalOption('always_allow_session')" class="approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all hover:bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-transparent">
+            <span class="w-5 h-5 rounded bg-zinc-800 text-zinc-500 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3">2</span>
+            <span class="text-xs font-normal">Yes, and always allow in this conversation</span>
+          </div>
+
+          <div data-value="always_allow_project" onclick="selectApprovalOption('always_allow_project')" class="approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all hover:bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-transparent">
+            <span class="w-5 h-5 rounded bg-zinc-800 text-zinc-500 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3">3</span>
+            <span class="text-xs font-normal">Yes, and always allow in this project</span>
+          </div>
+
+          <div data-value="always_allow_global" onclick="selectApprovalOption('always_allow_global')" class="approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all hover:bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-transparent">
+            <span class="w-5 h-5 rounded bg-zinc-800 text-zinc-500 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3">4</span>
+            <span class="text-xs font-normal">Yes, and always allow</span>
+          </div>
+
+          <div data-value="deny" onclick="selectApprovalOption('deny')" class="approval-option-item flex items-center p-2 px-3 rounded-lg cursor-pointer select-none transition-all hover:bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-transparent">
+            <span class="w-5 h-5 rounded bg-zinc-800 text-zinc-500 text-xs font-mono font-medium flex items-center justify-center flex-shrink-0 mr-3">5</span>
+            <span class="text-xs font-normal">No <span class="text-zinc-500 text-[11px] ml-1">(tell the agent what to do instead)</span></span>
+          </div>
+        </div>
+
+        <!-- Denial Feedback Input -->
+        <div id="approval-deny-feedback-container" class="hidden pt-1">
+          <input type="text" id="approval-deny-feedback" placeholder="Tell the agent what to do instead (optional)..." class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-brand-accent transition-colors">
+        </div>
+
+        <!-- Bottom Actions -->
+        <div class="flex items-center justify-end space-x-3 pt-2">
+          <button id="btn-skip-command-approval" onclick="skipApprovalModal()" class="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded-lg transition-colors font-medium">
+            Skip
+          </button>
+          <button id="btn-submit-command-approval" onclick="submitCommandApproval()" class="bg-[#0284c7] hover:bg-[#0369a1] active:bg-[#075985] text-white text-xs font-semibold px-4 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1.5">
+            <span>Submit</span>
+            <span class="text-[11px] opacity-80 select-none">↵</span>
+          </button>
+        </div>
+      `;
+
+      if (activeThinkingNode && activeThinkingNode.isConnected) {
+        activeThinkingNode.appendChild(card);
+      } else {
+        elements.sessionChatContainer.appendChild(card);
+      }
+
+      scrollToChatBottom();
+    }
+
+    function showCommandApprovalModal(approvalId, command) {
+      renderInlineApprovalCard(
+        approvalId,
+        'command',
+        'fa-solid fa-terminal',
+        'Allow execution of this command?',
+        command,
+        true
+      );
     }
     window.showCommandApprovalModal = showCommandApprovalModal;
 
     function showToolApprovalModal(approvalId, toolName, args) {
-      currentApprovalId = approvalId;
-      currentApprovalType = 'tool';
-      
-      document.getElementById('approval-header-label').innerText = `Tool Execution: ${toolName}`;
-      document.getElementById('approval-description-text').innerText = `The coding agent is requesting permission to execute the tool "${toolName}" with the following arguments:`;
-      document.getElementById('approval-command-prefix').style.display = 'none';
-      document.getElementById('approval-command-display').innerText = JSON.stringify(args, null, 2);
-      
-      document.getElementById('approval-always-allow-label').innerText = "Always Allow Tool";
-      document.getElementById('approval-always-allow-description').innerText = `Add "${toolName}" to the Allowed tools list. Runs automatically without future prompts.`;
+      let displayTarget = '';
+      let headerIcon = 'fa-regular fa-file-lines';
+      let headerTitle = 'Allow read access to this path?';
 
-      const radios = document.getElementsByName('approval-action');
-      radios.forEach(r => {
-        if (r.value === 'allow_once') r.checked = true;
-      });
+      const readTools = ['read_file', 'list_dir', 'view_image', 'grep_search', 'find_by_name', 'read_url_content', 'view_file'];
+      const writeTools = ['write_to_file', 'replace_file_content', 'edit_file', 'delete_file', 'patch_file', 'write_file', 'create_file'];
+      const browserTools = ['browser_action', 'launch_browser', 'navigate_browser', 'click_element', 'take_screenshot'];
 
-      const modal = document.getElementById('command-approval-modal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+      if (readTools.includes(toolName)) {
+        headerIcon = 'fa-regular fa-file-lines';
+        if (toolName === 'read_url_content' || (args && args.Url)) {
+          headerTitle = 'Allow network access to this URL?';
+          displayTarget = args?.Url || args?.url || '';
+        } else {
+          headerTitle = 'Allow read access to this path?';
+          displayTarget = args?.path || args?.AbsolutePath || args?.SearchDirectory || args?.SearchPath || args?.TargetFile || args?.targetPath || '';
+        }
+      } else if (writeTools.includes(toolName)) {
+        headerIcon = 'fa-solid fa-file-pen';
+        headerTitle = 'Allow write access to this path?';
+        displayTarget = args?.TargetFile || args?.path || args?.AbsolutePath || args?.targetPath || '';
+      } else if (browserTools.includes(toolName)) {
+        headerIcon = 'fa-solid fa-globe';
+        headerTitle = 'Allow browser control action?';
+        displayTarget = args?.url || args?.action || JSON.stringify(args);
+      } else {
+        headerIcon = 'fa-solid fa-cube';
+        headerTitle = `Allow execution of tool "${toolName}"?`;
+        displayTarget = typeof args === 'string' ? args : JSON.stringify(args, null, 2);
+      }
+
+      if (!displayTarget && args) {
+        displayTarget = typeof args === 'string' ? args : JSON.stringify(args, null, 2);
+      }
+
+      renderInlineApprovalCard(
+        approvalId,
+        'tool',
+        headerIcon,
+        headerTitle,
+        displayTarget || toolName,
+        false
+      );
     }
     window.showToolApprovalModal = showToolApprovalModal;
+
+    function skipApprovalModal() {
+      if (!currentApprovalId) return;
+
+      const card = document.getElementById('chat-inline-approval-card');
+      if (card) {
+        card.innerHTML = `
+          <div class="text-xs font-mono text-zinc-500 italic flex items-center">
+            <i class="fa-solid fa-forward text-zinc-600 mr-2"></i> Skipped approval for: <span class="text-zinc-400 ml-1 font-semibold">${escapeHtml(currentApprovalTarget)}</span>
+          </div>
+        `;
+        setTimeout(() => card.remove(), 2500);
+      }
+
+      if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+        const msgType = currentApprovalType === 'command' ? 'COMMAND_APPROVAL_RESPONSE' : 'TOOL_APPROVAL_RESPONSE';
+        state.wsConn.send(JSON.stringify({
+          type: msgType,
+          approvalId: currentApprovalId,
+          action: 'skip',
+          feedback: ''
+        }));
+      }
+
+      currentApprovalId = null;
+      currentApprovalType = null;
+      currentApprovalTarget = '';
+    }
+    window.skipApprovalModal = skipApprovalModal;
 
     function submitCommandApproval() {
       if (!currentApprovalId) return;
 
-      const radios = document.getElementsByName('approval-action');
-      let action = 'allow_once';
-      for (const r of radios) {
-        if (r.checked) {
-          action = r.value;
-          break;
-        }
+      const action = selectedApprovalOptionValue || 'allow_once';
+      let feedback = '';
+      if (action === 'deny') {
+        const input = document.getElementById('approval-deny-feedback');
+        if (input) feedback = input.value.trim();
       }
 
-      const modal = document.getElementById('command-approval-modal');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
+      const card = document.getElementById('chat-inline-approval-card');
+      if (card) {
+        let actionLabel = 'Allowed access';
+        let isDeny = action === 'deny';
+        if (action === 'always_allow_session') actionLabel = 'Allowed in this conversation';
+        else if (action === 'always_allow_project') actionLabel = 'Always allowed in this project';
+        else if (action === 'always_allow_global') actionLabel = 'Always allowed';
+        else if (isDeny) actionLabel = 'Denied access';
+
+        card.innerHTML = `
+          <div class="text-xs font-mono flex items-center justify-between">
+            <span class="flex items-center ${isDeny ? 'text-red-400' : 'text-emerald-400'}">
+              <i class="fa-solid ${isDeny ? 'fa-ban' : 'fa-check'} mr-2"></i> ${actionLabel}
+            </span>
+            <span class="text-zinc-500 text-[10px] truncate max-w-[280px]">${escapeHtml(currentApprovalTarget)}</span>
+          </div>
+        `;
+        setTimeout(() => card.remove(), 2000);
+      }
 
       if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
         if (currentApprovalType === 'command') {
           state.wsConn.send(JSON.stringify({
             type: 'COMMAND_APPROVAL_RESPONSE',
             approvalId: currentApprovalId,
-            action: action
+            action: action,
+            feedback: feedback
           }));
         } else {
           state.wsConn.send(JSON.stringify({
             type: 'TOOL_APPROVAL_RESPONSE',
             approvalId: currentApprovalId,
-            action: action
+            action: action,
+            feedback: feedback
           }));
         }
       }
 
       currentApprovalId = null;
       currentApprovalType = null;
+      currentApprovalTarget = '';
     }
     window.submitCommandApproval = submitCommandApproval;
 
     // Initialize listeners for editing and approvals
     function initWorkspaceEditAndSecurityHooks() {
       // Buttons
-      document.getElementById('btn-submit-command-approval').onclick = submitCommandApproval;
-      document.getElementById('btn-save-edit-ws').onclick = saveWorkspaceConfigurations;
-      document.getElementById('btn-edit-ws-back').onclick = () => {
-        if (state.activeWorkspaceId === editWorkspaceState.workspaceId) {
-          navigateToView('session');
-        } else {
-          navigateToView('manager');
-        }
-      };
+      const btnSubmit = document.getElementById('btn-submit-command-approval');
+      if (btnSubmit) btnSubmit.onclick = submitCommandApproval;
+      const btnSkip = document.getElementById('btn-skip-command-approval');
+      if (btnSkip) btnSkip.onclick = skipApprovalModal;
+
+      const btnSave = document.getElementById('btn-save-edit-ws');
+      if (btnSave) btnSave.onclick = saveWorkspaceConfigurations;
+      
+      const btnBack = document.getElementById('btn-edit-ws-back');
+      if (btnBack) {
+        btnBack.onclick = () => {
+          if (state.activeWorkspaceId === editWorkspaceState.workspaceId) {
+            navigateToView('session');
+          } else {
+            navigateToView('manager');
+          }
+        };
+      }
 
       // Explorer listeners
-      document.getElementById('btn-edit-explorer-up').onclick = () => {
-        if (editExplorerState.currentPath === '/' || !editExplorerState.currentPath) return;
-        const parts = editExplorerState.currentPath.split('/').filter(Boolean);
-        parts.pop();
-        const parent = '/' + parts.join('/');
-        navigateToEditFolder(parent);
-      };
+      const btnUp = document.getElementById('btn-edit-explorer-up');
+      if (btnUp) {
+        btnUp.onclick = () => {
+          if (editExplorerState.currentPath === '/' || !editExplorerState.currentPath) return;
+          const parts = editExplorerState.currentPath.split('/').filter(Boolean);
+          parts.pop();
+          const parent = '/' + parts.join('/');
+          navigateToEditFolder(parent);
+        };
+      }
 
-      document.getElementById('edit-explorer-search').addEventListener('input', (e) => {
-        editExplorerState.searchFilter = e.target.value;
-        renderEditExplorer();
-      });
+      const searchInput = document.getElementById('edit-explorer-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          editExplorerState.searchFilter = e.target.value;
+          renderEditExplorer();
+        });
+      }
 
       // Rules enter listener
-      document.getElementById('security-rule-input').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          addSecurityRuleFromInput();
-        }
-      });
+      const ruleInput = document.getElementById('security-rule-input');
+      if (ruleInput) {
+        ruleInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            addSecurityRuleFromInput();
+          }
+        });
+      }
 
-      // Global enter to confirm command approval modal
+      // Global keyboard shortcuts for approval card
       window.addEventListener('keydown', (e) => {
-        const modal = document.getElementById('command-approval-modal');
-        if (modal && !modal.classList.contains('hidden')) {
+        const card = document.getElementById('chat-inline-approval-card');
+        if (card && card.isConnected) {
+          const feedbackInput = document.getElementById('approval-deny-feedback');
+          const isTypingFeedback = feedbackInput && document.activeElement === feedbackInput;
+
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            skipApprovalModal();
+            return;
+          }
+
           if (e.key === 'Enter') {
             e.preventDefault();
             submitCommandApproval();
+            return;
+          }
+
+          if (!isTypingFeedback) {
+            if (['1', '2', '3', '4', '5'].includes(e.key)) {
+              e.preventDefault();
+              const num = parseInt(e.key, 10);
+              selectApprovalOption(APPROVAL_OPTIONS[num - 1]);
+              return;
+            }
+
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const idx = APPROVAL_OPTIONS.indexOf(selectedApprovalOptionValue);
+              selectApprovalOption(APPROVAL_OPTIONS[Math.min(APPROVAL_OPTIONS.length - 1, idx + 1)]);
+              return;
+            }
+
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const idx = APPROVAL_OPTIONS.indexOf(selectedApprovalOptionValue);
+              selectApprovalOption(APPROVAL_OPTIONS[Math.max(0, idx - 1)]);
+              return;
+            }
           }
         }
       });
+
+      // Chat container link interceptor for artifact links
+      const chatContainer = document.getElementById('session-chat-container');
+      if (chatContainer) {
+        chatContainer.addEventListener('click', (e) => {
+          const link = e.target.closest('a');
+          if (link) {
+            const href = link.getAttribute('href');
+            if (href && (href.startsWith('artifact/') || href.includes('implementation_plan.md') || href.includes('task.md') || href.includes('walkthrough.md'))) {
+              e.preventDefault();
+              const fileName = href.split('/').pop();
+              openArtifactTab(fileName, href);
+            }
+          }
+        });
+      }
     }
 
     // Run initialization hooks when document scripts parse
