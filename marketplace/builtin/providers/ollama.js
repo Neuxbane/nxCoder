@@ -1,6 +1,8 @@
 import { BaseProvider } from './base.js';
 
 export class OllamaProvider extends BaseProvider {
+  get model() { return this.config.model || 'llama3'; }
+
   static get id() {
     return 'ollama';
   }
@@ -44,7 +46,7 @@ export class OllamaProvider extends BaseProvider {
   async executeStream(params, callbacks) {
     const { messages, systemInstruction, tools, signal } = params;
     const host = (this.config.host || 'http://localhost:11434').replace(/\/$/, '');
-    const model = this.config.model || 'llama3';
+    const model = this.model;
 
     // Format tools for Ollama API (OpenAI style)
     const formattedTools = (tools || []).map(t => ({
@@ -65,6 +67,7 @@ export class OllamaProvider extends BaseProvider {
     for (const msg of messages) {
       const role = msg.role === 'model' ? 'assistant' : 'user';
       let content = '';
+      const images = [];
       const toolCalls = [];
 
       for (const part of msg.parts) {
@@ -72,6 +75,8 @@ export class OllamaProvider extends BaseProvider {
           content += part.text;
         } else if (part.thought) {
           content += `<thought>${part.text}</thought>`;
+        } else if (part.inlineData?.mimeType?.startsWith('image/')) {
+          images.push(part.inlineData.data);
         } else if (part.functionCall) {
           toolCalls.push({
             id: part.functionCall.id || `call_${Math.random().toString(36).substring(2, 9)}`,
@@ -96,6 +101,7 @@ export class OllamaProvider extends BaseProvider {
         }
       } else {
         const ollamaMsg = { role, content };
+        if (images.length) ollamaMsg.images = images;
         if (toolCalls.length > 0) {
           ollamaMsg.tool_calls = toolCalls;
         }

@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { BaseProvider } from './base.js';
+import { mapContentStackToSteps } from './gemini-content.js';
 
 function mapSchemaTypesToUppercase(schema) {
   if (!schema) return schema;
@@ -20,6 +21,8 @@ function mapSchemaTypesToUppercase(schema) {
 }
 
 export class GeminiProvider extends BaseProvider {
+  get model() { return this.config.defaultModel || 'gemini-2.5-flash'; }
+
   static get id() {
     return 'gemini';
   }
@@ -54,7 +57,7 @@ export class GeminiProvider extends BaseProvider {
   async executeStream(params, callbacks) {
     const { messages, systemInstruction, tools, signal } = params;
     const apiKey = this.config.apiKey;
-    const model = this.config.defaultModel || 'gemini-2.5-flash';
+    const model = this.model;
 
     if (!apiKey) {
       throw new Error('API key is missing in Gemini configuration.');
@@ -70,40 +73,7 @@ export class GeminiProvider extends BaseProvider {
       parameters: mapSchemaTypesToUppercase(t.inputSchema || t.parameters)
     }));
 
-    // Convert messages to history steps structure
-    const historySteps = messages.map(msg => {
-      // Map parts to SDK structure
-      const parts = msg.parts.map(part => {
-        if (part.text) {
-          return { text: part.text };
-        }
-        if (part.thought) {
-          return { text: part.text }; // Gemini SDK text parts
-        }
-        if (part.functionCall) {
-          return {
-            functionCall: {
-              name: part.functionCall.name,
-              args: part.functionCall.args
-            }
-          };
-        }
-        if (part.functionResponse) {
-          return {
-            functionResponse: {
-              name: part.functionResponse.name,
-              response: part.functionResponse.response
-            }
-          };
-        }
-        return part;
-      });
-
-      return {
-        role: msg.role === 'model' ? 'model' : 'user',
-        parts
-      };
-    });
+    const historySteps = mapContentStackToSteps(messages);
 
     const createParams = {
       model,

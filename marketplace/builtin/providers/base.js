@@ -3,6 +3,14 @@ export class BaseProvider {
     this.config = config || {};
   }
 
+  get model() {
+    return this.config.model || this.config.defaultModel || null;
+  }
+
+  get engineInfo() {
+    return { providerId: this.constructor.id, providerName: this.constructor.name, model: this.model };
+  }
+
   static get id() {
     throw new Error("Provider must implement static getter 'id'");
   }
