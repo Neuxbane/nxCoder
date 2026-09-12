@@ -285,7 +285,7 @@ export class MarketplaceManager {
     return { success: true };
   }
 
-  async getActiveProvider() {
+  async getActiveProvider({ rotate = true } = {}) {
     const keys = await this.dbAll("SELECT * FROM api_keys WHERE active = 1");
     if (!keys || keys.length === 0) {
       const geminiKey = process.env.GEMINI_API_KEY;
@@ -304,7 +304,7 @@ export class MarketplaceManager {
 
     if (!this.rotationIndex) this.rotationIndex = 0;
     const selectedKey = providerKeys[this.rotationIndex % providerKeys.length];
-    this.rotationIndex++;
+    if (rotate) this.rotationIndex++;
 
     const providerClass = this.providers.get(activeProviderId);
     if (!providerClass) return null;

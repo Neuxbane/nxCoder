@@ -1,6 +1,8 @@
 import { BaseProvider } from './base.js';
 
 export class OpenAIProvider extends BaseProvider {
+  get model() { return this.config.model || 'gpt-4o'; }
+
   static get id() {
     return 'openai';
   }
@@ -45,7 +47,7 @@ export class OpenAIProvider extends BaseProvider {
     const { messages, systemInstruction, tools, signal } = params;
     const host = (this.config.host || 'http://localhost:8080/v1').replace(/\/$/, '');
     const apiKey = this.config.apiKey || 'sk-no-key-required';
-    const model = this.config.model || 'gpt-4o';
+    const model = this.model;
 
     // Format tools for OpenAI API
     const formattedTools = (tools || []).map(t => ({
@@ -96,7 +98,18 @@ export class OpenAIProvider extends BaseProvider {
           });
         }
       } else {
+        const imageParts = msg.parts.filter(part => part.inlineData?.mimeType?.startsWith('image/'));
         const openaiMsg = { role, content };
+        if (imageParts.length) {
+          openaiMsg.content = msg.parts.flatMap(part => {
+            if (part.text) return [{ type: 'text', text: part.text }];
+            if (part.inlineData?.mimeType?.startsWith('image/')) return [{
+              type: 'image_url',
+              image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
+            }];
+            return [];
+          });
+        }
         if (toolCalls.length > 0) {
           openaiMsg.tool_calls = toolCalls;
         }

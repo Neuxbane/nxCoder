@@ -3,3 +3,4 @@ node_modules
 workspaces
 context_debug.json
 datasets/
+.DS_Store

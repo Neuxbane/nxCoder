@@ -14,5 +14,8 @@
     "sharp": "^0.33.4",
     "sqlite3": "^5.1.7",
     "ws": "^8.17.1"
+  },
+  "allowScripts": {
+    "sqlite3@5.1.7": true
   }
 }

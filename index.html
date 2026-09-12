@@ -5,10 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>nxStudio - Manager Console & Developer</title>
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#8b5cf6">
+  <meta name="theme-color" content="#1b1e22">
   <link rel="apple-touch-icon" href="/assets/streaming.png">
+  <script>
+    // Apply the saved theme before the UI renders to prevent a light-theme flash.
+    (() => {
+      let initialTheme = 'dark';
+      try {
+        initialTheme = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+      } catch (_) {}
+      document.documentElement.classList.remove('dark', 'light');
+      document.documentElement.classList.add(initialTheme);
+      document.documentElement.style.colorScheme = initialTheme;
+    })();
+  </script>
   
   <!-- Markdown-It for rich markdown support in chats/plans -->
+  <script src="/assets/host-paths.js"></script>
   <script src="/cdn/markdown-it.min.js"></script>
   <script>
     if (typeof window.markdownit !== 'function') {
@@ -27,13 +40,29 @@
         extend: {
           colors: {
             brand: {
-              black: '#09090b',
-              darker: '#121214',
-              dark: '#18181b',
-              gray: '#27272a',
-              accent: '#8b5cf6',
-              accentBg: '#1e152f',
-              muted: '#71717a'
+              black: 'rgb(var(--brand-black-rgb) / <alpha-value>)',
+              darker: 'rgb(var(--brand-darker-rgb) / <alpha-value>)',
+              dark: 'rgb(var(--brand-dark-rgb) / <alpha-value>)',
+              gray: 'rgb(var(--brand-gray-rgb) / <alpha-value>)',
+              accent: 'rgb(var(--brand-accent-rgb) / <alpha-value>)',
+              accentBg: 'rgb(var(--brand-accentBg-rgb) / <alpha-value>)',
+              muted: 'rgb(var(--brand-muted-rgb) / <alpha-value>)'
+            },
+            zinc: {
+              50: 'rgb(var(--zinc-50-rgb) / <alpha-value>)',
+              100: 'rgb(var(--zinc-100-rgb) / <alpha-value>)',
+              200: 'rgb(var(--zinc-200-rgb) / <alpha-value>)',
+              300: 'rgb(var(--zinc-300-rgb) / <alpha-value>)',
+              400: 'rgb(var(--zinc-400-rgb) / <alpha-value>)',
+              500: 'rgb(var(--zinc-500-rgb) / <alpha-value>)',
+              600: 'rgb(var(--zinc-600-rgb) / <alpha-value>)',
+              700: 'rgb(var(--zinc-700-rgb) / <alpha-value>)',
+              750: 'rgb(var(--zinc-750-rgb) / <alpha-value>)',
+              800: 'rgb(var(--zinc-800-rgb) / <alpha-value>)',
+              805: 'rgb(var(--zinc-805-rgb) / <alpha-value>)',
+              850: 'rgb(var(--zinc-850-rgb) / <alpha-value>)',
+              900: 'rgb(var(--zinc-900-rgb) / <alpha-value>)',
+              950: 'rgb(var(--zinc-950-rgb) / <alpha-value>)'
             }
           },
           fontFamily: {
@@ -53,20 +82,224 @@
 
 
   <style>
+    /* Theme Variables Definitions */
+    :root {
+      /* Dark Theme (Default) */
+      --brand-black: #09090b;
+      --brand-darker: #111116;
+      --brand-dark: #18181f;
+      --brand-gray: #2b2b33;
+      --brand-accent: #8b5cf6;
+      --brand-accentBg: #1e152f;
+      --brand-muted: #8b8b96;
+
+      /* RGB channels let Tailwind's /opacity modifiers produce soft, valid colors. */
+      --brand-black-rgb: 9 9 11;
+      --brand-darker-rgb: 17 17 22;
+      --brand-dark-rgb: 24 24 31;
+      --brand-gray-rgb: 43 43 51;
+      --brand-accent-rgb: 139 92 246;
+      --brand-accentBg-rgb: 30 21 47;
+      --brand-muted-rgb: 139 139 150;
+
+      --theme-heading: #fafafa;
+      --theme-code-bg: #0c0c0f;
+      --theme-code-border: #2d2d34;
+      --theme-code-text: #e4e4e7;
+      --theme-inline-code: #c4b5fd;
+      --theme-quote-text: #a1a1aa;
+      --theme-overlay: rgba(3, 3, 7, 0.78);
+      --theme-vignette: rgba(0, 0, 0, 0.62);
+      --theme-shadow: rgba(0, 0, 0, 0.34);
+      --theme-canvas-rgb: 139, 92, 246;
+
+      /* Zinc Overrides (Text/Borders) */
+      --zinc-50: #fafafa;
+      --zinc-100: #f4f4f5;
+      --zinc-200: #e4e4e7;
+      --zinc-300: #d4d4d8;
+      --zinc-400: #a1a1aa;
+      --zinc-500: #71717a;
+      --zinc-600: #52525b;
+      --zinc-700: #3f3f46;
+      --zinc-750: #34343b;
+      --zinc-800: #29292f;
+      --zinc-805: #26262c;
+      --zinc-850: #222228;
+      --zinc-900: #18181b;
+      --zinc-950: #09090b;
+
+      --zinc-50-rgb: 250 250 250;
+      --zinc-100-rgb: 244 244 245;
+      --zinc-200-rgb: 228 228 231;
+      --zinc-300-rgb: 212 212 216;
+      --zinc-400-rgb: 161 161 170;
+      --zinc-500-rgb: 113 113 122;
+      --zinc-600-rgb: 82 82 91;
+      --zinc-700-rgb: 63 63 70;
+      --zinc-750-rgb: 52 52 59;
+      --zinc-800-rgb: 41 41 47;
+      --zinc-805-rgb: 38 38 44;
+      --zinc-850-rgb: 34 34 40;
+      --zinc-900-rgb: 24 24 27;
+      --zinc-950-rgb: 9 9 11;
+    }
+
+    .light {
+      /* Light Theme overrides */
+      --brand-black: #f8fafc;
+      --brand-darker: #f1f5f9;
+      --brand-dark: #ffffff;
+      --brand-gray: #cbd5e1;
+      --brand-accent: #7c3aed;
+      --brand-accentBg: #ede9fe;
+      --brand-muted: #64748b;
+
+      --brand-black-rgb: 248 250 252;
+      --brand-darker-rgb: 241 245 249;
+      --brand-dark-rgb: 255 255 255;
+      --brand-gray-rgb: 203 213 225;
+      --brand-accent-rgb: 124 58 237;
+      --brand-accentBg-rgb: 237 233 254;
+      --brand-muted-rgb: 100 116 139;
+
+      --theme-heading: #0f172a;
+      --theme-code-bg: #f1f5f9;
+      --theme-code-border: #cbd5e1;
+      --theme-code-text: #1e293b;
+      --theme-inline-code: #6d28d9;
+      --theme-quote-text: #475569;
+      --theme-overlay: rgba(15, 23, 42, 0.38);
+      --theme-vignette: rgba(124, 58, 237, 0.09);
+      --theme-shadow: rgba(15, 23, 42, 0.13);
+      --theme-canvas-rgb: 124, 58, 237;
+
+      /* Zinc Overrides (Inverted for text) */
+      --zinc-50: #0f172a;
+      --zinc-100: #172033;
+      --zinc-200: #1e293b;
+      --zinc-300: #334155;
+      --zinc-400: #475569;
+      --zinc-500: #64748b;
+      --zinc-600: #94a3b8;
+      --zinc-700: #cbd5e1;
+      --zinc-750: #d7dee8;
+      --zinc-800: #e2e8f0;
+      --zinc-805: #e6ebf2;
+      --zinc-850: #ebeff5;
+      --zinc-900: #f1f5f9;
+      --zinc-950: #f8fafc;
+
+      --zinc-50-rgb: 15 23 42;
+      --zinc-100-rgb: 23 32 51;
+      --zinc-200-rgb: 30 41 59;
+      --zinc-300-rgb: 51 65 85;
+      --zinc-400-rgb: 71 85 105;
+      --zinc-500-rgb: 100 116 139;
+      --zinc-600-rgb: 148 163 184;
+      --zinc-700-rgb: 203 213 225;
+      --zinc-750-rgb: 215 222 232;
+      --zinc-800-rgb: 226 232 240;
+      --zinc-805-rgb: 230 235 242;
+      --zinc-850-rgb: 235 239 245;
+      --zinc-900-rgb: 241 245 249;
+      --zinc-950-rgb: 248 250 252;
+    }
+
+    body {
+      color-scheme: dark;
+      transition: background-color 180ms ease, color 180ms ease;
+    }
+    .light body {
+      color-scheme: light;
+    }
+
+    /* Tailwind's literal white utility needs a semantic light-theme equivalent. */
+    .light [class~='text-white'] {
+      color: var(--theme-heading) !important;
+    }
+    .light [class~='hover:text-white']:hover,
+    .light .group:hover [class~='group-hover:text-white'] {
+      color: var(--theme-heading) !important;
+    }
+    .light [class~='bg-brand-accent'][class~='text-white'],
+    .light [class~='bg-blue-600'][class~='text-white'],
+    .light [class~='bg-red-600'][class~='text-white'],
+    .light [class~='bg-red-950'][class~='text-white'],
+    .light [class~='bg-amber-500'][class~='text-white'],
+    .light [class~='bg-emerald-500'][class~='text-white'],
+    .light [class~='hover:bg-brand-accent']:hover,
+    .light [class~='hover:bg-blue-500']:hover,
+    .light [class~='hover:bg-red-500']:hover,
+    .light [class~='hover:bg-violet-500']:hover {
+      color: #ffffff !important;
+    }
+
+    /* Backdrops stay neutral in both themes instead of becoming opaque white. */
+    .light [id$='-backdrop'],
+    .light [id$='-modal'],
+    .light #manager-settings-drawer {
+      background-color: var(--theme-overlay) !important;
+    }
+
+    .light .shadow-lg,
+    .light .shadow-xl,
+    .light .shadow-2xl {
+      box-shadow: 0 12px 28px -12px var(--theme-shadow);
+    }
+
+    .theme-switcher {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.125rem;
+      padding: 0.15rem;
+      border: 1px solid var(--zinc-800);
+      border-radius: 0.55rem;
+      background: var(--zinc-900);
+    }
+    .theme-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.5rem;
+      border: 1px solid transparent;
+      border-radius: 0.4rem;
+      color: var(--zinc-500);
+      font-size: 0.65rem;
+      font-weight: 600;
+      line-height: 1;
+      transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+    }
+    .theme-option:hover {
+      color: var(--zinc-200);
+    }
+    .theme-option.is-active {
+      color: var(--zinc-100);
+      background: var(--brand-dark);
+      border-color: var(--zinc-700);
+      box-shadow: 0 1px 4px var(--theme-shadow);
+    }
+
+    /* Better selection highlights */
+    ::selection {
+      background-color: var(--brand-accent);
+      color: white;
+    }
+
     /* Premium scrollbar designs */
     ::-webkit-scrollbar {
       width: 5px;
       height: 5px;
     }
     ::-webkit-scrollbar-track {
-      background: #09090b;
+      background: var(--brand-black);
     }
     ::-webkit-scrollbar-thumb {
-      background: #27272a;
+      background: var(--zinc-700);
       border-radius: 99px;
     }
     ::-webkit-scrollbar-thumb:hover {
-      background: #8b5cf6;
+      background: var(--brand-accent);
     }
     
     /* Code block container layouts */
@@ -104,15 +337,16 @@
     }
     .chat-body-content code:not(pre code) {
       background-color: rgba(139, 92, 246, 0.15);
-      color: #a78bfa;
+      color: var(--theme-inline-code);
       padding: 0.1rem 0.3rem;
       border-radius: 0.25rem;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.85em;
     }
     .chat-body-content pre {
-      background-color: #09090b;
-      border: 1px solid #27272a;
+      background-color: var(--theme-code-bg);
+      border: 1px solid var(--theme-code-border);
+      color: var(--theme-code-text);
       border-radius: 0.5rem;
       padding: 0.75rem;
       margin-bottom: 0.75rem;
@@ -121,7 +355,7 @@
     .chat-body-content blockquote {
       border-left: 3px solid #8b5cf6;
       padding-left: 0.75rem;
-      color: #a1a1aa;
+      color: var(--theme-quote-text);
       font-style: italic;
       margin-bottom: 0.75rem;
     }
@@ -129,7 +363,7 @@
       font-weight: 600;
       margin-top: 1rem;
       margin-bottom: 0.5rem;
-      color: #fff;
+      color: var(--theme-heading);
     }
     .chat-body-content h1 { font-size: 1.25rem; }
     .chat-body-content h2 { font-size: 1.1rem; }
@@ -141,18 +375,18 @@
       font-size: 0.8rem;
     }
     .chat-body-content th, .chat-body-content td {
-      border: 1px solid #27272a;
+      border: 1px solid var(--theme-code-border);
       padding: 0.4rem 0.6rem;
       text-align: left;
     }
     .chat-body-content th {
-      background-color: #18181b;
-      color: #d4d4d8;
+      background-color: var(--zinc-900);
+      color: var(--zinc-200);
     }
 
     /* Markdown rendering styles for artifact previewer */
     .artifact-markdown-content {
-      color: #d4d4d8;
+      color: var(--zinc-300);
       line-height: 1.6;
     }
     .artifact-markdown-content p {
@@ -163,8 +397,8 @@
       font-weight: 700;
       margin-top: 1.5rem;
       margin-bottom: 1rem;
-      color: #fff;
-      border-bottom: 1px solid #27272a;
+      color: var(--theme-heading);
+      border-bottom: 1px solid var(--theme-code-border);
       padding-bottom: 0.5rem;
     }
     .artifact-markdown-content h2 {
@@ -172,14 +406,14 @@
       font-weight: 600;
       margin-top: 1.25rem;
       margin-bottom: 0.75rem;
-      color: #fff;
+      color: var(--theme-heading);
     }
     .artifact-markdown-content h3 {
       font-size: 1.25rem;
       font-weight: 600;
       margin-top: 1rem;
       margin-bottom: 0.5rem;
-      color: #fff;
+      color: var(--theme-heading);
     }
     .artifact-markdown-content ul, .artifact-markdown-content ol {
       margin-bottom: 1rem;
@@ -190,27 +424,27 @@
     .artifact-markdown-content li { margin-bottom: 0.25rem; }
     .artifact-markdown-content code:not(pre code) {
       background-color: rgba(139, 92, 246, 0.15);
-      color: #a78bfa;
+      color: var(--theme-inline-code);
       padding: 0.1rem 0.3rem;
       border-radius: 0.25rem;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.9em;
     }
     .artifact-markdown-content pre {
-      background-color: #09090b;
-      border: 1px solid #27272a;
+      background-color: var(--theme-code-bg);
+      border: 1px solid var(--theme-code-border);
       border-radius: 0.5rem;
       padding: 1rem;
       margin-bottom: 1rem;
       overflow-x: auto;
     }
     .artifact-markdown-content pre code {
-      color: #e4e4e7;
+      color: var(--theme-code-text);
     }
     .artifact-markdown-content blockquote {
       border-left: 4px solid #8b5cf6;
       padding-left: 1rem;
-      color: #a1a1aa;
+      color: var(--theme-quote-text);
       font-style: italic;
       margin-bottom: 1rem;
     }
@@ -221,13 +455,13 @@
       font-size: 0.9rem;
     }
     .artifact-markdown-content th, .artifact-markdown-content td {
-      border: 1px solid #27272a;
+      border: 1px solid var(--theme-code-border);
       padding: 0.5rem 0.75rem;
       text-align: left;
     }
     .artifact-markdown-content th {
-      background-color: #18181b;
-      color: #fff;
+      background-color: var(--zinc-900);
+      color: var(--theme-heading);
       font-weight: 600;
     }
 
@@ -257,7 +491,7 @@
       position: absolute;
       inset: 1.5px;
       border-radius: 0.75rem;
-      background: #18181b; /* brand-dark */
+      background: var(--brand-dark);
       z-index: 1;
     }
 
@@ -271,9 +505,19 @@
       inset: 0;
       z-index: 1;
       pointer-events: none;
-      background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.7) 100%);
+      background: radial-gradient(circle, transparent 34%, var(--theme-vignette) 100%);
+      transition: background 180ms ease;
+    }
+
+    #bg-canvas {
+      opacity: 0.42;
+      transition: opacity 180ms ease;
+    }
+    .light #bg-canvas {
+      opacity: 0.16;
     }
   </style>
+  <link rel="stylesheet" href="/assets/studio.css">
 </head>
 <body class="bg-brand-black text-zinc-100 font-sans h-full overflow-hidden flex flex-col selection:bg-brand-accent/30 selection:text-white">
 
@@ -301,6 +545,37 @@
         <button id="confirm-accept-btn" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-semibold transition-colors">Delete Permanently</button>
       </div>
     </div>
+  </div>
+
+  <!-- Create/Edit Named Chat Session Modal -->
+  <div id="new-session-modal-backdrop" class="fixed inset-0 bg-brand-black/90 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+    <form id="new-session-form" class="bg-brand-dark border border-zinc-800 rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl" novalidate>
+      <div class="flex items-start justify-between space-x-4">
+        <div class="flex items-start space-x-3">
+          <div class="p-2 bg-brand-accent/10 text-brand-accent rounded-lg shrink-0">
+            <i class="fa-solid fa-message text-sm"></i>
+          </div>
+          <div>
+            <h4 id="session-name-modal-title" class="text-sm font-semibold text-zinc-200">Create New Chat Thread</h4>
+            <p id="session-name-modal-desc" class="text-xs text-zinc-400 mt-1 leading-relaxed">Give this session a name so it is easy to find later.</p>
+          </div>
+        </div>
+        <button type="button" id="new-session-close-btn" class="text-zinc-500 hover:text-white transition-colors" aria-label="Close session name dialog">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <div class="space-y-1.5">
+        <label for="new-session-name-input" class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Session name</label>
+        <input id="new-session-name-input" type="text" maxlength="80" autocomplete="off" class="w-full bg-brand-black border border-zinc-800 rounded-lg p-2.5 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-brand-accent transition-all" placeholder="e.g. Examine SiteController.php" required>
+        <p id="new-session-name-error" class="hidden text-[10px] text-red-400"></p>
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button type="button" id="new-session-cancel-btn" class="px-3 py-1.5 bg-brand-gray hover:bg-zinc-700 text-zinc-300 rounded text-xs transition-colors">Cancel</button>
+        <button type="submit" id="new-session-create-btn" class="px-3 py-1.5 bg-brand-accent hover:bg-violet-500 text-white rounded text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Create Session</button>
+      </div>
+    </form>
   </div>
 
   <!-- Construct Workspace Wizard Modal Overlay -->
@@ -346,10 +621,26 @@
   </div>
 
   <!-- Main Application Header Bar -->
-  <header class="h-12 bg-brand-black border-b border-brand-gray/30 px-6 flex items-center justify-between select-none shrink-0 z-40">
+  <dialog id="file-preview-dialog" aria-labelledby="file-preview-title">
+    <div class="file-preview-heading">
+      <div class="min-w-0"><h2 id="file-preview-title">File preview</h2><p id="file-preview-path"></p></div>
+      <button type="button" onclick="closeFilePreview()" aria-label="Close file preview"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="file-preview-toolbar">
+      <span id="file-preview-status" role="status">Loading…</span>
+      <div class="flex gap-2">
+        <button id="file-preview-select" type="button" onclick="selectFilePreview()" disabled>Select all</button>
+        <button id="file-preview-copy" type="button" onclick="copyFilePreview()" disabled><i class="fa-regular fa-copy mr-1"></i>Copy</button>
+      </div>
+    </div>
+    <textarea id="file-preview-content" readonly spellcheck="false" wrap="off" aria-label="Read-only file contents"></textarea>
+    <p class="file-preview-footer">Read only · Select text to copy · Esc to close</p>
+  </dialog>
+
+  <header class="studio-header h-12 bg-brand-black border-b border-brand-gray/30 px-6 flex items-center justify-between select-none shrink-0 z-40">
     <div class="flex items-center space-x-4">
       <!-- Mobile Menu Toggle -->
-      <button id="btn-mobile-menu" onclick="toggleMobileSidebar()" class="md:hidden text-zinc-400 hover:text-white p-1 -ml-1 transition-colors">
+      <button aria-label="Open session navigation" id="btn-mobile-menu" onclick="toggleMobileSidebar()" class="md:hidden text-zinc-400 hover:text-white p-1 -ml-1 transition-colors">
         <i class="fa-solid fa-bars text-lg"></i>
       </button>
       <span class="text-xs font-bold text-brand-accent flex items-center space-x-1.5 cursor-pointer" onclick="navigateToView('manager')">
@@ -365,6 +656,18 @@
     </div>
 
     <div class="flex items-center space-x-4">
+      <!-- Theme Selection Control -->
+      <div id="theme-switcher" class="theme-switcher" role="group" aria-label="Color theme">
+        <button type="button" class="theme-option" data-theme-option="dark" aria-pressed="true" title="Use dark theme">
+          <i class="fa-solid fa-moon"></i>
+          <span class="hidden sm:inline">Dark</span>
+        </button>
+        <button type="button" class="theme-option" data-theme-option="light" aria-pressed="false" title="Use light theme">
+          <i class="fa-solid fa-sun"></i>
+          <span class="hidden sm:inline">Light</span>
+        </button>
+      </div>
+
       <!-- Active WS Sync Heartbeat Status Indicator -->
       <div id="conn-indicator" class="flex items-center px-2 py-1 rounded bg-zinc-900 text-zinc-500 border border-zinc-800 text-[10px] font-mono">
         <span class="h-1.5 w-1.5 rounded-full bg-zinc-600 mr-2"></span> DISCONNECTED
@@ -387,13 +690,13 @@
     <section id="view-manager" class="absolute inset-0 bg-brand-black/60 overflow-y-auto flex flex-col p-6 space-y-6 z-10 transition-all duration-300 transform translate-x-0 opacity-100">
       
       <!-- Top Overview Dashboard Banner -->
-      <div class="max-w-7xl mx-auto w-full flex flex-col md:flex-row md:items-center md:justify-between border-b border-brand-gray/30 pb-5 gap-4">
+      <div class="studio-overview max-w-7xl mx-auto w-full flex flex-col md:flex-row md:items-center md:justify-between border-b border-brand-gray/30 pb-5 gap-4">
         <div>
           <h1 class="text-xl font-bold tracking-tight text-white flex items-center space-x-2">
-            <span>Developer Hub</span>
+            <span>Workspace Hub</span>
             <span class="text-[10px] bg-brand-accent/20 text-brand-accent px-2 py-0.5 rounded-full font-semibold font-mono">V0.0.1-beta</span>
           </h1>
-          <p class="text-xs text-zinc-500 mt-1">Isolate system directories, configure custom system profiles, and coordinate multi-turn operations.</p>
+          <p class="text-xs text-zinc-500 mt-1">Your projects, tools, and ideas. All in one place.</p>
         </div>
         
         <!-- Quick Action Tabs for Management Config -->
@@ -410,6 +713,24 @@
             <i class="fa-solid fa-shop text-zinc-500 text-[11px]"></i>
             <span>Marketplace</span>
           </button>
+        </div>
+      </div>
+
+      <div class="studio-welcome max-w-7xl mx-auto w-full">
+        <div class="studio-welcome-copy">
+          <span class="studio-eyebrow"><span></span> YOUR DEVELOPMENT SPACE</span>
+          <h2>What would you like<br>to talk about?</h2>
+          <p>Ask a question, explore an idea, or share an image.<br class="hidden sm:block"> Start chatting without choosing a project folder.</p>
+          <button type="button" onclick="openGeneralChat()" class="studio-create"><i class="fa-regular fa-comments" aria-hidden="true"></i> Open chat</button>
+          <button type="button" onclick="openConstructWizard()" class="studio-create"><i class="fa-solid fa-plus" aria-hidden="true"></i> Create workspace <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+        </div>
+        <div class="studio-illustration" aria-hidden="true">
+          <div class="studio-orbit"></div>
+          <div class="studio-code-window">
+            <div class="studio-window-bar"><span></span><span></span><span></span><b>workspace / possibilities</b></div>
+            <div class="studio-code"><span class="studio-code-muted">01</span> <em>const</em> idea = {<br><span class="studio-code-muted">02</span> &nbsp; inspiration: <strong>'unlimited'</strong>,<br><span class="studio-code-muted">03</span> &nbsp; readyToBuild: <strong>true</strong><br><span class="studio-code-muted">04</span> };<br><span class="studio-code-muted">05</span> <br><span class="studio-code-muted">06</span> <em>create</em>(idea);<span class="studio-caret"></span></div>
+          </div>
+          <div class="studio-floating-tag"><i class="fa-solid fa-code"></i> Make room for your next idea</div>
         </div>
       </div>
 
@@ -430,9 +751,9 @@
       <!-- Workspace Cards & Creation Container Grid -->
       <div class="max-w-7xl mx-auto w-full">
         <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
-          <h2 class="text-xs uppercase font-bold tracking-wider text-zinc-500">Workspace</h2>
+          <h2 class="text-xs uppercase font-bold tracking-wider text-zinc-500">Your workspaces <span id="studio-workspace-count" class="studio-count">0</span></h2>
           <div class="w-full md:w-[340px]">
-            <label for="workspace-keyword-filter" class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider mb-1">Filter Keyword Project</label>
+            <label for="workspace-keyword-filter" class="block text-[10px] uppercase text-zinc-500 font-bold tracking-wider mb-1">Find a workspace</label>
             <div class="relative">
               <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 text-[10px]"></i>
               <input
@@ -854,22 +1175,24 @@
       </aside>
 
       <!-- CENTRAL ACTIVE SESSION CHAT STREAM CONSOLE -->
-      <div class="flex-1 flex flex-col bg-brand-darker overflow-hidden min-w-0 relative">
+      <div class="session-main flex-1 flex flex-col bg-brand-darker overflow-hidden min-w-0 relative">
         
-        <!-- Live Run Headers / Active configuration logs -->
-        <div class="px-5 py-2 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between text-xs text-zinc-400 select-none shrink-0">
-          <div class="flex items-center space-x-2">
-            <i class="fa-solid fa-terminal text-brand-accent mr-1"></i>
-            <span id="session-running-model" class="font-mono text-zinc-300">gemma-4-31b-it</span>
-            <span class="text-zinc-700">|</span>
-            <span class="text-[11px] text-zinc-400" id="session-turn-counter">Loading Turn history bounds...</span>
+        <!-- Session context remains visible while reading the conversation. -->
+        <div class="session-toolbar">
+          <div class="session-heading">
+            <span class="session-heading-icon"><i class="fa-solid fa-message" aria-hidden="true"></i></span>
+            <div class="session-heading-copy">
+              <span class="session-eyebrow">SESSION ORCHESTRATION</span>
+              <h1 id="session-conversation-title">Your conversation</h1>
+            </div>
           </div>
-          <div class="flex items-center space-x-2">
-            <span id="executing-loader" class="hidden items-center text-brand-accent font-medium space-x-2 mr-3">
-              <i class="fa-solid fa-spinner animate-spin text-[11px]"></i>
-              <span class="text-[11px]">Agent thinking...</span>
-            </span>
+          <div class="session-runtime">
+            <span class="session-model"><i class="fa-solid fa-terminal" aria-hidden="true"></i><span id="session-running-model" class="font-mono">Loading engine…</span></span>
+            <span id="session-turn-counter">Loading history...</span>
+            <span id="executing-loader" class="hidden items-center text-brand-accent font-medium space-x-2"><i class="fa-solid fa-spinner animate-spin"></i><span>Agent thinking...</span></span>
+          </div>
 
+          <div class="flex items-center">
             <!-- Antigravity-style Action Icons -->
             <div class="flex items-center space-x-1 border-l border-zinc-800 pl-3">
               <button id="btn-header-artifacts" onclick="toggleArtifactsSplitPanel()" title="Toggle Artifacts" class="p-1.5 px-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors flex items-center space-x-1">
@@ -896,7 +1219,7 @@
             </div>
 
             <!-- Chat Prompt & Configuration Input Box -->
-            <div class="p-4 bg-brand-black border-t border-brand-gray/40 shrink-0">
+            <div class="session-composer p-4 bg-brand-black border-t border-brand-gray/40 shrink-0">
               <div class="max-w-4xl mx-auto space-y-3">
                 
                 <!-- Upload Attachment chips -->
@@ -904,7 +1227,7 @@
 
                 <!-- Main Input Bar Box Container -->
                 <div id="chat-input-container" class="bg-brand-dark border border-brand-gray/60 rounded-xl p-3 focus-within:border-brand-accent/80 transition-colors shadow-lg">
-                  <textarea id="chat-prompt-input" rows="2" placeholder="Describe instructions, execute tasks, or invoke terminal commands..." class="w-full bg-transparent border-0 outline-none resize-none text-xs text-zinc-100 placeholder-zinc-500 focus:ring-0" disabled></textarea>
+                  <textarea aria-label="Message to the agent" id="chat-prompt-input" rows="2" placeholder="Describe instructions, execute tasks, or invoke terminal commands..." class="w-full bg-transparent border-0 outline-none resize-none text-xs text-zinc-100 placeholder-zinc-500 focus:ring-0" disabled></textarea>
                   
                   <div class="flex items-center justify-between border-t border-zinc-800/60 pt-2.5 mt-2 select-none">
                     <div class="flex items-center space-x-3">
@@ -994,7 +1317,7 @@
               </div>
 
               <!-- Sub-View B: Source Control Viewer -->
-              <div id="split-source-control-view" class="hidden flex-1 flex flex-col overflow-hidden">
+              <div id="source-control-container" class="hidden flex-1 flex flex-col overflow-hidden">
                 <div class="px-4 py-2 bg-zinc-950/40 border-b border-brand-gray/20 flex items-center justify-between shrink-0 select-none">
                   <div class="flex items-center space-x-1">
                     <button id="btn-sc-files" onclick="setScTab('files')" class="text-xs font-semibold px-2.5 py-1 rounded transition-all text-brand-accent bg-brand-accent/10 border border-brand-accent/20">Files Explorer</button>
@@ -1006,6 +1329,51 @@
                 </div>
               </div>
 
+            </div>
+          </div>
+        </div>
+
+        <!-- Artifacts Interface Container -->
+        <div id="artifacts-container" class="hidden flex-1 flex flex-col overflow-hidden bg-brand-darker">
+          <!-- Header -->
+          <div class="px-5 py-3 bg-brand-black border-b border-brand-gray/30 flex items-center justify-between shrink-0 select-none">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-cube text-brand-accent"></i>
+              <span class="text-xs font-semibold text-zinc-200">Artifacts Explorer</span>
+            </div>
+            <!-- Close button to go back to chat -->
+            <button onclick="toggleArtifactsView(false)" class="text-zinc-400 hover:text-zinc-200 transition-colors text-xs flex items-center space-x-1">
+              <i class="fa-solid fa-xmark mr-1"></i> Close
+            </button>
+          </div>
+          
+          <!-- Split Layout for File List and File Preview -->
+          <div class="flex-1 flex overflow-hidden">
+            <!-- Left Side: Artifact File List -->
+            <div class="w-64 border-r border-brand-gray/30 overflow-y-auto p-4 space-y-2 bg-brand-dark/40 shrink-0">
+              <div id="artifacts-list" class="space-y-1">
+                <!-- Dynamically loaded artifact files -->
+              </div>
+            </div>
+            <!-- Right Side: Artifact File Preview -->
+            <div id="artifacts-preview-panel" class="flex-1 overflow-y-auto p-5 bg-brand-darker font-sans text-sm text-zinc-300">
+              <div id="artifacts-preview-placeholder" class="h-full flex flex-col items-center justify-center text-zinc-500 italic space-y-2">
+                <i class="fa-solid fa-file text-3xl text-zinc-600"></i>
+                <span>Select an artifact file to preview</span>
+              </div>
+              <div id="artifacts-preview-content" class="hidden h-full flex flex-col">
+                <!-- File header/metadata -->
+                <div class="pb-3 border-b border-brand-gray/30 mb-4 flex items-center justify-between shrink-0">
+                  <div>
+                    <h3 id="artifacts-preview-filename" class="text-sm font-bold text-zinc-100 font-mono"></h3>
+                    <span id="artifacts-preview-size" class="text-[10px] text-zinc-500 font-mono"></span>
+                  </div>
+                </div>
+                <!-- Preview area -->
+                <div id="artifacts-preview-body" class="flex-1 min-h-0 overflow-auto">
+                  <!-- Dynamically rendered file content preview -->
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1059,7 +1427,7 @@
       <aside id="session-right-drawer" class="w-80 bg-brand-dark border-l border-brand-gray/30 flex flex-col shrink-0 hidden">
         <div class="p-4 border-b border-brand-gray/30 flex items-center justify-between bg-zinc-900/20 shrink-0">
           <h4 id="right-drawer-title" class="text-xs font-bold uppercase tracking-wider text-zinc-300">Context</h4>
-          <button onclick="closeSessionRightDrawer()" class="text-zinc-500 hover:text-zinc-200">
+          <button aria-label="Close workspace details" onclick="closeSessionRightDrawer()" class="text-zinc-500 hover:text-zinc-200">
             <i class="fa-solid fa-xmark text-xs"></i>
           </button>
         </div>
@@ -1157,6 +1525,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       
       activeWorkspaceId: null,
       activeSessionId: null,
+      editingSessionId: null,
       activeSubSessionId: null,
       expandedSessions: new Set(),
       activeWsURL: null,
@@ -1209,6 +1578,15 @@ Group files by component. Use markdown links with relative paths and detail exac
       sidebarActiveWsPaths: document.getElementById('sidebar-active-ws-paths'),
       btnSidebarNewSession: document.getElementById('btn-sidebar-new-session'),
       sidebarSessionList: document.getElementById('sidebar-session-list'),
+      newSessionModalBackdrop: document.getElementById('new-session-modal-backdrop'),
+      newSessionForm: document.getElementById('new-session-form'),
+      newSessionNameInput: document.getElementById('new-session-name-input'),
+      newSessionNameError: document.getElementById('new-session-name-error'),
+      sessionNameModalTitle: document.getElementById('session-name-modal-title'),
+      sessionNameModalDesc: document.getElementById('session-name-modal-desc'),
+      newSessionCreateBtn: document.getElementById('new-session-create-btn'),
+      newSessionCancelBtn: document.getElementById('new-session-cancel-btn'),
+      newSessionCloseBtn: document.getElementById('new-session-close-btn'),
       
       sessionRunningModel: document.getElementById('session-running-model'),
       sessionTurnCounter: document.getElementById('session-turn-counter'),
@@ -1232,8 +1610,26 @@ Group files by component. Use markdown links with relative paths and detail exac
       setupMainActions();
       setupPageFormAddProfile();
       setupInstructionSelectorHandler();
-      navigateToView('manager');
+      await openGeneralChat();
     };
+
+    let openingGeneralChat = false;
+    async function openGeneralChat() {
+      if (openingGeneralChat) return;
+      openingGeneralChat = true;
+      try {
+        const response = await fetch('/api/general-chat', { method: 'POST' });
+        if (!response.ok) throw new Error('Could not open general chat.');
+        const { workspace, sessionId } = await response.json();
+        if (!workspace?.id || !sessionId) throw new Error('Restart the server to enable general chat.');
+        state.workspaces = [...state.workspaces.filter(item => item.id !== workspace.id), workspace];
+        await navigateToWorkspaceSession(workspace.id, sessionId);
+        elements.chatPromptInput.focus();
+      } catch (error) {
+        navigateToView('manager');
+        showToast('Chat unavailable', error.message, 'error');
+      } finally { openingGeneralChat = false; }
+    }
 
     // Wrap navigateToView to trigger Construct Workspace initialization
     const originalNavigateToView = navigateToView;
@@ -1264,6 +1660,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
       // Auto-expand prompt input height
       elements.chatPromptInput.addEventListener('input', (e) => {
+        saveSessionDraft();
         e.target.style.height = 'auto'; // Reset to get accurate scrollHeight
         
         const maxHeight = window.innerHeight * 0.5;
@@ -1327,36 +1724,209 @@ Group files by component. Use markdown links with relative paths and detail exac
       }
 
       // Thread trigger button inside
-      elements.btnSidebarNewSession.onclick = async function() {
+      elements.btnSidebarNewSession.onclick = function() {
         if (!state.activeWorkspaceId) {
           showToast('Configuration Error', 'Select or construct a workspace first.', 'error');
           return;
         }
-        const customSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
-        await initializeSession(customSessionId);
-        await refreshSessionList();
+        openNewSessionModal();
       };
+
+      elements.newSessionForm.addEventListener('submit', submitSessionName);
+      elements.newSessionCancelBtn.onclick = closeSessionNameModal;
+      elements.newSessionCloseBtn.onclick = closeSessionNameModal;
+      elements.newSessionModalBackdrop.addEventListener('click', (e) => {
+        if (e.target === elements.newSessionModalBackdrop) closeSessionNameModal();
+      });
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !elements.newSessionModalBackdrop.classList.contains('hidden')) {
+          closeSessionNameModal();
+        }
+      });
+    }
+
+    function openNewSessionModal() {
+      state.editingSessionId = null;
+      elements.newSessionForm.reset();
+      elements.newSessionNameError.textContent = '';
+      elements.newSessionNameError.classList.add('hidden');
+      elements.sessionNameModalTitle.textContent = 'Create New Chat Thread';
+      elements.sessionNameModalDesc.textContent = 'Give this session a name so it is easy to find later.';
+      elements.newSessionCreateBtn.disabled = false;
+      elements.newSessionCreateBtn.textContent = 'Create Session';
+      elements.newSessionModalBackdrop.classList.remove('hidden');
+      elements.newSessionModalBackdrop.classList.add('flex');
+      requestAnimationFrame(() => elements.newSessionNameInput.focus());
+    }
+
+    function openEditSessionModal(session) {
+      state.editingSessionId = session.id;
+      elements.newSessionForm.reset();
+      elements.newSessionNameInput.value = session.name || `Chat Session #${session.id.substring(5)}`;
+      elements.newSessionNameError.textContent = '';
+      elements.newSessionNameError.classList.add('hidden');
+      elements.sessionNameModalTitle.textContent = 'Edit Session Name';
+      elements.sessionNameModalDesc.textContent = 'Update the name shown in the SESSIONS list.';
+      elements.newSessionCreateBtn.disabled = false;
+      elements.newSessionCreateBtn.textContent = 'Save Changes';
+      elements.newSessionModalBackdrop.classList.remove('hidden');
+      elements.newSessionModalBackdrop.classList.add('flex');
+      requestAnimationFrame(() => {
+        elements.newSessionNameInput.focus();
+        elements.newSessionNameInput.select();
+      });
+    }
+
+    function closeSessionNameModal() {
+      elements.newSessionModalBackdrop.classList.add('hidden');
+      elements.newSessionModalBackdrop.classList.remove('flex');
+      state.editingSessionId = null;
+    }
+
+    async function readSessionApiResponse(response, operation) {
+      const rawBody = await response.text();
+      let data = {};
+
+      if (rawBody) {
+        try {
+          data = JSON.parse(rawBody);
+        } catch (_) {
+          const isMissingRoute = response.status === 404 && /Cannot\s+(PATCH|POST)/i.test(rawBody);
+          if (isMissingRoute) {
+            throw new Error('The server is still running an older build. Restart server.js, reload this page, then try again.');
+          }
+          throw new Error(`The server returned ${response.status} ${response.statusText || ''} instead of JSON while trying to ${operation} the session.`.trim());
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to ${operation} session (HTTP ${response.status}).`);
+      }
+
+      return data;
+    }
+
+    async function submitSessionName(event) {
+      event.preventDefault();
+
+      const name = elements.newSessionNameInput.value.trim();
+      if (!name) {
+        elements.newSessionNameError.textContent = 'Session name is required.';
+        elements.newSessionNameError.classList.remove('hidden');
+        elements.newSessionNameInput.focus();
+        return;
+      }
+
+      elements.newSessionNameError.classList.add('hidden');
+      elements.newSessionCreateBtn.disabled = true;
+      const editingSessionId = state.editingSessionId;
+      const isEditing = Boolean(editingSessionId);
+      elements.newSessionCreateBtn.textContent = isEditing ? 'Saving...' : 'Creating...';
+
+      try {
+        const url = isEditing
+          ? `/api/workspace/${state.activeWorkspaceId}/session/${editingSessionId}`
+          : `/api/workspace/${state.activeWorkspaceId}/session`;
+        const res = await fetch(url, {
+          method: isEditing ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const data = await readSessionApiResponse(res, isEditing ? 'rename' : 'create');
+
+        closeSessionNameModal();
+        await refreshSessionList();
+        if (isEditing) {
+          showToast('Session Updated', `Session renamed to “${data.name}”.`, 'success');
+        } else {
+          await initializeSession(data.id);
+          showToast('Session Created', `“${data.name}” is ready.`, 'success');
+        }
+      } catch (error) {
+        elements.newSessionNameError.textContent = error.message;
+        elements.newSessionNameError.classList.remove('hidden');
+      } finally {
+        elements.newSessionCreateBtn.disabled = false;
+        elements.newSessionCreateBtn.textContent = isEditing ? 'Save Changes' : 'Create Session';
+      }
+    }
+
+    let attachmentThumbnailUrls = [];
+    function openAttachmentImage(file) {
+      let dialog = document.getElementById('attachment-image-dialog');
+      if (!dialog) {
+        dialog = document.createElement('dialog');
+        dialog.id = 'attachment-image-dialog';
+        dialog.className = 'attachment-image-dialog';
+        dialog.setAttribute('aria-labelledby', 'attachment-image-title');
+        dialog.innerHTML = `
+          <header><h2 id="attachment-image-title"></h2>
+            <button type="button" aria-label="Close image preview" autofocus><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+          </header>
+          <div class="attachment-image-stage"><img alt=""><p role="status" hidden>Unable to preview this image.</p></div>`;
+        document.body.appendChild(dialog);
+        dialog.querySelector('button').onclick = () => dialog.close();
+        dialog.addEventListener('click', event => {
+          const bounds = dialog.getBoundingClientRect();
+          if (event.target === dialog && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) dialog.close();
+        });
+        dialog.addEventListener('close', () => {
+          const image = dialog.querySelector('img');
+          image.removeAttribute('src');
+          if (dialog.previewUrl) URL.revokeObjectURL(dialog.previewUrl);
+          dialog.previewUrl = null;
+        });
+      }
+      const image = dialog.querySelector('img');
+      const status = dialog.querySelector('[role="status"]');
+      dialog.querySelector('h2').textContent = file.name;
+      image.alt = file.name;
+      image.hidden = false;
+      status.hidden = true;
+      image.onerror = () => { image.hidden = true; status.hidden = false; };
+      if (dialog.previewUrl) URL.revokeObjectURL(dialog.previewUrl);
+      dialog.previewUrl = URL.createObjectURL(file.raw);
+      image.src = dialog.previewUrl;
+      if (!dialog.open) dialog.showModal();
     }
 
     function renderAttachmentChips() {
       const indicator = elements.chatUploadIndicator;
-      if (state.selectedAttachments.length === 0) {
-        indicator.classList.add('hidden');
-        indicator.innerHTML = "";
-        return;
-      }
-      indicator.classList.remove('hidden');
-      indicator.innerHTML = "";
-      state.selectedAttachments.forEach((f, index) => {
-        const isImage = f.mime && f.mime.startsWith('image/');
+      attachmentThumbnailUrls.forEach(url => URL.revokeObjectURL(url));
+      attachmentThumbnailUrls = [];
+      indicator.replaceChildren();
+      indicator.classList.toggle('hidden', state.selectedAttachments.length === 0);
+      state.selectedAttachments.forEach((file, index) => {
+        const isImage = file.mime && file.mime.startsWith('image/');
         const chip = document.createElement('div');
         chip.className = "flex items-center space-x-2 bg-brand-dark px-2.5 py-1 rounded-lg text-[10px] text-zinc-300 border border-zinc-800 select-none font-mono";
-        const previewSrc = isImage ? URL.createObjectURL(f.raw) : null;
-        chip.innerHTML = `
-          ${isImage ? `<img src="${previewSrc}" class="w-6 h-6 object-cover rounded">` : `<i class="fa-solid fa-file text-zinc-500"></i>`}
-          <span class="truncate max-w-[100px]">${f.name}</span>
-          <button onclick="removeSelectedFile(${index})" class="text-zinc-500 hover:text-zinc-200 transition-colors"><i class="fa-solid fa-xmark"></i></button>
-        `;
+        const preview = document.createElement(isImage ? 'button' : 'span');
+        preview.className = 'attachment-preview-trigger flex items-center space-x-2 min-w-0';
+        if (isImage) {
+          preview.type = 'button';
+          preview.title = `Preview ${file.name}`;
+          preview.setAttribute('aria-label', `Preview ${file.name}`);
+          preview.onclick = () => openAttachmentImage(file);
+          const image = document.createElement('img');
+          image.src = URL.createObjectURL(file.raw);
+          attachmentThumbnailUrls.push(image.src);
+          image.alt = '';
+          image.className = 'w-6 h-6 object-cover rounded';
+          preview.appendChild(image);
+        } else {
+          preview.innerHTML = '<i class="fa-solid fa-file text-zinc-500" aria-hidden="true"></i>';
+        }
+        const name = document.createElement('span');
+        name.className = 'truncate max-w-[100px]';
+        name.textContent = file.name;
+        preview.appendChild(name);
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'text-zinc-500 hover:text-zinc-200 transition-colors';
+        remove.setAttribute('aria-label', `Remove ${file.name}`);
+        remove.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+        remove.onclick = () => removeSelectedFile(index);
+        chip.append(preview, remove);
         indicator.appendChild(chip);
       });
     }
@@ -1497,7 +2067,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       wizardState.selectedFolders = wizardState.selectedFolders.filter(f => f.path !== path);
       if (wizardState.selectedFolders.length > 0) {
         const firstFolder = wizardState.selectedFolders[0].path;
-        const parts = firstFolder.split('/').filter(Boolean);
+        const parts = firstFolder.split(/[/\\]/).filter(Boolean);
         wizardState.projectName = parts[parts.length - 1] || 'New Project';
       } else {
         wizardState.projectName = '';
@@ -1615,10 +2185,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         return;
       }
       
-      let normalized = val.replace(/\\/g, '/').replace(/\/+/g, '/');
-      if (normalized.endsWith('/') && normalized.length > 1) {
-        normalized = normalized.slice(0, -1);
-      }
+      let normalized = hostPaths.normalize(val);
       
       if (wizardState.selectedFolders.some(f => f.path === normalized)) {
         showToast('Duplicate Path', 'This path is already in the list.', 'info');
@@ -1854,6 +2421,10 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     // Primary View Navigation Controller
     function navigateToView(targetView) {
+      if (targetView !== 'session') {
+        saveSessionDraft();
+        disconnectSessionStream();
+      }
       state.view = targetView;
       closeSessionRightDrawer();
       
@@ -1948,8 +2519,10 @@ Group files by component. Use markdown links with relative paths and detail exac
       const container = elements.workspacesDashboardGrid;
       container.innerHTML = "";
 
+      const projectWorkspaces = state.workspaces.filter(ws => ws.id !== 'ws_general_chat');
+      document.getElementById('studio-workspace-count').textContent = projectWorkspaces.length;
       const workspaceFilter = (state.workspaceKeywordFilter || '').trim().toLowerCase();
-      const sortedWorkspaces = [...state.workspaces].sort((a, b) => {
+      const sortedWorkspaces = [...projectWorkspaces].sort((a, b) => {
         const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
         const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
         return bTime - aTime;
@@ -1965,20 +2538,21 @@ Group files by component. Use markdown links with relative paths and detail exac
         : sortedWorkspaces;
 
       // 1. Render Creation Action Card
-      const addCard = document.createElement('div');
+      const addCard = document.createElement('button');
+      addCard.type = 'button';
       addCard.className = "bg-brand-dark/40 backdrop-blur-[2px] hover:bg-brand-dark border-2 border-dashed border-zinc-800 hover:border-brand-accent/50 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer min-h-[190px] transition-all group";
       addCard.onclick = () => openConstructWizard();
       addCard.innerHTML = `
         <div class="w-10 h-10 rounded-full bg-zinc-900 group-hover:bg-brand-accent/10 border border-zinc-800 group-hover:border-brand-accent/40 flex items-center justify-center mb-3 text-zinc-500 group-hover:text-brand-accent transition-all">
           <i class="fa-solid fa-circle-plus text-base"></i>
         </div>
-        <h3 class="text-xs font-bold text-zinc-300 group-hover:text-white transition-colors">Construct Workspace</h3>
-        <p class="text-[10px] text-zinc-500 max-w-[200px] mt-1">Bind new physical directories on the local machine and start orchestrations.</p>
+        <h3 class="text-xs font-bold text-zinc-300 group-hover:text-white transition-colors">Start something new</h3>
+        <p class="text-[10px] text-zinc-500 max-w-[200px] mt-1">Connect a project folder and turn your ideas into working code.</p>
       `;
       container.appendChild(addCard);
 
       // 2. Fetch Sessions inside workspaces and render details
-      if (state.workspaces.length === 0) {
+      if (projectWorkspaces.length === 0) {
         return;
       }
 
@@ -2074,6 +2648,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     // Navigate smoothly to active chat view
     async function navigateToWorkspaceSession(workspaceId, sessionId = null) {
+      saveSessionDraft();
       state.activeWorkspaceId = workspaceId;
       state.activeSessionId = null;
       
@@ -2082,7 +2657,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
       // Hydrate dynamic sidebar context metadata
       elements.sidebarActiveWsName.innerText = wsObj.name;
-      elements.sidebarActiveWsPaths.innerText = wsObj.folders_path.join(', ');
+      elements.sidebarActiveWsPaths.innerText = workspaceId === 'ws_general_chat' ? 'Chat without a project folder' : wsObj.folders_path.join(', ');
 
       // Refresh instructions dropdown context to preserve profile mapping
       populateInstructionsDropdown();
@@ -2151,7 +2726,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     // Render the interactive API rotation wizard
-    async function renderApiKeyRotationSettings(targetEl, providerId = '') {
+    async function renderApiKeyRotationSettings(targetEl, providerId = '', editingKey = null) {
       if (marketplaceState.providers.length === 0) {
         try {
           await fetchMarketplaceData();
@@ -2169,9 +2744,9 @@ Group files by component. Use markdown links with relative paths and detail exac
       let dynamicFieldsHtml = "";
       if (selectedProv && selectedProv.schema && selectedProv.schema.fields) {
         for (const field of selectedProv.schema.fields) {
-          const placeholder = field.placeholder || '';
-          const defVal = field.default || '';
-          const reqAttr = field.required ? 'required' : '';
+          const placeholder = editingKey ? 'Leave blank to keep current value' : (field.placeholder || '');
+          const defVal = editingKey ? '' : (field.default || '');
+          const reqAttr = field.required && !editingKey ? 'required' : '';
           
           dynamicFieldsHtml += `
             <div>
@@ -2180,6 +2755,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           if (field.type === 'select') {
             dynamicFieldsHtml += `
               <select id="rotation-field-${field.id}" class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent">
+                ${editingKey ? '<option value="">Keep current value</option>' : ''}
                 ${(field.options || []).map(opt => `<option value="${opt}" ${opt === defVal ? 'selected' : ''}>${opt}</option>`).join('')}
               </select>
             `;
@@ -2206,7 +2782,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-[10px] text-zinc-500 font-medium mb-1">Select Provider</label>
-              <select id="rotation-prov-select" class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent">
+              <select id="rotation-prov-select" ${editingKey ? 'disabled' : ''} class="w-full bg-brand-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-accent">
                 ${marketplaceState.providers.map(p => `<option value="${p.id}" ${p.id === selectedProviderId ? 'selected' : ''}>${p.name}</option>`).join('')}
               </select>
             </div>
@@ -2220,7 +2796,8 @@ Group files by component. Use markdown links with relative paths and detail exac
             ${dynamicFieldsHtml}
           </div>
 
-          <button type="submit" class="bg-brand-accent hover:bg-brand-accent/80 text-white text-xs font-semibold py-2 px-3 rounded w-full transition-all mt-2">Add Key to Rotation Pool</button>
+          <button type="submit" class="bg-brand-accent hover:bg-brand-accent/80 text-white text-xs font-semibold py-2 px-3 rounded w-full transition-all mt-2">${editingKey ? 'Save Changes' : 'Add Key to Rotation Pool'}</button>
+          ${editingKey ? '<button type="button" id="rotation-cancel-edit" class="w-full text-xs text-zinc-400 hover:text-white py-1">Cancel</button><p class="text-[10px] text-zinc-500">Leave credential fields blank to keep their current values.</p>' : ''}
         </form>
 
         <div class="space-y-2 max-h-52 overflow-y-auto pt-2">
@@ -2232,10 +2809,11 @@ Group files by component. Use markdown links with relative paths and detail exac
                   <div class="flex items-center justify-between p-3 bg-zinc-900 rounded-lg border border-zinc-800 text-xs font-mono">
                     <div class="flex items-center space-x-2">
                       <i class="fa-solid fa-key text-zinc-600"></i>
-                      <span class="text-zinc-200 font-sans font-medium">${k.name}</span>
+                      <span class="text-zinc-200 font-sans font-medium">${escapeHtml(k.name)}</span>
                       <span class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold">${prov?.name || k.provider_id || 'gemini'}</span>
                     </div>
-                    <div class="flex items-center space-x-3">
+                    <div class="flex items-center space-x-3 shrink-0">
+                      <button type="button" data-edit-key="${k.id}" class="text-[10px] text-brand-accent hover:underline font-sans">Edit</button>
                       <button onclick="toggleApiKeyActive('${k.id}', ${k.active !== 0 ? 0 : 1})" 
                         class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${k.active !== 0 ? 'bg-brand-accent' : 'bg-zinc-700'}"
                         title="${k.active !== 0 ? 'Deactivate Key' : 'Activate Key'}">
@@ -2249,6 +2827,19 @@ Group files by component. Use markdown links with relative paths and detail exac
           }
         </div>
       `;
+
+      targetEl.querySelectorAll('[data-edit-key]').forEach(button => {
+        button.onclick = () => {
+          const key = state.apiKeys.find(k => k.id === button.dataset.editKey);
+          if (key) renderApiKeyRotationSettings(targetEl, key.provider_id || 'gemini', key);
+        };
+      });
+      if (editingKey) {
+        const nameInput = document.getElementById('rotation-key-name');
+        nameInput.value = editingKey.name;
+        nameInput.focus();
+        document.getElementById('rotation-cancel-edit').onclick = () => renderApiKeyRotationSettings(targetEl, selectedProviderId);
+      }
 
       // Setup change listener
       const provSelect = document.getElementById('rotation-prov-select');
@@ -2269,20 +2860,20 @@ Group files by component. Use markdown links with relative paths and detail exac
           if (selectedProv && selectedProv.schema && selectedProv.schema.fields) {
             for (const field of selectedProv.schema.fields) {
               const el = document.getElementById(`rotation-field-${field.id}`);
-              config[field.id] = el ? el.value : '';
+              if (!editingKey || el?.value) config[field.id] = el ? el.value : '';
             }
           }
 
           const keyPayload = JSON.stringify(config);
 
           try {
-            const res = await fetch('/api/key', {
-              method: 'POST',
+            const res = await fetch(editingKey ? `/api/key/${encodeURIComponent(editingKey.id)}` : '/api/key', {
+              method: editingKey ? 'PUT' : 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name, key: keyPayload, provider_id: selectedProviderId })
+              body: JSON.stringify(editingKey ? { name, config } : { name, key: keyPayload, provider_id: selectedProviderId })
             });
             if (res.ok) {
-              showToast('Credentials Registered', 'Profile added to rotation key deck.', 'success');
+              showToast(editingKey ? 'Credentials Updated' : 'Credentials Registered', editingKey ? 'Changes saved to rotation key deck.' : 'Profile added to rotation key deck.', 'success');
               await refreshSystemDatabase();
               toggleManagerSettings('keys');
             } else {
@@ -2968,10 +3559,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     async function resolveExistingPathAndFilter(pathStr) {
-      let normalized = pathStr.replace(/\\/g, '/').replace(/\/+/g, '/');
-      if (normalized.endsWith('/') && normalized.length > 1) {
-        normalized = normalized.slice(0, -1);
-      }
+      let normalized = hostPaths.normalize(pathStr);
       
       let current = normalized;
       let filter = "";
@@ -2992,33 +3580,11 @@ Group files by component. Use markdown links with relative paths and detail exac
           // ignore
         }
         
-        const lastSlashIdx = current.lastIndexOf('/');
-        if (lastSlashIdx === -1) {
-          break;
-        }
-        
-        let parent = current.substring(0, lastSlashIdx);
-        if (parent === "") parent = "/";
-        
-        const part = current.substring(lastSlashIdx + 1);
-        filter = filter ? part + "/" + filter : part;
+        const parent = hostPaths.parent(current);
+        if (!parent || parent === current) break;
+        const part = current.slice(current.lastIndexOf('/') + 1);
+        filter = filter ? part + '/' + filter : part;
         current = parent;
-        
-        if (current === "/" && parent === "/") {
-          try {
-            const res = await fetch(`/api/folder?path=${encodeURIComponent("/")}`);
-            if (res.ok) {
-              const items = await res.json();
-              return {
-                exists: true,
-                resolvedPath: "/",
-                filter: filter,
-                items: items
-              };
-            }
-          } catch (e) {}
-          break;
-        }
       }
       
       return {
@@ -3129,7 +3695,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     async function initConstructWorkspace() {
       // Populate Instructions dropdown
       const select = document.getElementById('construct-ws-instruct');
-      select.innerHTML = '<option value="">Antigravity</option>';
+      select.innerHTML = state.activeWorkspaceId === 'ws_general_chat' ? '<option value="">General assistant</option>' : '<option value="">Antigravity</option>';
       state.instructions.forEach(i => {
         const opt = document.createElement('option');
         opt.value = i.id;
@@ -3139,12 +3705,8 @@ Group files by component. Use markdown links with relative paths and detail exac
 
       // Event: Up Navigation
       document.getElementById('btn-explorer-up').onclick = async () => {
-        if (constructState.currentPath === '/') return;
-        
-        const parts = constructState.currentPath.split('/').filter(Boolean);
-        parts.pop();
-        const parentPath = '/' + parts.join('/');
-        await navigateToFolder(parentPath === '' ? '/' : parentPath);
+        const parent = constructState.parentPath ?? hostPaths.parent(constructState.currentPath);
+        if (parent !== constructState.currentPath) await navigateToFolder(parent);
       };
 
       // Event: Search
@@ -3208,6 +3770,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         
         // Sync current path from server (handles the default home dir logic)
         constructState.currentPath = data.currentPath;
+        constructState.parentPath = data.parentPath;
         pathEl.innerText = constructState.currentPath;
         
         grid.innerHTML = '';
@@ -3343,6 +3906,9 @@ Group files by component. Use markdown links with relative paths and detail exac
     };
 
     async function openEditWorkspacePanel(workspaceId) {
+      const alongsideSession = state.view === 'session' && Boolean(state.activeSessionId);
+      const detailVersion = ++sessionDetailRequestVersion;
+      const sessionId = state.activeSessionId;
       if (!workspaceId) {
         showToast('Error', 'No workspace identifier provided.', 'error');
         return;
@@ -3406,7 +3972,10 @@ Group files by component. Use markdown links with relative paths and detail exac
         await renderEditExplorer();
 
         // Redirect/Navigate to edit workspace view
-        navigateToView('edit_workspace');
+        if (alongsideSession) {
+          if (state.view !== 'session' || state.activeSessionId !== sessionId || detailVersion !== sessionDetailRequestVersion) return;
+          openSessionDetail('view-edit-workspace', 'Security & Settings');
+        } else navigateToView('edit_workspace');
 
       } catch (err) {
         showToast('Hydration Error', `Could not fetch workspace details: ${err.message}`, 'error');
@@ -3596,6 +4165,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         const items = data.items;
         
         editExplorerState.currentPath = data.currentPath;
+        editExplorerState.parentPath = data.parentPath;
         pathEl.innerText = editExplorerState.currentPath;
         
         grid.innerHTML = '';
@@ -3724,7 +4294,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           const wsObj = state.workspaces.find(w => w.id === state.activeWorkspaceId);
           if (wsObj) {
             elements.sidebarActiveWsName.innerText = wsObj.name;
-            elements.sidebarActiveWsPaths.innerText = wsObj.folders_path.join(', ');
+            elements.sidebarActiveWsPaths.innerText = workspaceId === 'ws_general_chat' ? 'Chat without a project folder' : wsObj.folders_path.join(', ');
           }
           navigateToView('session');
         } else {
@@ -3863,10 +4433,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         }
         
         // Clean up path separators and trailing slash if not root
-        let normalized = val.replace(/\\/g, '/').replace(/\/+/g, '/');
-        if (normalized.endsWith('/') && normalized.length > 1) {
-          normalized = normalized.slice(0, -1);
-        }
+        let normalized = hostPaths.normalize(val);
         
         if (state.workspaceFoldersState.includes(normalized)) {
           showToast('Duplicate Path', 'This path is already in the list.', 'info');
@@ -3905,7 +4472,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     // Renders custom instructions list inside Chat Prompt Input Dropdown Bar
     function populateInstructionsDropdown() {
       const select = elements.chatInstructionSelector;
-      select.innerHTML = '<option value="">Antigravity</option>';
+      select.innerHTML = state.activeWorkspaceId === 'ws_general_chat' ? '<option value="">General assistant</option>' : '<option value="">Antigravity</option>';
       
       state.instructions.forEach(i => {
         const opt = document.createElement('option');
@@ -3923,14 +4490,15 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     // Setup and connect session-specific websockets
     async function initializeSession(sessionId) {
-      if (state.wsConn) {
-        state.wsConn.onopen = null;
-        state.wsConn.onclose = null;
-        state.wsConn.onerror = null;
-        state.wsConn.onmessage = null;
-        state.wsConn.close();
-        state.wsConn = null;
-      }
+      saveSessionDraft();
+      disconnectSessionStream();
+      closeSessionRightDrawer();
+      toggleSideSplitPanel(false);
+      state.sidePanelTabs = [];
+      state.sidePanelActiveTab = null;
+      renderSidePanelTabsList();
+      const loadVersion = sessionConnectionVersion;
+      renderSessionEngine(null, true);
 
       // Hide other specialized panels and return to chat view
       const chatWrapper = document.getElementById('chat-interface-wrapper');
@@ -3944,6 +4512,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
       state.activeSessionId = sessionId;
       state.activeSubSessionId = null;
+      restoreSessionDraft();
       enableSessionChatInputControls(false); // Enable fields
 
       try {
@@ -3951,7 +4520,9 @@ Group files by component. Use markdown links with relative paths and detail exac
         try {
           const branchesRes = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${sessionId}/branches`);
           if (branchesRes.ok) {
-            state.sessionBranchData = await branchesRes.json();
+            const branchData = await branchesRes.json();
+            if (loadVersion !== sessionConnectionVersion) return;
+            state.sessionBranchData = branchData;
           } else {
             state.sessionBranchData = null;
           }
@@ -3959,10 +4530,14 @@ Group files by component. Use markdown links with relative paths and detail exac
           state.sessionBranchData = null;
         }
 
+        if (loadVersion !== sessionConnectionVersion) return;
         const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${sessionId}`);
+        if (!res.ok) throw new Error(`History unavailable (HTTP ${res.status})`);
         const data = await res.json();
+        if (loadVersion !== sessionConnectionVersion) return;
         
         state.activeWsURL = data.wsURL;
+        renderSessionEngine(data.engine);
         
         // Update Turn history context descriptions
         elements.sessionTurnCounter.innerText = `${data.sessionHistory.length} Turn context stack history`;
@@ -3975,6 +4550,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
         // Load side configurations
         await refreshSystemDatabase();
+        if (loadVersion !== sessionConnectionVersion) return;
         renderSidebarSessionsList();
         renderActiveChatSessionHistory(data.sessionHistory);
         connectSessionWebSocketGateway();
@@ -3989,18 +4565,20 @@ Group files by component. Use markdown links with relative paths and detail exac
       } catch (err) {
         showToast('Communication Error', 'Failed to handshake real-time server streams.', 'error');
         console.error(err);
+        scheduleSessionReload(loadVersion, sessionId);
       }
     }
 
     async function initializeSubSession(sessionId, subSessionId) {
-      if (state.wsConn) {
-        state.wsConn.onopen = null;
-        state.wsConn.onclose = null;
-        state.wsConn.onerror = null;
-        state.wsConn.onmessage = null;
-        state.wsConn.close();
-        state.wsConn = null;
-      }
+      saveSessionDraft();
+      disconnectSessionStream();
+      closeSessionRightDrawer();
+      toggleSideSplitPanel(false);
+      state.sidePanelTabs = [];
+      state.sidePanelActiveTab = null;
+      renderSidePanelTabsList();
+      const loadVersion = sessionConnectionVersion;
+      renderSessionEngine(null, true);
 
       const chatWrapper = document.getElementById('chat-interface-wrapper');
       const scContainer = document.getElementById('source-control-container');
@@ -4013,6 +4591,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
       state.activeSessionId = sessionId;
       state.activeSubSessionId = subSessionId;
+      restoreSessionDraft();
       
       elements.chatPromptInput.disabled = true;
       elements.btnChatSubmit.disabled = true;
@@ -4024,6 +4603,8 @@ Group files by component. Use markdown links with relative paths and detail exac
         const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${sessionId}/sub-session/${subSessionId}`);
         if (res.ok) {
           const data = await res.json();
+          if (loadVersion !== sessionConnectionVersion) return;
+          renderSessionEngine(data.engine);
           renderActiveChatSessionHistory(data.history || []);
           
           const banner = document.createElement('div');
@@ -4044,9 +4625,11 @@ Group files by component. Use markdown links with relative paths and detail exac
           connectSessionWebSocketGateway();
         } else {
           showToast('Load Error', 'Failed to retrieve sub-session transcript.', 'error');
+          scheduleSessionReload(loadVersion, sessionId, subSessionId);
         }
       } catch (err) {
         showToast('Error', err.message, 'error');
+        scheduleSessionReload(loadVersion, sessionId, subSessionId);
       }
     }
     window.initializeSubSession = initializeSubSession;
@@ -4062,41 +4645,142 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     // Initialize standard WebSocket protocols
-    function connectSessionWebSocketGateway() {
-      if (!state.activeWsURL) return;
+    let sessionReconnectTimer = null;
+    let sessionConnectionVersion = 0;
+    let sessionStreamCursor = null;
+    let sessionReconnectAttempt = 0;
 
-      elements.connIndicator.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span>CONNECTING';
-      elements.connIndicator.className = "flex items-center px-2 py-1 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-mono";
+    function saveSessionDraft() {
+      const key = elements.chatPromptInput.dataset.draftKey;
+      if (!key) return;
+      if (state.pendingDraftKey === key && !elements.chatPromptInput.value) return;
+      try {
+        const value = elements.chatPromptInput.value;
+        if (value) localStorage.setItem(key, value);
+        else localStorage.removeItem(key);
+      } catch (_) { /* Storage may be unavailable; keep the draft in the input. */ }
+    }
 
-      state.wsConn = new WebSocket(state.activeWsURL);
+    function restoreSessionDraft() {
+      const key = state.activeSubSessionId ? '' : `nxstudio:draft:${state.activeWorkspaceId}:${state.activeSessionId}`;
+      elements.chatPromptInput.dataset.draftKey = key;
+      let draft = '';
+      try { if (key) draft = localStorage.getItem(key) || ''; } catch (_) {}
+      elements.chatPromptInput.value = draft;
+      elements.chatPromptInput.style.height = '';
+    }
+    window.addEventListener('beforeunload', saveSessionDraft);
 
-      state.wsConn.onopen = function() {
-        elements.connIndicator.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>LIVE INTERACTIVE';
-        elements.connIndicator.className = "flex items-center px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[10px] font-mono";
-        
-        if (state.pendingAutoRetry) {
-          state.pendingAutoRetry = false;
-          retryActiveSession();
+    function scheduleSessionReload(version, sessionId, subSessionId = null) {
+      if (version !== sessionConnectionVersion || state.view !== 'session') return;
+      setConnectionLabel('RECONNECTING');
+      clearTimeout(sessionReconnectTimer);
+      sessionReconnectTimer = setTimeout(() => {
+        if (version !== sessionConnectionVersion || state.view !== 'session') return;
+        if (subSessionId) initializeSubSession(sessionId, subSessionId);
+        else initializeSession(sessionId);
+      }, 5000);
+    }
+
+    function disconnectSessionStream() {
+      sessionConnectionVersion++;
+      clearTimeout(sessionReconnectTimer);
+      sessionReconnectTimer = null;
+      sessionStreamCursor = null;
+      sessionReconnectAttempt = 0;
+      if (state.wsConn) {
+        state.wsConn.onclose = null;
+        state.wsConn.onmessage = null;
+        state.wsConn.onopen = null;
+        state.wsConn.onerror = null;
+        state.wsConn.close();
+        state.wsConn = null;
+      }
+      setConnectionLabel('DISCONNECTED');
+    }
+
+    function setConnectionLabel(label) {
+      elements.connIndicator.textContent = label;
+      elements.connIndicator.setAttribute('role', 'status');
+      elements.connIndicator.title = label === 'RECONNECTING' ? 'Reconnecting automatically. Your task will not be resent.' : label;
+      elements.connIndicator.className = 'flex items-center px-2 py-1 rounded border text-[10px] font-mono ' +
+        (label === 'LIVE INTERACTIVE' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-900 text-zinc-400 border-zinc-800');
+      elements.btnChatSubmit.disabled = label !== 'LIVE INTERACTIVE' || Boolean(state.activeSubSessionId);
+      document.getElementById('btn-chat-stop').disabled = label !== 'LIVE INTERACTIVE';
+    }
+
+    function connectSessionWebSocketGateway(isReconnect = false) {
+      if (!state.activeWsURL || state.view !== 'session') return;
+      clearTimeout(sessionReconnectTimer);
+      const version = sessionConnectionVersion;
+      const url = new URL(state.activeWsURL);
+      if (isReconnect && sessionStreamCursor) url.searchParams.set('resume', JSON.stringify(sessionStreamCursor));
+      setConnectionLabel(isReconnect ? 'RECONNECTING' : 'CONNECTING');
+      const socket = new WebSocket(url);
+      state.wsConn = socket;
+      const isCurrent = () => state.wsConn === socket && sessionConnectionVersion === version && state.view === 'session';
+      let needsReload = false;
+      let handshakeTimer = setTimeout(() => { if (isCurrent()) socket.close(); }, 15000);
+
+      socket.onopen = () => {
+        if (!isCurrent()) return socket.close();
+        // Older servers cannot replay missed events: reload persisted history on reconnect.
+        if (isReconnect && !sessionStreamCursor) {
+          needsReload = true;
+          reloadSavedSession();
         }
       };
-
-      state.wsConn.onclose = function() {
-        elements.connIndicator.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-zinc-600 mr-1.5"></span>SESSION CLOSED';
-        elements.connIndicator.className = "flex items-center px-2 py-1 rounded bg-zinc-900 text-zinc-500 border border-zinc-800 text-[10px] font-mono";
+      function reloadSavedSession() {
+        if (!isCurrent()) return;
+        clearTimeout(handshakeTimer);
+        setConnectionLabel('SYNCING HISTORY');
+        if (state.activeSubSessionId) initializeSubSession(state.activeSessionId, state.activeSubSessionId);
+        else initializeSession(state.activeSessionId);
+      }
+      socket.onclose = () => {
+        clearTimeout(handshakeTimer);
+        if (!isCurrent() || needsReload) return;
+        setConnectionLabel('RECONNECTING');
+        const delay = Math.min(30000, 1000 * 2 ** Math.min(sessionReconnectAttempt++, 5));
+        sessionReconnectTimer = setTimeout(() => {
+          if (isCurrent()) connectSessionWebSocketGateway(true);
+        }, delay);
       };
-
-      state.wsConn.onerror = function() {
-        showToast('WS Failure', 'Communication channel disconnect.', 'error');
-      };
-
-      state.wsConn.onmessage = function(event) {
-        const payload = JSON.parse(event.data);
-        
-        if (payload.type === 'SESSION_STATUS') {
-          setGeneratingState(payload.status === 'generating');
+      socket.onerror = () => { if (isCurrent()) socket.close(); };
+      socket.onmessage = event => {
+        if (!isCurrent() || needsReload) return;
+        let payload;
+        try { payload = JSON.parse(event.data); } catch (_) { return; }
+        if (payload.type === 'RESYNC_REQUIRED') {
+          needsReload = true;
+          reloadSavedSession();
           return;
         }
-
+        if (payload.type === 'STREAM_CURSOR') {
+          sessionStreamCursor = payload.cursor;
+          return;
+        }
+        if (payload.streamCursor) {
+          if (sessionStreamCursor?.epoch === payload.streamCursor.epoch && payload.streamCursor.seq <= sessionStreamCursor.seq) return;
+          sessionStreamCursor = payload.streamCursor;
+        }
+        if (payload.type === 'SESSION_STATUS') {
+          if ('engine' in payload) renderSessionEngine(payload.engine);
+          clearTimeout(handshakeTimer);
+          sessionReconnectAttempt = 0;
+          setConnectionLabel('LIVE INTERACTIVE');
+          setGeneratingState(payload.status === 'generating');
+          if (payload.status !== 'generating') settleUnresolvedTools('Result unavailable');
+          if (Array.isArray(payload.approvals)) {
+            clearInlineApproval();
+            payload.approvals.forEach(processWebSocketGatewayPayload);
+          }
+          if (!isReconnect && state.pendingAutoRetry) {
+            state.pendingAutoRetry = false;
+            retryActiveSession();
+          }
+          return;
+        }
         processWebSocketGatewayPayload(payload);
       };
     }
@@ -4113,6 +4797,8 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     function setGeneratingState(isGenerating) {
       state.isGenerating = isGenerating;
+      elements.executingLoader.lastElementChild.textContent = 'Agent thinking...';
+      document.getElementById('btn-chat-stop').disabled = !state.wsConn || state.wsConn.readyState !== WebSocket.OPEN;
       if (isGenerating) {
         elements.btnChatSubmit.classList.add('hidden');
         btnStop.classList.remove('hidden');
@@ -4133,41 +4819,50 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     function cancelActiveGeneration() {
+      if (!state.isGenerating || state.activeSubSessionId) return;
       if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
         state.wsConn.send(JSON.stringify({ type: 'CANCEL' }));
+        document.getElementById('btn-chat-stop').disabled = true;
+        elements.executingLoader.lastElementChild.textContent = 'Stopping…';
       }
-      setGeneratingState(false);
-      // Reset all live stream state
-      currentResponseBubbleEl = null;
-      activeThinkingNode = null;
-      currentThoughtBubble = null;
+    }
+
+    function markToolWaiting() {
+      const tool = [...elements.sessionChatContainer.querySelectorAll('[data-tool-state="running"]')].pop();
+      if (!tool) return;
+      tool.dataset.toolState = 'waiting';
+      tool.querySelector('.status-marker').textContent = 'Waiting for approval';
+    }
+
+    function renderSessionEngine(engine, loading = false) {
+      const label = elements.sessionRunningModel;
+      label.textContent = loading ? 'Loading engine…' : engine ? `${engine.providerName || engine.providerId || 'AI'} · ${engine.model || 'Default model'}` : 'Engine unavailable';
+      label.title = label.textContent;
+      label.setAttribute('aria-live', 'polite');
     }
 
     function processWebSocketGatewayPayload(data) {
       switch (data.type) {
+        case 'ENGINE_CHANGED':
+          renderSessionEngine(data.engine);
+          break;
         case 'TOOL_APPROVAL_REQUEST': {
+          markToolWaiting();
           showToolApprovalModal(data.approvalId, data.toolName, data.args);
           break;
         }
         case 'TOOL_APPROVAL_TIMEOUT': {
-          const modal = document.getElementById('command-approval-modal');
-          if (modal && !modal.classList.contains('hidden')) {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-          }
+          if (!data.approvalId || currentApprovalId === data.approvalId) clearInlineApproval();
           showToast('Security Alert', 'Tool execution request timed out.', 'warning');
           break;
         }
         case 'COMMAND_APPROVAL_REQUEST': {
+          markToolWaiting();
           showCommandApprovalModal(data.approvalId, data.command);
           break;
         }
         case 'COMMAND_APPROVAL_TIMEOUT': {
-          const modal = document.getElementById('command-approval-modal');
-          if (modal && !modal.classList.contains('hidden')) {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-          }
+          if (!data.approvalId || currentApprovalId === data.approvalId) clearInlineApproval();
           showToast('Security Alert', 'Command execution request timed out.', 'warning');
           break;
         }
@@ -4221,7 +4916,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             } else {
               currentThoughtBubble = document.createElement('details');
               currentThoughtBubble.open = true;
-              currentThoughtBubble.className = "max-w-4xl mx-auto border border-brand-accent/20 bg-brand-accent/5 rounded-xl overflow-hidden";
+              currentThoughtBubble.className = "session-thought max-w-4xl mx-auto border border-brand-accent/20 bg-brand-accent/5 rounded-xl overflow-hidden";
               currentThoughtBubble.innerHTML = `
                 <summary class="flex items-center justify-between p-3 cursor-pointer hover:bg-brand-accent/10 transition-colors text-[10px] text-zinc-500 font-mono select-none">
                   <div class="flex items-center space-x-2">
@@ -4256,6 +4951,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         }
 
         case 'FUNCTION_CALL':
+          setGeneratingState(true);
           removeRetryingCard();
           // A function call starts — close current thought bubble so next thought appears AFTER result
           currentThoughtBubble = null;
@@ -4314,7 +5010,14 @@ Group files by component. Use markdown links with relative paths and detail exac
           break;
         }
 
+        case 'CANCEL_REQUESTED':
+          setGeneratingState(true);
+          document.getElementById('btn-chat-stop').disabled = true;
+          elements.executingLoader.lastElementChild.textContent = 'Stopping…';
+          break;
+
         case 'DONE':
+          settleUnresolvedTools(data.cancelled ? 'Interrupted' : 'Result unavailable');
           removeRetryingCard();
           setGeneratingState(false);
           if (data.modelMessageId) {
@@ -4349,6 +5052,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           break;
 
         case 'ERROR':
+          settleUnresolvedTools('Interrupted');
           removeRetryingCard();
           appendSystemErrorMessage(data.message);
           setGeneratingState(false);
@@ -4371,8 +5075,20 @@ Group files by component. Use markdown links with relative paths and detail exac
       const files = state.selectedAttachments;
       
       if (!prompt && files.length === 0) return;
-      if (state.isGenerating) return; // prevent double-send
+      if (state.isGenerating || state.isSubmitting || state.activeSubSessionId) return;
+      if (!state.wsConn || state.wsConn.readyState !== WebSocket.OPEN || elements.btnChatSubmit.disabled) {
+        saveSessionDraft();
+        showToast('Connection unavailable', 'Your draft is saved. Wait for the session to reconnect before sending.', 'warning');
+        return;
+      }
+      state.isSubmitting = true;
+      const submissionSocket = state.wsConn;
+      const submissionWorkspace = state.activeWorkspaceId;
+      const submissionSession = state.activeSessionId;
+      const submissionDraftKey = elements.chatPromptInput.dataset.draftKey;
+      state.pendingDraftKey = submissionDraftKey;
 
+      saveSessionDraft();
       const userBubble = appendUserMessageBubble(prompt, files);
       elements.chatPromptInput.value = "";
       
@@ -4399,11 +5115,15 @@ Group files by component. Use markdown links with relative paths and detail exac
       files.forEach(f => formData.append('files', f.raw));
 
       try {
-        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/session/${state.activeSessionId}`, {
+        const res = await fetch(`/api/workspace/${submissionWorkspace}/session/${submissionSession}`, {
           method: 'POST',
           body: formData
         });
 
+        if (!res.ok) throw new Error(`Message was not accepted (HTTP ${res.status}).`);
+        try {
+          if (localStorage.getItem(submissionDraftKey)?.trim() === prompt) localStorage.removeItem(submissionDraftKey);
+        } catch (_) {}
         if (res.ok) {
           const data = await res.json();
           if (data.messageId && userBubble) {
@@ -4423,18 +5143,32 @@ Group files by component. Use markdown links with relative paths and detail exac
         await refreshSessionList();
 
         // Push model activation prompts through WS pipeline
-        if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
+        if (state.wsConn === submissionSocket && submissionSocket.readyState === WebSocket.OPEN && state.activeSessionId === submissionSession) {
           setGeneratingState(true);
-          state.wsConn.send(JSON.stringify({
+          submissionSocket.send(JSON.stringify({
             type: 'USER_MESSAGE',
             text: prompt,
             apiKeyId: null // Auto selected key rotation deck on the backend
           }));
+        } else {
+          showToast('Message saved', 'The message is in history, but generation was not started. Reopen the session and use Retry after reviewing it.', 'warning');
+          if (state.activeSessionId === submissionSession && state.activeWorkspaceId === submissionWorkspace) appendSystemErrorMessage('Message saved, but generation was not started. Review the message before choosing Retry.');
         }
 
       } catch(e) {
-        setGeneratingState(false);
-        appendSystemErrorMessage(`Prompt Delivery Failure: ${e.message}`);
+        // The POST may have reached the server. Preserve the text, but never resend automatically.
+        try { if (!localStorage.getItem(submissionDraftKey)) localStorage.setItem(submissionDraftKey, prompt); } catch (_) {}
+        if (state.activeSessionId === submissionSession && state.activeWorkspaceId === submissionWorkspace) {
+          if (!elements.chatPromptInput.value) elements.chatPromptInput.value = prompt;
+          saveSessionDraft();
+          state.selectedAttachments = [...files, ...state.selectedAttachments.filter(file => !files.includes(file))];
+          renderAttachmentChips();
+          setGeneratingState(false);
+          appendSystemErrorMessage(`Delivery could not be confirmed: ${e.message} Check session history before sending again. Your draft has been restored.`);
+        }
+      } finally {
+        state.pendingDraftKey = null;
+        state.isSubmitting = false;
       }
     }
 
@@ -4501,7 +5235,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             // Render as collapsed tool result cards (matching live UI)
             item.parts.forEach(part => {
               if (part.functionResponse) {
-                finalizeInlineActionThoughtBlock(part.functionResponse.id, part.functionResponse.response, item.id);
+                finalizeInlineActionThoughtBlock(part.functionResponse.id, part.functionResponse.response, item.id, item.createdAt);
               }
             });
             // Reset active group after finishing responses
@@ -4589,7 +5323,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             } else if (p.functionCall) {
               currentThreadThoughtEl = null;
               // Tool card renders at the point it appears — before or after text
-              appendInlineActionThoughtBlock(p.functionCall.name, p.functionCall.args, p.functionCall.id);
+              appendInlineActionThoughtBlock(p.functionCall.name, p.functionCall.args, p.functionCall.id, item.createdAt || 'unknown');
             }
           });
 
@@ -4658,7 +5392,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     function appendThoughtBlock(text) {
       const thoughtBubble = document.createElement('details');
       thoughtBubble.open = true;
-      thoughtBubble.className = "max-w-4xl mx-auto border border-brand-accent/20 bg-brand-accent/5 rounded-xl overflow-hidden mb-4";
+      thoughtBubble.className = "session-thought max-w-4xl mx-auto border border-brand-accent/20 bg-brand-accent/5 rounded-xl overflow-hidden mb-4";
       thoughtBubble.innerHTML = `
         <summary class="flex items-center justify-between p-3 cursor-pointer hover:bg-brand-accent/10 transition-colors text-[10px] text-zinc-500 font-mono select-none">
           <div class="flex items-center space-x-2">
@@ -4780,17 +5514,21 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     // Render dynamic tool calls inside threads
-    function appendInlineActionThoughtBlock(toolName, args, callId) {
+    function appendInlineActionThoughtBlock(toolName, args, callId, createdAt = null) {
+      if (callId && [...elements.sessionChatContainer.querySelectorAll('details[data-call-id]')].some(el => el.dataset.callId === String(callId))) return;
+
       if (!activeThinkingNode) {
         activeThinkingNode = document.createElement('div');
-        activeThinkingNode.className = "max-w-4xl mx-auto pl-12 space-y-2 select-none";
+        activeThinkingNode.className = "session-tools max-w-4xl mx-auto pl-12 space-y-2 select-none";
         elements.sessionChatContainer.appendChild(activeThinkingNode);
       }
 
       const stepDetails = document.createElement('details');
       // Store callId as a data attribute for reliable lookup
       stepDetails.dataset.callId = callId || '';
-      stepDetails.className = "group border border-zinc-800 bg-brand-dark/30 rounded-xl overflow-hidden";
+      stepDetails.dataset.toolState = 'running';
+      stepDetails.dataset.startedAt = createdAt ? Date.parse(createdAt) : Date.now();
+      stepDetails.className = "session-tool group border border-zinc-800 bg-brand-dark/30 rounded-xl overflow-hidden";
       
       let stepIcon = "fa-solid fa-gear";
       let stepVerb = "Initiated execution action";
@@ -4853,17 +5591,18 @@ Group files by component. Use markdown links with relative paths and detail exac
       scrollToChatBottom();
     }
 
-    function finalizeInlineActionThoughtBlock(callId, response, messageId = null) {
-      // Find the details element by its data-call-id attribute for reliable matching
-      let stepEl = callId ? document.querySelector(`details[data-call-id="${callId}"]`) : null;
-      // Fallback: find last uncompleted block
-      if (!stepEl) {
-        const all = document.querySelectorAll('details[data-call-id]');
-        for (let i = all.length - 1; i >= 0; i--) {
-          const marker = all[i].querySelector('.status-marker');
-          if (marker && marker.querySelector('.fa-spinner')) { stepEl = all[i]; break; }
-        }
-      }
+    function settleUnresolvedTools(label) {
+      elements.sessionChatContainer.querySelectorAll('details[data-call-id]').forEach(el => {
+        if (!['running', 'waiting'].includes(el.dataset.toolState)) return;
+        el.dataset.toolState = 'unknown';
+        el.querySelector('.status-marker').textContent = label;
+      });
+    }
+
+    function finalizeInlineActionThoughtBlock(callId, response, messageId = null, completedAt = null) {
+      const all = [...elements.sessionChatContainer.querySelectorAll('details[data-call-id]')];
+      let stepEl = callId ? all.find(el => el.dataset.callId === String(callId)) : null;
+      if (!callId) stepEl = all.find(el => !el.dataset.callId && ['running', 'waiting'].includes(el.dataset.toolState));
       if (!stepEl) return;
 
       if (messageId) {
@@ -4872,8 +5611,13 @@ Group files by component. Use markdown links with relative paths and detail exac
 
       const statusMarker = stepEl.querySelector('.status-marker');
       if (statusMarker) {
-        statusMarker.innerHTML = '<span class="text-emerald-500 font-bold">Completed</span>';
-        
+        const result = response?.result ?? response;
+        const failed = Boolean(response?.error || response?.isError || result?.error || result?.isError || result?.success === false || (typeof result?.exitCode === 'number' && result.exitCode !== 0));
+        stepEl.dataset.toolState = failed ? 'failed' : 'completed';
+        const elapsed = Math.max(0, ((completedAt ? Date.parse(completedAt) : Date.now()) - Number(stepEl.dataset.startedAt)) / 1000);
+        statusMarker.textContent = (failed ? 'Failed' : 'Completed') + (Number.isFinite(elapsed) && elapsed < 86400 ? ` · ${elapsed.toFixed(1)}s` : '');
+        statusMarker.classList.toggle('text-red-400', failed);
+        statusMarker.classList.toggle('text-emerald-500', !failed);
         const targetPath = stepEl.querySelector('summary strong')?.innerText || '';
         if (targetPath.startsWith('artifact/') || targetPath.includes('implementation_plan.md') || targetPath.includes('task.md') || targetPath.includes('walkthrough.md')) {
           const fileName = targetPath.split('/').pop();
@@ -4915,7 +5659,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             require(['vs/editor/editor.main'], function() {
               const diffEditor = monaco.editor.createDiffEditor(diffContainer, {
                 automaticLayout: true,
-                theme: 'vs-dark',
+                theme: getMonacoTheme(),
                 readOnly: true,
                 renderSideBySide: true,
                 originalEditable: false
@@ -4942,7 +5686,7 @@ Group files by component. Use markdown links with relative paths and detail exac
               const editor = monaco.editor.create(diffContainer, {
                 value: content,
                 language: 'javascript',
-                theme: 'vs-dark',
+                theme: getMonacoTheme(),
                 readOnly: true,
                 automaticLayout: true,
                 minimap: { enabled: false },
@@ -5000,8 +5744,8 @@ Group files by component. Use markdown links with relative paths and detail exac
         return;
       }
 
-      elements.sessionRightDrawer.classList.remove('hidden');
-      elements.rightDrawerTitle.innerText = "Directory Browser";
+      closeSessionRightDrawer();
+      showSessionDetailDrawer('Directory Browser');
       
       const body = elements.rightDrawerBody;
       body.innerHTML = `<div class="text-[11px] text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading directory structures...</div>`;
@@ -5010,10 +5754,12 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     async function browseDirectoryTarget(pathStr) {
+      const detailVersion = ++sessionDetailRequestVersion;
       try {
         const res = await fetch(`/api/folder?path=${encodeURIComponent(pathStr)}`);
         if (!res.ok) throw new Error();
         const items = await res.json();
+        if (detailVersion !== sessionDetailRequestVersion) return;
 
         const body = elements.rightDrawerBody;
         body.innerHTML = "";
@@ -5060,6 +5806,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         });
 
       } catch(e) {
+        if (detailVersion !== sessionDetailRequestVersion) return;
         elements.rightDrawerBody.innerHTML = `<div class="text-[11px] text-red-400 p-2 border border-red-500/10 bg-red-950/10 rounded">Access Denied: Bounded limits restricted read query.</div>`;
       }
     }
@@ -5067,8 +5814,41 @@ Group files by component. Use markdown links with relative paths and detail exac
 
 
 
+    let mountedSessionDetail = null;
+    let sessionDetailRequestVersion = 0;
+
+    function showSessionDetailDrawer(title) {
+      elements.rightDrawerTitle.textContent = title;
+      elements.sessionRightDrawer.classList.remove('hidden');
+      document.getElementById('view-session').classList.add('details-open');
+      document.getElementById('chat-interface-wrapper').classList.remove('hidden');
+      toggleMobileSidebar(false);
+    }
+
+    function openSessionDetail(panelId, title) {
+      closeSessionRightDrawer();
+      const panel = document.getElementById(panelId);
+      const home = document.createComment('Workspace detail panel home');
+      panel.before(home);
+      mountedSessionDetail = { panel, home, originalClass: panel.className };
+      elements.rightDrawerBody.replaceChildren(panel);
+      elements.rightDrawerBody.classList.add('has-detail-panel');
+      panel.classList.remove('hidden', 'opacity-0', 'translate-x-12', 'pointer-events-none');
+      panel.classList.add('session-docked-panel');
+      showSessionDetailDrawer(title);
+    }
+
     function closeSessionRightDrawer() {
+      sessionDetailRequestVersion++;
+      if (mountedSessionDetail) {
+        const { panel, home, originalClass } = mountedSessionDetail;
+        home.replaceWith(panel);
+        panel.className = originalClass;
+        mountedSessionDetail = null;
+      }
+      elements.rightDrawerBody.classList.remove('has-detail-panel');
       elements.sessionRightDrawer.classList.add('hidden');
+      document.getElementById('view-session').classList.remove('details-open');
     }
 
     // Process prompts and uploads
@@ -5092,6 +5872,10 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     // Build active workspaces sessions tree under Left navigation panel
     function renderSidebarSessionsList() {
+      const activeSession = state.sessions.find(session => session.id === state.activeSessionId);
+      const conversationTitle = document.getElementById('session-conversation-title');
+      conversationTitle.textContent = activeSession?.name || 'Your conversation';
+      conversationTitle.title = conversationTitle.textContent;
       const sidebar = elements.sidebarSessionList;
       sidebar.innerHTML = "";
 
@@ -5167,8 +5951,23 @@ Group files by component. Use markdown links with relative paths and detail exac
           sessionLink.appendChild(runningBadge);
         }
 
+        const actionButtons = document.createElement('div');
+        actionButtons.className = "flex items-center space-x-1 shrink-0 pl-1";
+
+        const editBtn = document.createElement('button');
+        editBtn.className = "w-5 h-5 flex items-center justify-center rounded text-[9px] text-zinc-500 hover:text-brand-accent hover:bg-brand-accent/10 opacity-60 group-hover:opacity-100 transition-all";
+        editBtn.title = 'Edit session name';
+        editBtn.setAttribute('aria-label', `Edit session name: ${s.name || s.id}`);
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          openEditSessionModal(s);
+        };
+        editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+
         const deleteBtn = document.createElement('button');
-        deleteBtn.className = "text-[10px] text-zinc-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity pl-1";
+        deleteBtn.className = "w-5 h-5 flex items-center justify-center rounded text-[10px] text-zinc-500 hover:text-red-500 hover:bg-red-500/10 opacity-60 group-hover:opacity-100 transition-all";
+        deleteBtn.title = 'Delete session';
+        deleteBtn.setAttribute('aria-label', `Delete session: ${s.name || s.id}`);
         deleteBtn.onclick = (e) => {
           e.stopPropagation();
           deleteSessionFromSidebar(s.id);
@@ -5179,7 +5978,9 @@ Group files by component. Use markdown links with relative paths and detail exac
         deleteBtn.appendChild(deleteIcon);
 
         row.appendChild(sessionLink);
-        row.appendChild(deleteBtn);
+        actionButtons.appendChild(editBtn);
+        actionButtons.appendChild(deleteBtn);
+        row.appendChild(actionButtons);
         sidebar.appendChild(row);
 
         if (hasSubSessions && isExpanded) {
@@ -5366,6 +6167,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       const shouldOpen = forceOpen === true || (forceOpen === null && panel.classList.contains('hidden'));
 
       if (shouldOpen) {
+        closeSessionRightDrawer();
         panel.classList.remove('hidden');
         panel.classList.add('flex');
         state.sidePanelOpen = true;
@@ -5381,6 +6183,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         panel.classList.add('hidden');
         panel.classList.remove('flex');
         state.sidePanelOpen = false;
+        document.getElementById('source-control-container').classList.add('hidden');
         if (btnToggle) btnToggle.classList.remove('text-brand-accent', 'bg-zinc-800/80');
       }
     }
@@ -5417,16 +6220,25 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
     window.toggleSourceControlSplitPanel = toggleSourceControlSplitPanel;
 
-    // Backward compatibility aliases
-    window.toggleArtifactsView = (show) => {
-      if (show) toggleArtifactsSplitPanel(true);
-      else toggleSideSplitPanel(false);
-    };
-    window.toggleSourceControlView = (show) => {
-      if (show) toggleSourceControlSplitPanel(true);
-      else toggleSideSplitPanel(false);
-    };
-
+    function toggleSourceControlView(show) {
+      if (show) {
+        toggleSideSplitPanel(false);
+        openSessionDetail('source-control-container', 'Source Control');
+        if (state.scWorkspaceId !== state.activeWorkspaceId) {
+          state.scCurrentPath = '';
+          state.scRevision = null;
+          state.scWorkspaceId = state.activeWorkspaceId;
+        }
+        setScTab('files');
+      } else if (mountedSessionDetail?.panel.id === 'source-control-container') closeSessionRightDrawer();
+    }
+    function toggleArtifactsView(show) {
+      if (show) {
+        toggleSideSplitPanel(false);
+        openSessionDetail('artifacts-container', 'Artifacts');
+        loadArtifactsList();
+      } else if (mountedSessionDetail?.panel.id === 'artifacts-container') closeSessionRightDrawer();
+    }
     function renderSidePanelTabsList() {
       const container = document.getElementById('side-panel-tabs-list');
       if (!container) return;
@@ -5519,6 +6331,10 @@ Group files by component. Use markdown links with relative paths and detail exac
     window.openArtifactTab = openArtifactTab;
 
     function openSourceControlTab() {
+      closeSessionRightDrawer();
+      if (state.scWorkspaceId !== state.activeWorkspaceId) {
+        state.scCurrentPath = ''; state.scRevision = null; state.scWorkspaceId = state.activeWorkspaceId;
+      }
       const tabId = 'source_control';
       let existing = state.sidePanelTabs.find(t => t.id === tabId);
       if (!existing) {
@@ -5579,7 +6395,7 @@ Group files by component. Use markdown links with relative paths and detail exac
 
     async function renderSidePanelTab(tab) {
       const artView = document.getElementById('split-artifacts-view');
-      const scView = document.getElementById('split-source-control-view');
+      const scView = document.getElementById('source-control-container');
 
       if (tab.type === 'source_control') {
         if (artView) artView.classList.add('hidden');
@@ -5631,30 +6447,21 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     function toggleAgentProfilesView(show) {
-      const chatWrapper = document.getElementById('chat-interface-wrapper');
-      const scContainer = document.getElementById('source-control-container');
-      const artContainer = document.getElementById('artifacts-container');
       const profilesContainer = document.getElementById('agent-profiles-container');
-      
       if (show) {
-        if (state.view === 'manager') {
-          state.originView = 'manager';
+        state.originView = state.view === 'manager' ? 'manager' : 'session';
+        if (state.originView === 'manager') {
           navigateToView('session');
-        } else {
-          state.originView = 'session';
-        }
-        chatWrapper.classList.add('hidden');
-        scContainer.classList.add('hidden');
-        artContainer.classList.add('hidden');
-        profilesContainer.classList.remove('hidden');
+          document.getElementById('chat-interface-wrapper').classList.add('hidden');
+          profilesContainer.classList.remove('hidden');
+        } else openSessionDetail('agent-profiles-container', 'Agent Profiles');
         loadAgentProfilesPage();
+      } else if (mountedSessionDetail?.panel.id === 'agent-profiles-container') {
+        closeSessionRightDrawer();
       } else {
         profilesContainer.classList.add('hidden');
-        if (state.originView === 'manager') {
-          navigateToView('manager');
-        } else {
-          chatWrapper.classList.remove('hidden');
-        }
+        if (state.originView === 'manager') navigateToView('manager');
+        else document.getElementById('chat-interface-wrapper').classList.remove('hidden');
       }
     }
     window.toggleAgentProfilesView = toggleAgentProfilesView;
@@ -5940,7 +6747,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             monacoPreviewEditor = monaco.editor.create(document.getElementById('monaco-preview-container'), {
               value: data.content,
               language: language,
-              theme: 'vs-dark',
+              theme: getMonacoTheme(),
               readOnly: true,
               automaticLayout: true,
               minimap: { enabled: false },
@@ -5970,6 +6777,8 @@ Group files by component. Use markdown links with relative paths and detail exac
     state.scTimelineData = [];
 
     function setScTab(tab) {
+      scRequestVersion++;
+      scFilesLoading = false;
       state.scActiveTab = tab;
       const btnFiles = document.getElementById('btn-sc-files');
       const btnTimeline = document.getElementById('btn-sc-timeline');
@@ -5988,17 +6797,121 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
     window.setScTab = setScTab;
 
-    async function loadScFiles(pathPrefix) {
+    let scRequestVersion = 0;
+    let scFilesLoading = false;
+    let scSnapshotPending = false;
+    function scEscape(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+    function scAction(name, ...args) {
+      return `onclick="${scEscape(`${name}(${args.map(value => JSON.stringify(value)).join(',')})`)}"`;
+    }
+    let filePreviewRequest = null;
+    let filePreviewVersion = 0;
+    let filePreviewReturnFocus = null;
+    async function openFilePreview(filePath) {
+      const dialog = document.getElementById('file-preview-dialog');
+      const content = document.getElementById('file-preview-content');
+      const status = document.getElementById('file-preview-status');
+      const version = ++filePreviewVersion;
+      filePreviewRequest?.abort();
+      filePreviewRequest = new AbortController();
+      const workspace = state.activeWorkspaceId;
+      if (!dialog.open) filePreviewReturnFocus = document.activeElement;
+      document.getElementById('file-preview-path').textContent = filePath;
+      content.value = '';
+      content.hidden = true;
+      status.textContent = 'Loading file…';
+      document.getElementById('file-preview-copy').disabled = true;
+      document.getElementById('file-preview-select').disabled = true;
+      if (!dialog.open) dialog.showModal();
+      try {
+        const response = await fetch(`/api/workspace/${workspace}/source-control/preview?path=${encodeURIComponent(filePath)}`, { cache: 'no-store', signal: filePreviewRequest.signal });
+        const file = await response.json();
+        if (version !== filePreviewVersion || !dialog.open) return;
+        if (!response.ok) throw new Error(file.error || 'Unable to preview this file');
+        content.value = file.content;
+        content.hidden = false;
+        status.textContent = `${formatBytes(file.size)} · ${file.content ? file.content.split('\n').length : 0} lines · Read only`;
+        document.getElementById('file-preview-copy').disabled = false;
+        document.getElementById('file-preview-select').disabled = false;
+      } catch (error) {
+        if (version !== filePreviewVersion || error.name === 'AbortError') return;
+        status.textContent = error.message;
+      }
+    }
+    function closeFilePreview() { document.getElementById('file-preview-dialog').close(); }
+    function selectFilePreview() {
+      const content = document.getElementById('file-preview-content');
+      content.focus();
+      content.select();
+    }
+    async function copyFilePreview() {
+      const version = filePreviewVersion;
+      const content = document.getElementById('file-preview-content');
+      const start = content.selectionStart;
+      const end = content.selectionEnd;
+      const hasSelection = end > start;
+      const text = hasSelection ? content.value.slice(start, end) : content.value;
+      try {
+        await navigator.clipboard.writeText(text);
+        if (version === filePreviewVersion) document.getElementById('file-preview-status').textContent = 'Copied to clipboard';
+      } catch (_) {
+        if (version !== filePreviewVersion) return;
+        content.focus();
+        content.setSelectionRange(hasSelection ? start : 0, hasSelection ? end : content.value.length);
+        document.getElementById('file-preview-status').textContent = 'Text selected. Press Ctrl+C or Cmd+C to copy.';
+      }
+    }
+    document.getElementById('file-preview-dialog').addEventListener('close', () => {
+      filePreviewVersion++;
+      filePreviewRequest?.abort();
+      if (filePreviewReturnFocus?.isConnected) filePreviewReturnFocus.focus();
+    });
+    document.getElementById('file-preview-dialog').addEventListener('click', event => {
+      const dialog = event.currentTarget;
+      const rect = dialog.getBoundingClientRect();
+      if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
+    });
+
+    function scFilesVisible() {
+      return !document.hidden && state.view === 'session' && state.scActiveTab === 'files' && document.getElementById('source-control-container').getClientRects().length > 0;
+    }
+    async function refreshScHostChanges() {
+      if (!scFilesVisible() || scFilesLoading || scSnapshotPending || state.scMutating) return;
+      const workspace = state.activeWorkspaceId;
+      const folder = state.scCurrentPath;
+      const version = scRequestVersion;
+      scSnapshotPending = true;
+      try {
+        const response = await fetch(`/api/workspace/${workspace}/source-control/files?path=${encodeURIComponent(folder)}&snapshot=1`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const snapshot = await response.json();
+        if (scFilesVisible() && version === scRequestVersion && workspace === state.activeWorkspaceId && folder === state.scCurrentPath && snapshot.revision !== state.scRevision) {
+          await loadScFiles(folder, true);
+        }
+      } catch (_) { /* The next visible poll retries after a temporary disconnect. */ }
+      finally { scSnapshotPending = false; }
+    }
+    setInterval(refreshScHostChanges, 3000);
+    window.addEventListener('focus', refreshScHostChanges);
+    document.addEventListener('visibilitychange', refreshScHostChanges);
+
+    async function loadScFiles(pathPrefix, silent = false) {
+      const requestVersion = ++scRequestVersion;
+      const workspaceId = state.activeWorkspaceId;
+      scFilesLoading = true;
       state.scCurrentPath = pathPrefix;
       const body = document.getElementById('source-control-content');
-      body.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Traversing Git history files...</div>`;
+      if (!silent) body.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Reading host folder...</div>`;
 
       try {
-        const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/source-control/files?path=${encodeURIComponent(pathPrefix)}`);
+        const res = await fetch(`/api/workspace/${workspaceId}/source-control/files?path=${encodeURIComponent(pathPrefix)}`, { cache: 'no-store' });
         const data = await res.json();
+        if (requestVersion !== scRequestVersion || workspaceId !== state.activeWorkspaceId || state.scActiveTab !== 'files') return;
         
         if (!res.ok) {
-          body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Error loading files: ${data.error}</div>`;
+          body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Error loading files: ${scEscape(data.error)}</div>`;
           return;
         }
 
@@ -6008,7 +6921,7 @@ Group files by component. Use markdown links with relative paths and detail exac
           let accumulated = '';
           parts.forEach((p, idx) => {
             accumulated += p + '/';
-            breadcrumbsHtml += ` <span class="text-zinc-600">/</span> <span onclick="loadScFiles('${accumulated}')" class="cursor-pointer hover:text-brand-accent text-zinc-400">${p}</span>`;
+            breadcrumbsHtml += ` <span class="text-zinc-600">/</span> <span ${scAction('loadScFiles', accumulated)} class="cursor-pointer hover:text-brand-accent text-zinc-400">${scEscape(p)}</span>`;
           });
         }
 
@@ -6019,7 +6932,7 @@ Group files by component. Use markdown links with relative paths and detail exac
                 <i class="fa-solid fa-folder-open text-zinc-500"></i>
                 <span class="font-mono">${breadcrumbsHtml}</span>
               </div>
-              <div class="text-[10px] text-zinc-600 italic">Showing historical tracked paths</div>
+              <div class="text-[10px] text-zinc-600 italic">Host files · Auto-refresh every 3s</div>
             </div>
             
             <div class="overflow-x-auto rounded-lg border border-zinc-800 bg-brand-black">
@@ -6041,7 +6954,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         if (data.items.length === 0) {
           tableHtml += `
             <tr>
-              <td colspan="7" class="py-8 text-center text-zinc-600 italic">No files ever tracked in this directory.</td>
+              <td colspan="7" class="py-8 text-center text-zinc-600 italic">This folder is empty.</td>
             </tr>
           `;
         } else {
@@ -6060,9 +6973,10 @@ Group files by component. Use markdown links with relative paths and detail exac
               : '<i class="fa-solid fa-file-code text-zinc-400"></i>';
             
             const onClickAttr = item.type === 'directory'
-              ? `onclick="loadScFiles('${item.path}')"`
+              ? scAction('loadScFiles', item.path)
               : ``;
             
+            const updateText = item.modifiedAt ? new Date(item.modifiedAt).toLocaleString() : item.lastUpdate;
             const formattedSize = item.type === 'directory' ? '-' : formatBytes(item.size);
             const formattedGitSize = formatBytes(item.historySize);
             
@@ -6070,14 +6984,15 @@ Group files by component. Use markdown links with relative paths and detail exac
               <tr class="hover:bg-zinc-900/40 transition-colors ${opacityClass}">
                 <td class="py-3 px-4 text-center select-none">${icon}</td>
                 <td class="py-3 px-4 font-medium ${item.type === 'directory' ? 'cursor-pointer text-brand-accent hover:underline' : 'text-zinc-200'}" ${onClickAttr}>
-                  ${item.name} ${isDeleted ? '<span class="text-[9px] bg-red-950 text-red-400 border border-red-900/50 px-1 py-0.2 rounded ml-1.5 uppercase tracking-wide">Deleted</span>' : ''}
+                  ${scEscape(item.name)} ${isDeleted ? '<span class="text-[9px] bg-red-950 text-red-400 border border-red-900/50 px-1 py-0.2 rounded ml-1.5 uppercase tracking-wide">Deleted</span>' : ''}
+                  ${item.type === 'file' ? `<button ${scAction('openFilePreview', item.path)} ${isDeleted ? 'disabled title="File no longer exists on host"' : ''} class="file-preview-trigger text-[10px] text-brand-accent border border-brand-accent/30 rounded px-2 py-1 mr-2 disabled:opacity-40 disabled:cursor-not-allowed"><i class="fa-regular fa-file-lines mr-1"></i>Preview</button>` : ''}
                 </td>
                 <td class="py-3 px-4 text-center font-mono text-[10px] text-zinc-400">${item.historyCount}</td>
-                <td class="py-3 px-4 text-[10px] text-zinc-400 truncate max-w-[200px]" title="${item.lastUpdate}">${item.lastUpdate}</td>
+                <td class="py-3 px-4 text-[10px] text-zinc-400 truncate max-w-[200px]" title="${scEscape(updateText)}">${scEscape(updateText)}</td>
                 <td class="py-3 px-4 text-right font-mono text-[10px] text-zinc-400">${formattedSize}</td>
                 <td class="py-3 px-4 text-right font-mono text-[10px] text-brand-accent/80">${formattedGitSize}</td>
                 <td class="py-3 px-4 text-center">
-                  <button onclick="ignoreScPath('${item.path}', '${item.repoHash}')" class="text-[9px] font-semibold border border-zinc-800 hover:border-red-900/50 hover:bg-red-950/20 text-zinc-500 hover:text-red-400 px-2 py-0.5 rounded transition-all">
+                  <button ${scAction('ignoreScPath', item.path, item.repoHash)} class="text-[9px] font-semibold border border-zinc-800 hover:border-red-900/50 hover:bg-red-950/20 text-zinc-500 hover:text-red-400 px-2 py-0.5 rounded transition-all">
                     <i class="fa-solid fa-eye-slash mr-1"></i>Ignore
                   </button>
                 </td>
@@ -6093,9 +7008,15 @@ Group files by component. Use markdown links with relative paths and detail exac
           </div>
         `;
 
+        const scrollTop = body.scrollTop;
         body.innerHTML = tableHtml;
+        state.scRevision = data.revision;
+        if (silent) body.scrollTop = scrollTop;
       } catch (e) {
-        body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Failed to load files tree: ${e.message}</div>`;
+        if (requestVersion !== scRequestVersion || workspaceId !== state.activeWorkspaceId || state.scActiveTab !== 'files') return;
+        body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Failed to load files tree: ${scEscape(e.message)}</div>`;
+      } finally {
+        if (requestVersion === scRequestVersion) scFilesLoading = false;
       }
     }
     window.loadScFiles = loadScFiles;
@@ -6110,6 +7031,8 @@ Group files by component. Use markdown links with relative paths and detail exac
     }
 
     async function loadScTimeline() {
+      const requestVersion = ++scRequestVersion;
+      const workspaceId = state.activeWorkspaceId;
       const body = document.getElementById('source-control-content');
       if (state.scTimelineOffset === 0) {
         body.innerHTML = `<div class="text-xs text-zinc-500 italic"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Loading Git timeline...</div>`;
@@ -6118,6 +7041,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       try {
         const res = await fetch(`/api/workspace/${state.activeWorkspaceId}/source-control/timeline?limit=${state.scTimelineLimit}&offset=${state.scTimelineOffset}`);
         const data = await res.json();
+        if (requestVersion !== scRequestVersion || workspaceId !== state.activeWorkspaceId || state.scActiveTab !== 'timeline') return;
         
         if (!res.ok) {
           body.innerHTML = `<div class="text-xs text-red-400 p-4 border border-red-500/20 bg-red-500/5 rounded">Error loading timeline: ${data.error}</div>`;
@@ -6260,6 +7184,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     async function ignoreScPath(itemPath, repoHash) {
       const ok = confirm(`WARNING: Ignoring "${itemPath}" will rewrite your git history and permanently delete all history tracking for it.\n\nAre you sure you want to proceed? This action cannot be undone.`);
       if (!ok) return;
+      state.scMutating = true;
 
       const body = document.getElementById('source-control-content');
       body.innerHTML = `
@@ -6290,6 +7215,8 @@ Group files by component. Use markdown links with relative paths and detail exac
       } catch (err) {
         showToast('Error', err.message, 'error');
         loadScFiles(state.scCurrentPath);
+      } finally {
+        state.scMutating = false;
       }
     }
     window.ignoreScPath = ignoreScPath;
@@ -6317,6 +7244,7 @@ Group files by component. Use markdown links with relative paths and detail exac
     window.switchSessionBranch = switchSessionBranch;
 
     function retryActiveSession() {
+      if (state.activeSubSessionId || state.isGenerating || state.isSubmitting) return;
       if (state.wsConn && state.wsConn.readyState === WebSocket.OPEN) {
         currentResponseBubbleEl = null;
         rawResponseAccumulator = "";
@@ -6391,6 +7319,13 @@ Group files by component. Use markdown links with relative paths and detail exac
       }
     }
     window.selectApprovalOption = selectApprovalOption;
+
+    function clearInlineApproval() {
+      document.getElementById('chat-inline-approval-card')?.remove();
+      currentApprovalId = null;
+      currentApprovalType = null;
+      currentApprovalTarget = '';
+    }
 
     function renderInlineApprovalCard(approvalId, type, headerIcon, headerTitle, displayTarget, isCommand) {
       currentApprovalId = approvalId;
@@ -6628,6 +7563,7 @@ Group files by component. Use markdown links with relative paths and detail exac
       const btnBack = document.getElementById('btn-edit-ws-back');
       if (btnBack) {
         btnBack.onclick = () => {
+          if (mountedSessionDetail?.panel.id === 'view-edit-workspace') { closeSessionRightDrawer(); return; }
           if (state.activeWorkspaceId === editWorkspaceState.workspaceId) {
             navigateToView('session');
           } else {
@@ -6640,11 +7576,8 @@ Group files by component. Use markdown links with relative paths and detail exac
       const btnUp = document.getElementById('btn-edit-explorer-up');
       if (btnUp) {
         btnUp.onclick = () => {
-          if (editExplorerState.currentPath === '/' || !editExplorerState.currentPath) return;
-          const parts = editExplorerState.currentPath.split('/').filter(Boolean);
-          parts.pop();
-          const parent = '/' + parts.join('/');
-          navigateToEditFolder(parent);
+          const parent = editExplorerState.parentPath ?? hostPaths.parent(editExplorerState.currentPath);
+          if (parent !== editExplorerState.currentPath) navigateToEditFolder(parent);
         };
       }
 
@@ -6805,6 +7738,7 @@ Group files by component. Use markdown links with relative paths and detail exac
         ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        const canvasAccent = getComputedStyle(document.documentElement).getPropertyValue('--theme-canvas-rgb').trim() || '139, 92, 246';
 
         time += timeSpeed;
 
@@ -6820,7 +7754,7 @@ Group files by component. Use markdown links with relative paths and detail exac
             
             if (char !== ' ') {
               const opacity = Math.min(0.8, 0.1 + normalized * 0.7);
-              ctx.fillStyle = `rgba(139, 92, 246, ${opacity})`; 
+              ctx.fillStyle = `rgba(${canvasAccent}, ${opacity})`;
               ctx.fillText(char, px, py);
             }
           }
@@ -6835,6 +7769,55 @@ Group files by component. Use markdown links with relative paths and detail exac
       animate();
     })();
   </script>
+  <!-- Theme Management Script -->
+  <script>
+    const htmlElement = document.documentElement;
+    const themeOptions = Array.from(document.querySelectorAll('[data-theme-option]'));
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+
+    function getMonacoTheme() {
+      return htmlElement.classList.contains('light') ? 'vs' : 'vs-dark';
+    }
+
+    function applyTheme(theme) {
+      const normalizedTheme = theme === 'light' ? 'light' : 'dark';
+      htmlElement.classList.remove('dark', 'light');
+      htmlElement.classList.add(normalizedTheme);
+      htmlElement.dataset.theme = normalizedTheme;
+      htmlElement.style.colorScheme = normalizedTheme;
+
+      themeOptions.forEach((option) => {
+        const isActive = option.dataset.themeOption === normalizedTheme;
+        option.classList.toggle('is-active', isActive);
+        option.setAttribute('aria-pressed', String(isActive));
+      });
+
+      if (themeColorMeta) {
+        themeColorMeta.setAttribute('content', normalizedTheme === 'light' ? '#eeede8' : '#1b1e22');
+      }
+      if (window.monaco && monaco.editor) {
+        monaco.editor.setTheme(getMonacoTheme());
+      }
+
+      try {
+        localStorage.setItem('theme', normalizedTheme);
+      } catch (_) {}
+
+      window.dispatchEvent(new CustomEvent('themechange', { detail: { theme: normalizedTheme } }));
+    }
+
+    // Load saved theme or default to dark
+    let savedTheme = 'dark';
+    try {
+      savedTheme = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+    } catch (_) {}
+    applyTheme(savedTheme);
+
+    themeOptions.forEach((option) => {
+      option.addEventListener('click', () => applyTheme(option.dataset.themeOption));
+    });
+  </script>
+
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -6843,6 +7826,8 @@ Group files by component. Use markdown links with relative paths and detail exac
           .catch(err => console.error('Service Worker registration failed', err));
       });
     }
+
+    
   </script>
 </body>
 </html>

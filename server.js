@@ -1,4 +1,9 @@
 import express from 'express';
+import { createGeneralChatHandler, GENERAL_CHAT_WORKSPACE, GENERAL_CHAT_INSTRUCTION } from './general-chat.js';
+import { isWithinPath, normalizeSandboxPath, directoryLinkType, workspaceFolderName } from './workspace-paths.js';
+import { loadAttachedImage } from './image-attachments.js';
+import { createFilePreviewHandler, createSourceFilesHandler } from './source-files.js';
+import { SessionEvents } from './session-events.js';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -10,7 +15,7 @@ import fsSync from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 import sqlite3 from 'sqlite3';
-import { spawn, exec } from 'child_process';
+import { spawn, exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
@@ -197,12 +202,15 @@ async function getGitReposForWorkspace(workspaceId) {
       realPath,
       gitDir: path.join(gitDir, '.git'),
       hashedName,
-      folderName: path.basename(realPath)
+      folderName: workspaceFolderName(realPath)
     };
   });
 }
 
 async function execGit(repo, gitCommand, options = {}) {
+  if (Array.isArray(gitCommand)) {
+    return promisify(execFile)('git', ['--literal-pathspecs', `--git-dir=${repo.gitDir}`, `--work-tree=${repo.realPath}`, ...gitCommand], { cwd: repo.realPath, maxBuffer: 10 * 1024 * 1024, ...options });
+  }
   const cmd = `git --git-dir="${repo.gitDir}" --work-tree="${repo.realPath}" ${gitCommand}`;
   return execPromise(cmd, { cwd: repo.realPath, ...options });
 }
@@ -337,7 +345,7 @@ async function createWorkspaceMirror(workspaceId, sessionId) {
       await fs.rm(mirrorFolder, { recursive: true, force: true });
     } catch {}
     try {
-      await fs.symlink(repo.realPath, mirrorFolder, 'dir');
+      await fs.symlink(repo.realPath, mirrorFolder, directoryLinkType());
     } catch (err) {
       console.error(`Failed to symlink workspace mirror for ${repo.folderName}:`, err.message);
       await fs.mkdir(mirrorFolder, { recursive: true });
@@ -416,8 +424,7 @@ async function mergeMirrorChangesBack(workspaceId, sessionId, modelMessageId) {
 
 async function getPathHistorySize(repo, itemPath) {
   try {
-    const pathspec = itemPath ? ` -- "${itemPath}"` : '';
-    const { stdout } = await execGit(repo, `rev-list --objects --all${pathspec}`);
+    const { stdout } = await execGit(repo, ['rev-list', '--objects', '--all', ...(itemPath ? ['--', itemPath] : [])]);
     const lines = stdout.trim().split('\n');
     const hashes = new Set();
     const isDir = itemPath ? (itemPath.endsWith('/') ? itemPath : itemPath + '/') : '';
@@ -575,7 +582,7 @@ async function syncWorkspaceOnDisk(workspaceId, foldersPath) {
 
     if (!exists) {
       try {
-        await fs.symlink(realPath, targetSymlink, 'dir');
+        await fs.symlink(realPath, targetSymlink, directoryLinkType());
       } catch (e) {
         console.error(`Failed to create symlink from ${realPath} to ${targetSymlink}:`, e.message);
       }
@@ -637,12 +644,15 @@ async function getAffectedFilesForCommits(repos, commitHashes) {
   return affectedFiles;
 }
 
+const sessionEvents = new SessionEvents();
+
 function sendToSession(sessionId, message) {
+  const event = sessionEvents.append(sessionId, message);
   const sockets = sessionSockets.get(sessionId);
   if (sockets) {
     sockets.forEach(ws => {
       if (ws.readyState === 1) { // OPEN
-        ws.send(JSON.stringify(message));
+        ws.send(JSON.stringify(event));
       }
     });
   }
@@ -767,8 +777,15 @@ const activeTerminals = new Map(); // Global registry tracking terminalId -> pro
 const sessionAbortFlags = new Map(); // sessionId -> boolean abort signal
 const sessionSockets = new Map(); // sessionId -> Set<WebSocket>
 const sessionStatus = new Map(); // sessionId -> 'idle' | 'generating'
+const sessionEngines = new Map();
 const activeGenerations = new Map(); // sessionId -> runId (UUID) to prevent concurrent generations from duplicating history
 let keyRotationIndex = 0; // Circular pointer to track key rotation index
+
+async function getSessionEngine(sessionId) {
+  if (sessionEngines.has(sessionId)) return sessionEngines.get(sessionId);
+  const provider = await marketplaceManager.getActiveProvider({ rotate: false });
+  return provider?.engineInfo || null;
+}
 
 async function getNextApiKey(requestedKeyId) {
   if (requestedKeyId) {
@@ -793,11 +810,7 @@ async function getNextApiKey(requestedKeyId) {
 async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
   const { wsDir, sessionFolder, sessionMirrorRoot, sessionUploadsDir, sessionArtifactDir, sessionScratchpadDir } = getWorkspacePaths(workspaceId, sessionId);
 
-  // Normalize targetPath separators and strip leading slashes/spaces
-  let normPath = targetPath.replace(/\\/g, '/').trim();
-  while (normPath.startsWith('/')) {
-    normPath = normPath.substring(1);
-  }
+  const normPath = normalizeSandboxPath(targetPath);
 
   // If path starts with workspace_mirror, resolve to the physical path directly
   if (normPath.startsWith('workspace_mirror/') || normPath === 'workspace_mirror') {
@@ -809,7 +822,8 @@ async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
       const repo = repos.find(r => r.folderName === requestedFolder);
       if (repo) {
         const subPath = parts.slice(2).join('/');
-        const absoluteTarget = path.join(repo.realPath, subPath);
+        const absoluteTarget = path.resolve(repo.realPath, subPath);
+        if (!isWithinPath(repo.realPath, absoluteTarget)) throw new Error('Access Denied: Path resolves outside the workspace folder');
         return {
           resolvedPath: absoluteTarget,
           sessionFolder
@@ -825,24 +839,11 @@ async function validateAndResolvePath(workspaceId, sessionId, targetPath) {
   await fs.mkdir(sessionArtifactDir, { recursive: true });
   await fs.mkdir(sessionScratchpadDir, { recursive: true });
 
-  // Reject absolute paths from the model entirely (ignoring sandbox virtual roots)
-  if (path.isAbsolute(targetPath)) {
-    const cleanPath = targetPath.replace(/\\/g, '/');
-    const isSandboxRelative = cleanPath.startsWith('/workspace_mirror') || 
-                              cleanPath.startsWith('/uploads') || 
-                              cleanPath.startsWith('/scratchpad') || 
-                              cleanPath.startsWith('/terminals');
-    if (!isSandboxRelative) {
-      throw new Error(`Access Denied: Absolute paths are not permitted. Use paths relative to your session workspace root (e.g. "my_project/index.html" or "uploads/file.txt").`);
-    }
-  }
-
   // Resolve relative to the session folder
   const resolvedTarget = path.resolve(sessionFolder, normPath);
 
   // Ensure the resolved path is strictly within the session folder (prevent path traversal)
-  const rel = path.relative(sessionFolder, resolvedTarget);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+  if (!isWithinPath(sessionFolder, resolvedTarget)) {
     throw new Error(`Access Denied: The path "${targetPath}" resolves outside of the session sandbox.`);
   }
 
@@ -1450,7 +1451,7 @@ async function executeCommandTool(workspaceId, sessionId, command, targetPath, n
     
     // Auto-override GIT_DIR and GIT_WORK_TREE if executing inside the real folder
     const repos = await getGitReposForWorkspace(workspaceId);
-    const repo = repos.find(r => resolvedPath.startsWith(r.realPath));
+    const repo = repos.find(r => isWithinPath(r.realPath, resolvedPath));
     const childEnv = { ...process.env, FORCE_COLOR: '1', HOME: sessionFolder };
     if (repo) {
       childEnv.GIT_DIR = repo.gitDir;
@@ -1887,7 +1888,7 @@ async function runSubAgentTask(workspaceId, sessionId, subAgentId, prompt, instr
   // Compile full system context (sandbox layout, safety rails, etc.)
   const ws = await dbGet("SELECT folders_path FROM workspaces WHERE id = ?", [workspaceId]);
   const folders = JSON.parse(ws ? ws.folders_path : '[]');
-  const projectFolderNames = folders.map(f => path.basename(f));
+  const projectFolderNames = folders.map(f => workspaceFolderName(f));
   
   const generatedSystemContext = `
 =========================================
@@ -1928,6 +1929,10 @@ Safety Guardrails:
     const currentKey = await getNextApiKey(null);
     provider = new GeminiProvider({ apiKey: currentKey, defaultModel: 'gemini-2.5-flash' });
   }
+
+  subSessionData.engine = provider.engineInfo;
+  await saveSubSession(subSessionData);
+  sendToSession(subAgentId, { type: 'ENGINE_CHANGED', engine: provider.engineInfo });
 
   // Get MCP tools, BUT exclude sub-agent tools so the sub-agent cannot spawn more sub-agents!
   const rawTools = await marketplaceManager.connectMcpClients(builtinToolsDeps);
@@ -2244,6 +2249,14 @@ app.get('/api/folder', async (req, res) => {
     if (!targetPath || targetPath === 'undefined' || targetPath === 'null') {
       targetPath = os.homedir();
     }
+    if (process.platform === 'win32' && targetPath === '/') {
+      const roots = await Promise.all(Array.from({ length: 26 }, async (_, i) => {
+        const drive = String.fromCharCode(65 + i) + ':\\';
+        try { await fs.access(drive); return { name: drive, type: 'folder', full_path: drive }; }
+        catch { return null; }
+      }));
+      return res.json({ currentPath: '/', parentPath: '/', items: roots.filter(Boolean), gitBranch: null });
+    }
     targetPath = path.resolve(targetPath);
 
     const dirContents = await fs.readdir(targetPath, { withFileTypes: true });
@@ -2263,7 +2276,7 @@ app.get('/api/folder', async (req, res) => {
 
     res.json({
       currentPath: targetPath,
-      parentPath: path.dirname(targetPath),
+      parentPath: process.platform === 'win32' && path.dirname(targetPath) === targetPath ? '/' : path.dirname(targetPath),
       items: formatted,
       gitBranch: gitBranch
     });
@@ -2582,7 +2595,20 @@ app.patch('/api/key/:id/toggle', async (req, res) => {
 app.put('/api/key/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { key, name } = req.body;
+    const { name, config } = req.body;
+    let { key } = req.body;
+    if (config !== undefined) {
+      if (!config || typeof config !== 'object' || Array.isArray(config) || Object.values(config).some(value => typeof value !== 'string')) {
+        return res.status(400).json({ error: 'Invalid credential configuration' });
+      }
+      const existing = await dbGet('SELECT key FROM api_keys WHERE id = ?', [id]);
+      if (!existing) return res.status(404).json({ error: 'API key not found' });
+      let previous;
+      try { previous = JSON.parse(existing.key); } catch { previous = { apiKey: existing.key }; }
+      if (!previous || typeof previous !== 'object' || Array.isArray(previous)) previous = { apiKey: existing.key };
+      const changes = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== ''));
+      key = Object.keys(changes).length ? JSON.stringify({ ...previous, ...changes }) : existing.key;
+    }
     if (!key || !name) {
       return res.status(400).json({ error: 'Missing parameter "key" or "name"' });
     }
@@ -2659,6 +2685,8 @@ app.delete('/api/instruction/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.post('/api/general-chat', createGeneralChatHandler({ dbRun, dbGet }));
 
 app.get('/api/workspace', async (req, res) => {
   try {
@@ -2752,6 +2780,71 @@ app.put('/api/workspace/:id/security', async (req, res) => {
     );
     
     res.json({ message: 'Security settings updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/workspace/:id/session', async (req, res) => {
+  try {
+    const workspaceId = req.params.id;
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+
+    if (!name) {
+      return res.status(400).json({ error: 'Session name is required.' });
+    }
+    if (name.length > 80) {
+      return res.status(400).json({ error: 'Session name must be 80 characters or fewer.' });
+    }
+
+    const workspace = await dbGet('SELECT id FROM workspaces WHERE id = ?', [workspaceId]);
+    if (!workspace) {
+      return res.status(404).json({ error: 'Workspace not found.' });
+    }
+
+    const sessionId = `sess_${crypto.randomBytes(8).toString('hex')}`;
+    const createdAt = new Date().toISOString();
+    await dbRun(
+      'INSERT INTO sessions (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)',
+      [sessionId, workspaceId, name, createdAt]
+    );
+
+    res.status(201).json({
+      id: sessionId,
+      workspace_id: workspaceId,
+      name,
+      created_at: createdAt,
+      updated_at: createdAt,
+      status: 'idle',
+      hasRunningTerminal: false,
+      subSessions: []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/workspace/:id/session/:sessionID', async (req, res) => {
+  try {
+    const { id: workspaceId, sessionID } = req.params;
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+
+    if (!name) {
+      return res.status(400).json({ error: 'Session name is required.' });
+    }
+    if (name.length > 80) {
+      return res.status(400).json({ error: 'Session name must be 80 characters or fewer.' });
+    }
+
+    const result = await dbRun(
+      'UPDATE sessions SET name = ? WHERE id = ? AND workspace_id = ?',
+      [name, sessionID, workspaceId]
+    );
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Session not found in this workspace.' });
+    }
+
+    res.json({ id: sessionID, workspace_id: workspaceId, name });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3046,135 +3139,9 @@ app.post('/api/workspace/:id/session/:sessionID/rollback/:messageID', async (req
 
 
 
-app.get('/api/workspace/:id/source-control/files', async (req, res) => {
-  try {
-    const { id: workspaceId } = req.params;
-    let targetPathPrefix = req.query.path || "";
-    
-    const repos = await getGitReposForWorkspace(workspaceId);
+app.get('/api/workspace/:id/source-control/preview', createFilePreviewHandler({ getGitReposForWorkspace }));
 
-    // If path is empty, render the top-level workspace folders as directories
-    if (targetPathPrefix === "") {
-      const items = repos.map(repo => {
-        return {
-          name: repo.folderName,
-          path: repo.folderName, // Use the folder name as the path prefix
-          type: 'directory',
-          isDeleted: false,
-          historyCount: 0,
-          lastUpdate: "Unknown",
-          size: 0,
-          historySize: 0,
-          repoHash: repo.hashedName
-        };
-      });
-
-      for (const item of items) {
-        const repo = repos.find(r => r.folderName === item.path);
-        if (repo) {
-          try {
-            const { stdout: countOut } = await execGit(repo, 'log --oneline');
-            item.historyCount = countOut.trim().split('\n').filter(Boolean).length;
-
-            const { stdout: updateOut } = await execGit(repo, 'log -1 --format="%cd (%s)" --date=relative');
-            if (updateOut.trim()) item.lastUpdate = updateOut.trim();
-
-            item.historySize = await getPathHistorySize(repo, "");
-          } catch {}
-        }
-      }
-
-      return res.json({ items });
-    }
-
-    // Split targetPathPrefix into targetFolderName and relativePathInsideRepo
-    const firstSlashIdx = targetPathPrefix.indexOf('/');
-    const targetFolderName = firstSlashIdx === -1 ? targetPathPrefix : targetPathPrefix.substring(0, firstSlashIdx);
-    const relativePathInsideRepo = firstSlashIdx === -1 ? "" : targetPathPrefix.substring(firstSlashIdx + 1);
-
-    const repo = repos.find(r => r.folderName === targetFolderName);
-    if (!repo) {
-      return res.json({ items: [] });
-    }
-
-    const targetPathPrefixNoSlash = relativePathInsideRepo && !relativePathInsideRepo.endsWith('/') 
-      ? relativePathInsideRepo + '/' 
-      : relativePathInsideRepo;
-
-    let paths = [];
-    try {
-      const { stdout } = await execGit(repo, 'log --pretty=format: --name-only --all');
-      paths = Array.from(new Set(stdout.trim().split('\n').map(p => p.trim()).filter(Boolean)));
-    } catch (e) {
-      return res.json({ items: [] });
-    }
-
-    const childrenMap = new Map();
-    for (const p of paths) {
-      if (targetPathPrefixNoSlash === "" || p.startsWith(targetPathPrefixNoSlash)) {
-        const relativeToPrefix = targetPathPrefixNoSlash === "" ? p : p.substring(targetPathPrefixNoSlash.length);
-        if (!relativeToPrefix) continue;
-
-        const segments = relativeToPrefix.split('/');
-        const name = segments[0];
-        const fullPath = targetPathPrefixNoSlash + name;
-
-        if (segments.length > 1) {
-          childrenMap.set(name, { type: 'directory', fullPath });
-        } else {
-          childrenMap.set(name, { type: 'file', fullPath });
-        }
-      }
-    }
-
-    const items = [];
-    for (const [name, info] of childrenMap.entries()) {
-      const realPath = path.join(repo.realPath, info.fullPath);
-      let isDeleted = true;
-      let currentSize = 0;
-
-      try {
-        const stat = await fs.stat(realPath);
-        isDeleted = false;
-        if (info.type === 'file') {
-          currentSize = stat.size;
-        }
-      } catch {}
-
-      let historyCount = 0;
-      try {
-        const { stdout: countOut } = await execGit(repo, `log --oneline -- "${info.fullPath}"`);
-        historyCount = countOut.trim().split('\n').filter(Boolean).length;
-      } catch {}
-
-      let lastUpdate = "Unknown";
-      try {
-        const { stdout: updateOut } = await execGit(repo, `log -1 --format="%cd (%s)" --date=relative -- "${info.fullPath}"`);
-        if (updateOut.trim()) {
-          lastUpdate = updateOut.trim();
-        }
-      } catch {}
-
-      const historySize = await getPathHistorySize(repo, info.fullPath);
-
-      items.push({
-        name,
-        path: targetFolderName + '/' + info.fullPath, // Keep path prefix as folderName/relativePath
-        type: info.type,
-        isDeleted,
-        historyCount,
-        lastUpdate,
-        size: currentSize,
-        historySize,
-        repoHash: repo.hashedName
-      });
-    }
-
-    res.json({ items });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.get('/api/workspace/:id/source-control/files', createSourceFilesHandler({ getGitReposForWorkspace, execGit, getPathHistorySize }));
 
 app.post('/api/workspace/:id/source-control/ignore', async (req, res) => {
   try {
@@ -3536,7 +3503,8 @@ app.get('/api/workspace/:id/session/:sessionID', async (req, res) => {
     const sessionHistory = messages.map(row => ({
       id: row.id,
       role: row.role,
-      parts: row.parts
+      parts: row.parts,
+      createdAt: row.createdAt
     }));
 
     const host = req.get('host');
@@ -3545,7 +3513,8 @@ app.get('/api/workspace/:id/session/:sessionID', async (req, res) => {
 
     res.json({
       sessionHistory,
-      wsURL
+      wsURL,
+      engine: await getSessionEngine(sessionID)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3811,7 +3780,7 @@ async function assembleContextualInstruction(workspaceId, sessionId, baseInstruc
   // Build model-visible project structure listing (relative paths only)
   const projectFolderNames = [];
   for (const folder of folders) {
-    const folderName = path.basename(path.resolve(folder));
+    const folderName = workspaceFolderName(folder);
     projectFolderNames.push(folderName);
   }
 
@@ -3842,7 +3811,7 @@ async function assembleContextualInstruction(workspaceId, sessionId, baseInstruc
 =========================================
 === SYSTEM CONTEXT (DO NOT OVERWRITE) ===
 =========================================
-You are an AI coding agent operating inside an overlay session.
+${workspaceId === GENERAL_CHAT_WORKSPACE ? 'You are a conversational assistant in a standalone chat session with no linked project.' : 'You are an AI coding agent operating inside an overlay session.'}
 You have NO knowledge of the real filesystem paths on the host system.
 
 Your working directory is the ROOT of your session workspace.
@@ -3981,6 +3950,7 @@ function isRetryableError(error) {
   return true;
 }
 
+
 function mapContentStackToSteps(contentStack) {
   const steps = [];
   for (const turn of contentStack) {
@@ -4071,6 +4041,8 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
     }
 
     sessionStatus.set(sessionId, 'generating');
+    sessionEngines.set(sessionId, provider.engineInfo);
+    sendToSession(sessionId, { type: 'ENGINE_CHANGED', engine: provider.engineInfo });
 
     wsDir = getWorkspacePaths(workspaceId).wsDir;
     const liveMessages = await loadSessionMessages(wsDir, sessionId);
@@ -4125,7 +4097,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
     }
 
     const workspace = await dbGet("SELECT instruction_id FROM workspaces WHERE id = ?", [workspaceId]);
-    let baseInstruction = DEFAULT_ANTIGRAVITY_PROMPT;
+    let baseInstruction = workspaceId === GENERAL_CHAT_WORKSPACE ? GENERAL_CHAT_INSTRUCTION : DEFAULT_ANTIGRAVITY_PROMPT;
     
     if (workspace && workspace.instruction_id) {
       const record = await dbGet("SELECT text FROM instructions WHERE id = ?", [workspace.instruction_id]);
@@ -4179,11 +4151,12 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
 
           for (const part of parsedParts) {
             if (part._localFilePath) {
-              // Skip local file parts
+              const imagePart = await loadAttachedImage(part);
+              if (imagePart) processedParts.push(imagePart);
             } else if (part.thought) {
               // Skip thoughts
             } else if (isOldHistory) {
-              if (part.text) {
+              if (part.text || part.inlineData?.mimeType?.startsWith('image/')) {
                 processedParts.push(part);
               }
             } else {
@@ -4553,9 +4526,10 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
             await cleanWorkspaceMirror(workspaceId, sessionId);
           } catch {}
 
-          sendToSession(sessionId, { type: 'DONE', modelMessageId: lastModelMessageId });
+          sendToSession(sessionId, { type: 'DONE', modelMessageId: lastModelMessageId, cancelled: Boolean(sessionAbortFlags.get(sessionId)) });
           sessionAbortFlags.delete(sessionId);
           sessionStatus.set(sessionId, 'idle');
+          sessionEngines.delete(sessionId);
           activeGenerations.delete(sessionId);
         }
         success = true;
@@ -4567,9 +4541,10 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
           try {
             await cleanWorkspaceMirror(workspaceId, sessionId);
           } catch {}
-          sendToSession(sessionId, { type: 'DONE', modelMessageId: lastModelMessageId });
+          sendToSession(sessionId, { type: 'DONE', modelMessageId: lastModelMessageId, cancelled: Boolean(sessionAbortFlags.get(sessionId)) });
           sessionAbortFlags.delete(sessionId);
           sessionStatus.set(sessionId, 'idle');
+          sessionEngines.delete(sessionId);
           activeGenerations.delete(sessionId);
           return;
         }
@@ -4613,6 +4588,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
           });
           sessionAbortFlags.delete(sessionId);
           sessionStatus.set(sessionId, 'idle');
+          sessionEngines.delete(sessionId);
           activeGenerations.delete(sessionId);
           throw error;
         }
@@ -4653,6 +4629,7 @@ async function executeStream(ws, workspaceId, sessionId, userMessageText, apiKey
     });
     sessionAbortFlags.delete(sessionId);
     sessionStatus.set(sessionId, 'idle');
+    sessionEngines.delete(sessionId);
     activeGenerations.delete(sessionId);
   }
 }
@@ -4678,7 +4655,7 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, request) => {
   const targetKey = ws.subSessionId || ws.sessionId;
   console.log(`📡 WebSocket connected: Workspace ${ws.workspaceId}, Session ${ws.sessionId}, Sub-session: ${ws.subSessionId}`);
 
@@ -4688,6 +4665,27 @@ wss.on('connection', (ws) => {
   }
   sessionSockets.get(targetKey).add(ws);
 
+  const resume = new URL(request.url, 'http://localhost').searchParams.get('resume');
+  if (resume) {
+    let cursor;
+    try { cursor = JSON.parse(resume); } catch (_) {}
+    const events = sessionEvents.replay(targetKey, cursor);
+    if (events === null) {
+      ws.send(JSON.stringify({ type: 'RESYNC_REQUIRED' }));
+      sessionSockets.get(targetKey)?.delete(ws);
+      ws.close(4001, 'Reload saved history');
+      return;
+    }
+    events.forEach(event => ws.send(JSON.stringify(event)));
+  }
+  ws.send(JSON.stringify({ type: 'STREAM_CURSOR', cursor: sessionEvents.cursor(targetKey) }));
+  if (!ws.subSessionId) {
+    getSessionEngine(ws.sessionId).then(engine => {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ENGINE_CHANGED', engine: sessionEngines.get(ws.sessionId) || engine }));
+    }).catch(() => {});
+  }
+
+
   // Immediately inform the client if the target session/sub-session is active
   if (ws.subSessionId) {
     const { wsDir } = getWorkspacePaths(ws.workspaceId);
@@ -4696,13 +4694,20 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(content);
       ws.send(JSON.stringify({ 
         type: 'SESSION_STATUS', 
+        engine: data.engine || null,
         status: data.status === 'running' ? 'generating' : 'idle'
       }));
     }).catch(() => {});
   } else {
     ws.send(JSON.stringify({ 
       type: 'SESSION_STATUS', 
-      status: sessionStatus.get(ws.sessionId) || 'idle' 
+      status: sessionStatus.get(ws.sessionId) || 'idle',
+      approvals: [...pendingApprovals.entries()].filter(([, approval]) => approval.sessionId === ws.sessionId).map(([approvalId, approval]) => {
+        const { workspaceId, sessionId, ...args } = approval.args || {};
+        return approval.toolName
+          ? { type: 'TOOL_APPROVAL_REQUEST', approvalId, toolName: approval.toolName, args }
+          : { type: 'COMMAND_APPROVAL_REQUEST', approvalId, command: approval.command };
+      })
     }));
   }
 
@@ -4726,7 +4731,7 @@ wss.on('connection', (ws) => {
       } else if (payload.type === 'CANCEL') {
         // Signal the active stream to abort
         sessionAbortFlags.set(ws.sessionId, true);
-        sendToSession(ws.sessionId, { type: 'DONE' });
+        sendToSession(ws.sessionId, { type: 'CANCEL_REQUESTED' });
       } else if (payload.type === 'COMMAND_APPROVAL_RESPONSE') {
         const { approvalId, action, feedback } = payload;
         const approval = pendingApprovals.get(approvalId);
@@ -4749,11 +4754,11 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log(`🔌 WebSocket disconnected: Session ${ws.sessionId}`);
-    const sockets = sessionSockets.get(ws.sessionId);
+    const sockets = sessionSockets.get(targetKey);
     if (sockets) {
       sockets.delete(ws);
       if (sockets.size === 0) {
-        sessionSockets.delete(ws.sessionId);
+        sessionSockets.delete(targetKey);
       }
     }
   });

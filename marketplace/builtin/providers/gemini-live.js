@@ -1,4 +1,5 @@
 import { BaseProvider } from './base.js';
+import { getHistoryImages } from '../../../image-attachments.js';
 import WebSocket from 'ws';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -22,6 +23,8 @@ function writeWavHeader(buf, sampleRate, numChannels, bitsPerSample) {
 }
 
 export class GeminiLiveProvider extends BaseProvider {
+  get model() { return this.config.model || 'gemini-3.1-flash-live-preview'; }
+
   static get id() {
     return 'gemini-live';
   }
@@ -61,7 +64,7 @@ export class GeminiLiveProvider extends BaseProvider {
   async executeStream(params, callbacks) {
     const { messages, systemInstruction, tools, signal, workspaceId, sessionId } = params;
     const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
-    let model = this.config.model || 'gemini-3.1-flash-live-preview';
+    let model = this.model;
 
     if (!apiKey) {
       throw new Error('API key is required for Gemini Live connection.');
@@ -172,10 +175,10 @@ export class GeminiLiveProvider extends BaseProvider {
         }
       }
 
-      // 3. Pre-build liveTurns using ONLY the currentMessage, supporting multimodal parts
+      // 3. Restore historical images and include the current multimodal message.
       const liveTurns = [];
       if (currentMessage) {
-        const parts = [];
+        const parts = getHistoryImages(historyMessages);
 
         // Prepend history as text context in the first text part
         const textParts = [];
